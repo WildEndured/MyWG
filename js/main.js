@@ -15,31 +15,26 @@ const coordsDiv = document.getElementById('coords');
 const camera = new Camera(canvas);
 const map = new GameMap(camera);
 const input = new Input(canvas, camera);
-const unitManager = new UnitManager();
-unitManager.camera = camera; // Передаем камеру для рамки
+const unitManager = new UnitManager(camera); // Передаем камеру сразу
 
 let dpr = 1;
 let lastTime = performance.now();
-let selectionBox = null; // Для отрисовки рамки
+let selectionBox = null;
 
-// 2. Обработка размеров экрана
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = window.innerWidth;
   const h = window.innerHeight;
-  
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
 }
 
-// 3. Установка размера карты
 function setMapSize(meters) {
   map.setSize(meters);
   input.setWorldSize(meters);
   unitManager.setWorldSize(meters);
-  
   camera.fit(meters, meters);
   
   document.querySelectorAll('#hud button[data-size]').forEach(b => {
@@ -49,13 +44,12 @@ function setMapSize(meters) {
   spawnInitialUnits(meters);
 }
 
-// 4. Спавн
 function spawnInitialUnits(mapSize) {
   unitManager.units = [];
   unitManager.selectedUnits = [];
 
   const center = mapSize / 2;
-  const offset = mapSize * 0.1;
+  const offset = mapSize * 0.15;
 
   unitManager.addUnit(new Unit(center - offset, center, 'player'));
   unitManager.addUnit(new Unit(center - offset, center + offset, 'player'));
@@ -67,29 +61,19 @@ function spawnInitialUnits(mapSize) {
   unitManager._spawnTestObstacles(mapSize);
 }
 
-// 5. События для рамки
-EventBus.on('input:dragBox', (data) => {
-  selectionBox = data;
-});
-
-EventBus.on('input:clearBox', () => {
-  selectionBox = null;
-});
-
+EventBus.on('input:dragBox', (data) => { selectionBox = data; });
+EventBus.on('input:clearBox', () => { selectionBox = null; });
 EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
 
-// 6. Кнопки HUD
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
-
 document.getElementById('fit').addEventListener('click', () => {
   camera.fit(map.size, map.size);
 });
 
-// 7. Главный игровой цикл
 function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
@@ -100,7 +84,6 @@ function frame(now) {
   map.draw(ctx);
   unitManager.draw(ctx, camera);
 
-  // Отрисовка рамки выделения
   if (selectionBox) {
     const { startX, startY, endX, endY } = selectionBox;
     const x = Math.min(startX, endX);
@@ -118,11 +101,9 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// 8. Системные события
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
-// --- ЗАПУСК ---
 resize();
 setMapSize(100);
 lastTime = performance.now();
