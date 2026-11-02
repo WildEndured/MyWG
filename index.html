@@ -9,7 +9,7 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Панель управления размером карты (сверху) -->
+  <!-- Размеры карты (сверху слева) -->
   <div id="hud" class="top-hud">
     <button data-size="100" class="active">100</button>
     <button data-size="500">500</button>
@@ -17,7 +17,15 @@
     <button id="fit">Fit</button>
   </div>
 
-  <!-- Панель управления позами (снизу) -->
+  <!-- Управление временем (сверху справа) -->
+  <div id="time-hud" class="top-hud-right">
+    <button id="btn-pause" class="time-btn">II</button>
+    <button id="btn-speed-1" class="time-btn active">1x</button>
+    <button id="btn-speed-2" class="time-btn">2x</button>
+    <button id="btn-speed-4" class="time-btn">4x</button>
+  </div>
+
+  <!-- Позы (снизу) -->
   <div id="stance-hud" class="bottom-hud">
     <button id="btn-stand">Стоя</button>
     <button id="btn-run">Бег</button>
@@ -25,7 +33,6 @@
     <button id="btn-prone">Лёжа</button>
   </div>
 
-  <!-- Индикатор координат -->
   <div id="coords">X: 0, Y: 0</div>
 
   <script type="module" src="js/main.js"></script>
