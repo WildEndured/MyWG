@@ -29,12 +29,11 @@ export class UnitManager {
     for (const unit of this.units) {
       unit.update(dt, this.units); 
     }
-    // Жесткая коллизия
     this._resolveCollisions();
   }
 
   _resolveCollisions() {
-    const minDist = 1.0; // 2 * радиус 0.5
+    const minDist = 1.0; 
     
     for (let i = 0; i < this.units.length; i++) {
       for (let j = i + 1; j < this.units.length; j++) {
@@ -50,17 +49,17 @@ export class UnitManager {
           const nx = dx / dist;
           const ny = dy / dist;
           
-          // Проверяем, не вытолкнем ли мы их в стену
           const newU1X = u1.x - nx * overlap;
           const newU1Y = u1.y - ny * overlap;
           const newU2X = u2.x + nx * overlap;
           const newU2Y = u2.y + ny * overlap;
 
-          if (u1._isWalkable(newU1X, newU1Y)) {
+          // Используем физическую проверку
+          if (u1._isPositionFree(newU1X, newU1Y)) {
             u1.x = newU1X;
             u1.y = newU1Y;
           }
-          if (u2._isWalkable(newU2X, newU2Y)) {
+          if (u2._isPositionFree(newU2X, newU2Y)) {
             u2.x = newU2X;
             u2.y = newU2Y;
           }
@@ -79,16 +78,24 @@ export class UnitManager {
   _spawnTestObstacles(mapSize) {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
-    const wallW = 5;
+    
+    // ВАЖНО: Стены сделаны тоньше (2 метра), чтобы наглядно видеть,
+    // что юниты (радиус 0.5) могут проходить в проходы шириной 5 метров.
+    // В сетке A* стены все равно занимают клетки 5х5, но физически они тонкие.
+    
+    const wallW = 2; // Тонкая стена (2 метра)
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
     const wallY = c - wallH / 2;
     
+    // Верхняя часть
     this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
+    // Нижняя часть (оставляем проход 5 метров посередине)
     this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
     
+    // Горизонтальная стена
     const hWallW = mapSize * 0.3;
-    const hWallH = 5;
+    const hWallH = 2; 
     this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
