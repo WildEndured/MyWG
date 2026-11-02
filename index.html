@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0,
+                 maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>War Sim</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- Переключатель пресетов (пока для отладки) -->
+  <div id="hud">
+    <button data-size="100">100×100</button>
+    <button data-size="500">500×500</button>
+    <button data-size="1000">1000×1000</button>
+    <button id="fit">Fit</button>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
