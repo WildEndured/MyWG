@@ -1,0 +1,38 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #1a1d21;
+  /* запрет системного зума/скролла на мобиле */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#hud {
+  position: fixed;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 10;
+}
+
+#hud button {
+  padding: 8px 12px;
+  font: 600 13px/1 system-ui, sans-serif;
+  color: #e8eaed;
+  background: rgba(40, 44, 52, 0.85);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+}
