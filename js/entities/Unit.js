@@ -4,7 +4,6 @@ export class Unit {
   constructor(x, y, faction = 'player') {
     this.x = x;
     this.y = y;
-    
     this.faction = faction;
     this.radius = 0.5;
     this.hitRadius = 2.0;
@@ -13,29 +12,29 @@ export class Unit {
     this.hp = this.maxHp;
     
     this.isSelected = false;
-    
     this.path = [];
     this.pathIndex = 0;
     this.isMoving = false;
     this.angle = 0;
   }
 
+  // Проверка: находится ли юнит внутри прямоугольника
+  isInsideRect(minX, minY, maxX, maxY) {
+    return this.x >= minX && this.x <= maxX && this.y >= minY && this.y <= maxY;
+  }
+
   setPath(path) {
-    // ЗАЩИТА: если путь пустой — ничего не делаем
     if (!path || path.length === 0) {
       this.isMoving = false;
       this.path = [];
       return;
     }
-    
-    // ЗАЩИТА: всегда сбрасываем индекс при новом пути
     this.path = path;
     this.pathIndex = 0;
     this.isMoving = true;
   }
 
   update(dt) {
-    // ЗАЩИТА: проверяем, что путь существует и индекс в пределах
     if (!this.isMoving || this.path.length === 0) return;
     if (this.pathIndex >= this.path.length) {
       this.isMoving = false;
@@ -48,7 +47,6 @@ export class Unit {
     const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
 
-    // Достигли точки
     if (dist < 0.5) {
       this.pathIndex++;
       if (this.pathIndex >= this.path.length) {
@@ -59,12 +57,12 @@ export class Unit {
     }
 
     this.angle = Math.atan2(dy, dx);
-
     const moveStep = this.speed * dt;
+    
     if (moveStep >= dist) {
       this.x = target.x;
       this.y = target.y;
-      this.pathIndex++; // Сразу переключаемся на следующую точку
+      this.pathIndex++;
     } else {
       this.x += (dx / dist) * moveStep;
       this.y += (dy / dist) * moveStep;
@@ -77,6 +75,7 @@ export class Unit {
     const drawRadius = Math.max(3, screenRadius);
     const color = this.faction === 'player' ? '#4285F4' : '#EA4335';
     
+    // Тело
     ctx.beginPath();
     ctx.arc(screenPos.x, screenPos.y, drawRadius, 0, Math.PI * 2);
     ctx.fillStyle = color;
@@ -85,6 +84,7 @@ export class Unit {
     ctx.strokeStyle = '#000';
     ctx.stroke();
 
+    // Направление
     if (drawRadius > 5) {
       const dirX = screenPos.x + Math.cos(this.angle) * drawRadius * 0.6;
       const dirY = screenPos.y + Math.sin(this.angle) * drawRadius * 0.6;
@@ -94,6 +94,7 @@ export class Unit {
       ctx.fill();
     }
 
+    // Выделение
     if (this.isSelected) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y, drawRadius + 4, 0, Math.PI * 2);
@@ -101,7 +102,6 @@ export class Unit {
       ctx.lineWidth = 2;
       ctx.stroke();
       
-      // Отладка: рисуем оставшийся путь
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
         const start = camera.worldToScreen(this.x, this.y);
@@ -116,6 +116,7 @@ export class Unit {
       }
     }
 
+    // HP бар
     if (this.hp < this.maxHp) {
       const barW = Math.max(20, drawRadius * 2);
       const barH = 4;
