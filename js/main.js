@@ -1,7 +1,7 @@
 // js/main.js
 import { Camera } from './core/Camera.js';
 import { Input } from './core/Input.js';
-import { EventBus } from './core/EventBus.js'; // <-- Импорт шины
+import { EventBus } from './core/EventBus.js';
 import { GameMap } from './world/map.js';
 import { MAP_PRESETS } from './data/config.js';
 
@@ -35,20 +35,13 @@ function setMapSize(meters) {
   });
 }
 
-// Инициализация ввода (теперь без коллбэка)
-const input = new Input(canvas, camera);
-
-// ПОДПИСЫВАЕМСЯ НА СОБЫТИЯ
+// Слушаем тапы через EventBus
 EventBus.on('input:tap', (data) => {
   console.log(`[EventBus] Тап по карте: X=${data.x.toFixed(1)}, Y=${data.y.toFixed(1)}`);
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
-  
-  // В будущем здесь будет логика: 
-  // 1. Проверить, попали ли мы в юнита (выделение).
-  // 2. Если юнит уже выделен — отправить приказ идти в точку (data.x, data.y).
 });
 
-// HUD
+// Кнопки HUD
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
@@ -61,7 +54,6 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-// Окно
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
@@ -69,3 +61,9 @@ window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 resize();
 setMapSize(MAP_PRESETS[100].size);
 requestAnimationFrame(frame);
+
+// ХАК ДЛЯ МОБИЛЬНЫХ: принудительный fit через 100мс
+setTimeout(() => {
+    resize();
+    camera.fit();
+}, 100);
