@@ -16,9 +16,11 @@ const camera = new Camera(canvas);
 const map = new GameMap(camera);
 const input = new Input(canvas, camera);
 const unitManager = new UnitManager();
+unitManager.camera = camera; // Передаем камеру для рамки
 
 let dpr = 1;
 let lastTime = performance.now();
+let selectionBox = null; // Для отрисовки рамки
 
 // 2. Обработка размеров экрана
 function resize() {
@@ -36,45 +38,49 @@ function resize() {
 function setMapSize(meters) {
   map.setSize(meters);
   input.setWorldSize(meters);
-  unitManager.setWorldSize(meters); // Обновляет Pathfinder и создает стены
+  unitManager.setWorldSize(meters);
   
   camera.fit(meters, meters);
   
-  // Обновляем активную кнопку в HUD
   document.querySelectorAll('#hud button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
   });
   
-  // Спавним тестовых юнитов для новой карты
   spawnInitialUnits(meters);
 }
 
-// 4. Спавн юнитов и окружения
+// 4. Спавн
 function spawnInitialUnits(mapSize) {
-  unitManager.units = []; // Очищаем старых юнитов
-  unitManager.selectedUnit = null;
+  unitManager.units = [];
+  unitManager.selectedUnits = [];
 
-  // Размещаем юнитов в центре карты, разнесенными друг от друга
   const center = mapSize / 2;
-  const offset = mapSize * 0.1; // 10% от размера карты
+  const offset = mapSize * 0.1;
 
-  // Игрок (синие)
   unitManager.addUnit(new Unit(center - offset, center, 'player'));
   unitManager.addUnit(new Unit(center - offset, center + offset, 'player'));
+  unitManager.addUnit(new Unit(center - offset, center - offset, 'player'));
   
-  // Враг (красный)
   unitManager.addUnit(new Unit(center + offset, center, 'enemy'));
+  unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy'));
 
-  // Генерация стен (в UnitManager создается свой метод)
   unitManager._spawnTestObstacles(mapSize);
 }
 
-// 5. Подписка на события (координаты в HUD)
+// 5. События для рамки
+EventBus.on('input:dragBox', (data) => {
+  selectionBox = data;
+});
+
+EventBus.on('input:clearBox', () => {
+  selectionBox = null;
+});
+
 EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
 
-// 6. Обработчики кнопок HUD
+// 6. Кнопки HUD
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
@@ -85,18 +91,29 @@ document.getElementById('fit').addEventListener('click', () => {
 
 // 7. Главный игровой цикл
 function frame(now) {
-  // Дельта времени (в секундах), ограниченная 0.1с для защиты от лагов
   const dt = Math.min((now - lastTime) / 1000, 0.1);
   lastTime = now;
 
-  // --- ОБНОВЛЕНИЕ (Update) ---
   unitManager.update(dt);
 
-  // --- ОТРИСОВКА (Render) ---
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Сброс трансформации под DPR
-  
-  map.draw(ctx);          // Сетка и фон
-  unitManager.draw(ctx, camera); // Стены и юниты
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  map.draw(ctx);
+  unitManager.draw(ctx, camera);
+
+  // Отрисовка рамки выделения
+  if (selectionBox) {
+    const { startX, startY, endX, endY } = selectionBox;
+    const x = Math.min(startX, endX);
+    const y = Math.min(startY, endY);
+    const w = Math.abs(endX - startX);
+    const h = Math.abs(endY - startY);
+
+    ctx.fillStyle = 'rgba(80, 150, 255, 0.2)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(80, 150, 255, 0.8)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y, w, h);
+  }
 
   requestAnimationFrame(frame);
 }
@@ -105,13 +122,12 @@ function frame(now) {
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
-// --- ЗАПУСК ИГРЫ ---
+// --- ЗАПУСК ---
 resize();
-setMapSize(100); // Стартовая карта 100х100 (внутри вызовется spawnInitialUnits)
+setMapSize(100);
 lastTime = performance.now();
 requestAnimationFrame(frame);
 
-// Хак для мобильных браузеров (адресная строка меняет высоту)
 setTimeout(() => {
   resize();
   camera.fit(map.size, map.size);
