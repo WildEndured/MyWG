@@ -60,7 +60,8 @@ export class Unit {
           const nextX = this.x + (dx / dist) * moveStep;
           const nextY = this.y + (dy / dist) * moveStep;
 
-          if (this._isWalkable(nextX, nextY)) {
+          // Проверяем физическую коллизию (круг против прямоугольников)
+          if (this._isPositionFree(nextX, nextY)) {
             if (moveStep >= dist) {
               this.x = target.x;
               this.y = target.y;
@@ -70,6 +71,7 @@ export class Unit {
               this.y = nextY;
             }
           } else {
+            // Если впереди стена, пробуем скользить вдоль неё (упрощенно - просто стоп)
             this.isMoving = false;
             this.path = [];
           }
@@ -77,28 +79,27 @@ export class Unit {
       }
     }
 
+    // Расталкивание от юнитов
     if (allUnits) {
       this._separate(allUnits, dt);
     }
   }
 
-  // НОВАЯ ПРОВЕРКА: проверяем не только центр, но и края юнита
-  _isWalkable(x, y) {
-    if (!this.pathfinder) return true;
-    
-    const r = this.radius;
-    const points = [
-      { x: x, y: y },              // Центр
-      { x: x - r, y: y - r },      // Левый верх
-      { x: x + r, y: y - r },      // Правый верх
-      { x: x - r, y: y + r },      // Левый низ
-      { x: x + r, y: y + r },      // Правый низ
-    ];
+  // ТОЧНАЯ ФИЗИЧЕСКАЯ ПРОВЕРКА
+  _isPositionFree(x, y) {
+    if (!this.pathfinder || !this.pathfinder.obstacles) return true;
 
-    for (const p of points) {
-      const g = this.pathfinder.worldToGrid(p.x, p.y);
-      if (this.pathfinder.grid[g.y * this.pathfinder.cols + g.x] === 1) {
-        return false; // Хотя бы одна точка в стене
+    for (const obs of this.pathfinder.obstacles) {
+      // Проверяем, пересекается ли круг (x, y, radius) с прямоугольником obs
+      const closestX = Math.max(obs.x, Math.min(x, obs.x + obs.w));
+      const closestY = Math.max(obs.y, Math.min(y, obs.y + obs.h));
+      
+      const dx = x - closestX;
+      const dy = y - closestY;
+      const distSq = dx * dx + dy * dy;
+      
+      if (distSq < this.radius * this.radius) {
+        return false; // Пересекаемся со стеной
       }
     }
     return true;
@@ -126,7 +127,8 @@ export class Unit {
       const pushSpeed = 5;
       const nx = this.x + pushX * pushSpeed * dt;
       const ny = this.y + pushY * pushSpeed * dt;
-      if (this._isWalkable(nx, ny)) {
+      // Проверяем, что расталкивание не вытолкнет в стену
+      if (this._isPositionFree(nx, ny)) {
         this.x = nx;
         this.y = ny;
       }
