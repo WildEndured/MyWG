@@ -8,12 +8,10 @@ export class Unit {
     this.faction = faction; 
     this.type = type; 
     
-    // Базовые размеры
     this.baseRadius = 0.5; 
     this.hitRadius = 2.0; 
     
-    // Позы и скорость
-    this.stance = 'stand'; // 'stand', 'run', 'crouch', 'prone'
+    this.stance = 'stand'; 
     this.speed = 0;
     this._updateSpeed();
     
@@ -83,16 +81,22 @@ export class Unit {
           const nextX = this.x + (dx / dist) * moveStep;
           const nextY = this.y + (dy / dist) * moveStep;
 
-          // Лежачие игнорируют стены (проходят сквозь них)
           if (this.stance === 'prone' || this._isPositionFree(nextX, nextY)) {
             this.x = nextX;
             this.y = nextY;
           } else {
+            // ПРОБУЕМ СКОЛЬЗИТЬ ВДОЛЬ СТЕНЫ
+            let slid = false;
             if (this._isPositionFree(nextX, this.y)) {
               this.x = nextX;
+              slid = true;
             } else if (this._isPositionFree(this.x, nextY)) {
               this.y = nextY;
-            } else {
+              slid = true;
+            }
+
+            if (!slid) {
+              // Если не можем сдвинуться — останавливаемся
               this.isMoving = false;
               this.path = [];
             }
@@ -101,13 +105,11 @@ export class Unit {
       }
     }
 
-    // Плавный поворот
     let angleDiff = this.targetAngle - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1);
 
-    // Расталкивание (только если не лежим)
     if (allUnits && this.stance !== 'prone') {
       this._separate(allUnits, dt);
     }
@@ -124,7 +126,11 @@ export class Unit {
       const dy = y - closestY;
       const distSq = dx * dx + dy * dy;
       
-      if (distSq < this.baseRadius * this.baseRadius) {
+      // Используем радиус 0.4 (чуть меньше визуального), 
+      // чтобы юнит мог "протиснуться" в узкие щели
+      const collisionRadius = this.baseRadius * 0.9; 
+      
+      if (distSq < collisionRadius * collisionRadius) {
         return false; 
       }
     }
@@ -165,17 +171,13 @@ export class Unit {
 
   draw(ctx, camera) {
     const screenPos = camera.worldToScreen(this.x, this.y);
-    
-    // Цвет фракции
     const color = this.faction === 'player' ? '#4285F4' : '#EA4335';
     
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
     ctx.rotate(this.angle);
     
-    // Отрисовка в зависимости от позы
     if (this.stance === 'prone') {
-      // Лёжа — овал (ширина 0.8м, длина 1.6м)
       const w = 0.8 * camera.zoom;
       const h = 1.6 * camera.zoom;
       ctx.beginPath();
@@ -186,7 +188,6 @@ export class Unit {
       ctx.strokeStyle = '#000';
       ctx.stroke();
     } else {
-      // Стоя или на корточках — круг
       const drawRadius = Math.max(3, this.baseRadius * camera.zoom);
       ctx.beginPath();
       ctx.arc(0, 0, drawRadius, 0, Math.PI * 2);
@@ -196,7 +197,6 @@ export class Unit {
       ctx.strokeStyle = '#000';
       ctx.stroke();
       
-      // Точка направления (только для стоячих и бегущих)
       if (drawRadius > 5 && this.stance !== 'crouch') {
         ctx.beginPath();
         ctx.arc(drawRadius * 0.6, 0, drawRadius * 0.3, 0, Math.PI * 2);
@@ -207,7 +207,6 @@ export class Unit {
     
     ctx.restore();
 
-    // Выделение (желтое кольцо вокруг центра)
     if (this.isSelected) {
       ctx.beginPath();
       const ringRadius = this.stance === 'prone' ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
@@ -230,7 +229,6 @@ export class Unit {
       }
     }
 
-    // HP бар
     if (this.hp < this.maxHp) {
       const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
       const barH = 4;
