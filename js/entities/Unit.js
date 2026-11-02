@@ -2,37 +2,28 @@
 
 export class Unit {
   constructor(x, y, faction = 'player', type = 'infantry') {
-    // Позиция в метрах
     this.x = x;
     this.y = y;
     
-    // Характеристики
     this.faction = faction; 
-    this.type = type; // Тип юнита ('infantry', 'tank' и т.д.)
+    this.type = type; 
     
-    // Визуальный радиус 0.5 метра
     this.radius = 0.5; 
-    
-    // Радиус клика 2 метра (для удобного тапа пальцем)
     this.hitRadius = 2.0; 
     
-    this.speed = 15;        // Скорость в метрах в секунду
+    this.speed = 15; 
     this.maxHp = 100;
     this.hp = this.maxHp;
     
-    // Состояние
     this.isSelected = false;
     
-    // Движение по пути
     this.path = [];        
     this.pathIndex = 0;    
     this.isMoving = false;
     this.angle = 0;        
-  }
-
-  // Проверка: находится ли юнит внутри прямоугольника (для будущих механик)
-  isInsideRect(minX, minY, maxX, maxY) {
-    return this.x >= minX && this.x <= maxX && this.y >= minY && this.y <= maxY;
+    
+    // Ссылка на поисковик пути для проверки стен (устанавливается из менеджера)
+    this.pathfinder = null; 
   }
 
   setPath(path) {
@@ -46,7 +37,13 @@ export class Unit {
     this.isMoving = true;
   }
 
-  update(dt) {
+  update(dt, allUnits) {
+    // 1. Физика: расталкивание от других юнитов
+    if (allUnits) {
+      this._separateFromOthers(dt, allUnits);
+    }
+
+    // 2. Движение по пути
     if (!this.isMoving || this.path.length === 0) return;
     if (this.pathIndex >= this.path.length) {
       this.isMoving = false;
@@ -59,7 +56,6 @@ export class Unit {
     const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
 
-    // Достигли текущей точки
     if (dist < 0.5) {
       this.pathIndex++;
       if (this.pathIndex >= this.path.length) {
@@ -72,26 +68,68 @@ export class Unit {
     this.angle = Math.atan2(dy, dx);
     const moveStep = this.speed * dt;
     
-    if (moveStep >= dist) {
-      this.x = target.x;
-      this.y = target.y;
-      this.pathIndex++;
+    // Куда мы шагнем
+    const nextX = this.x + (dx / dist) * moveStep;
+    const nextY = this.y + (dy / dist) * moveStep;
+
+    // 3. ЗАЩИТА ОТ СТЕН: проверяем, свободна ли следующая точка
+    if (this._isWalkable(nextX, nextY)) {
+      if (moveStep >= dist) {
+        this.x = target.x;
+        this.y = target.y;
+        this.pathIndex++;
+      } else {
+        this.x = nextX;
+        this.y = nextY;
+      }
     } else {
-      this.x += (dx / dist) * moveStep;
-      this.y += (dy / dist) * moveStep;
+      // Если впереди стена — останавливаемся (путь прикажет перестроить менеджер)
+      this.isMoving = false;
+    }
+  }
+
+  _isWalkable(x, y) {
+    if (!this.pathfinder) return true;
+    const grid = this.pathfinder.worldToGrid(x, y);
+    return this.pathfinder.grid[grid.y * this.pathfinder.cols + grid.x] === 0;
+  }
+
+  // Локальное расталкивание (чтобы юниты не стояли в одной точке)
+  _separateFromOthers(dt, allUnits) {
+    let pushX = 0;
+    let pushY = 0;
+    const minDist = this.radius * 2; // Диаметр юнита
+
+    for (const other of allUnits) {
+      if (other === this) continue;
+      
+      const dx = this.x - other.x;
+      const dy = this.y - other.y;
+      const dist = Math.hypot(dx, dy);
+      
+      // Если дистанция слишком маленькая (пересекаются)
+      if (dist < minDist && dist > 0.01) {
+        const force = (minDist - dist) / minDist; 
+        pushX += (dx / dist) * force;
+        pushY += (dy / dist) * force;
+      }
+    }
+
+    // Применяем расталкивание (с небольшим коэффициентом, чтобы не дергались)
+    const pushSpeed = 5; // Скорость расталкивания
+    if (pushX !== 0 || pushY !== 0) {
+      this.x += pushX * pushSpeed * dt;
+      this.y += pushY * pushSpeed * dt;
     }
   }
 
   draw(ctx, camera) {
+    // ... (отрисовка остается БЕЗ ИЗМЕНЕНИЙ из прошлого файла)
     const screenPos = camera.worldToScreen(this.x, this.y);
     const screenRadius = this.radius * camera.zoom;
-    // Защита от микроскопического размера
     const drawRadius = Math.max(3, screenRadius);
-    
-    // Цвет фракции
     const color = this.faction === 'player' ? '#4285F4' : '#EA4335';
     
-    // 1. Тело юнита
     ctx.beginPath();
     ctx.arc(screenPos.x, screenPos.y, drawRadius, 0, Math.PI * 2);
     ctx.fillStyle = color;
@@ -100,7 +138,6 @@ export class Unit {
     ctx.strokeStyle = '#000';
     ctx.stroke();
 
-    // 2. Индикатор направления (маленькая белая точка)
     if (drawRadius > 5) {
       const dirX = screenPos.x + Math.cos(this.angle) * drawRadius * 0.6;
       const dirY = screenPos.y + Math.sin(this.angle) * drawRadius * 0.6;
@@ -110,7 +147,6 @@ export class Unit {
       ctx.fill();
     }
 
-    // 3. Выделение (желтое кольцо)
     if (this.isSelected) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y, drawRadius + 4, 0, Math.PI * 2);
@@ -118,7 +154,6 @@ export class Unit {
       ctx.lineWidth = 2;
       ctx.stroke();
       
-      // Отладка: линия оставшегося пути
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
         const start = camera.worldToScreen(this.x, this.y);
@@ -133,16 +168,13 @@ export class Unit {
       }
     }
 
-    // 4. HP бар
     if (this.hp < this.maxHp) {
       const barW = Math.max(20, drawRadius * 2);
       const barH = 4;
       const barX = screenPos.x - barW / 2;
       const barY = screenPos.y - drawRadius - 8;
-      
       ctx.fillStyle = '#333';
       ctx.fillRect(barX, barY, barW, barH);
-      
       ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
       ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), barH);
     }
