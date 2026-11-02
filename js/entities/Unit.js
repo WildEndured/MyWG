@@ -22,7 +22,6 @@ export class Unit {
     this.isMoving = false;
     this.angle = 0;        
     
-    // Ссылка на поисковик пути для проверки стен (устанавливается из менеджера)
     this.pathfinder = null; 
   }
 
@@ -38,76 +37,72 @@ export class Unit {
   }
 
   update(dt, allUnits) {
-    // 1. Физика: расталкивание от других юнитов
-    if (allUnits) {
-      this._separateFromOthers(dt, allUnits);
-    }
-
-    // 2. Движение по пути
-    if (!this.isMoving || this.path.length === 0) return;
-    if (this.pathIndex >= this.path.length) {
-      this.isMoving = false;
-      this.path = [];
-      return;
-    }
-
-    const target = this.path[this.pathIndex];
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
-    const dist = Math.hypot(dx, dy);
-
-    if (dist < 0.5) {
-      this.pathIndex++;
+    // 1. Движение
+    if (this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) {
         this.isMoving = false;
         this.path = [];
+      } else {
+        const target = this.path[this.pathIndex];
+        const dx = target.x - this.x;
+        const dy = target.y - this.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 0.5) {
+          this.pathIndex++;
+          if (this.pathIndex >= this.path.length) {
+            this.isMoving = false;
+            this.path = [];
+          }
+        } else {
+          this.angle = Math.atan2(dy, dx);
+          const moveStep = this.speed * dt;
+          
+          const nextX = this.x + (dx / dist) * moveStep;
+          const nextY = this.y + (dy / dist) * moveStep;
+
+          // ПРОСТАЯ КОЛЛИЗИЯ СО СТЕНОЙ
+          if (this._isWalkable(nextX, nextY)) {
+            if (moveStep >= dist) {
+              this.x = target.x;
+              this.y = target.y;
+              this.pathIndex++;
+            } else {
+              this.x = nextX;
+              this.y = nextY;
+            }
+          } else {
+            // Наткнулись на стену — останавливаемся (ждем новых приказов)
+            this.isMoving = false;
+            this.path = [];
+          }
+        }
       }
-      return;
     }
 
-    this.angle = Math.atan2(dy, dx);
-    const moveStep = this.speed * dt;
-    
-    // Куда мы шагнем
-    const nextX = this.x + (dx / dist) * moveStep;
-    const nextY = this.y + (dy / dist) * moveStep;
-
-    // 3. ЗАЩИТА ОТ СТЕН: проверяем, свободна ли следующая точка
-    if (this._isWalkable(nextX, nextY)) {
-      if (moveStep >= dist) {
-        this.x = target.x;
-        this.y = target.y;
-        this.pathIndex++;
-      } else {
-        this.x = nextX;
-        this.y = nextY;
-      }
-    } else {
-      // Если впереди стена — останавливаемся (путь прикажет перестроить менеджер)
-      this.isMoving = false;
+    // 2. Расталкивание от других юнитов (мягкое)
+    if (allUnits) {
+      this._separate(allUnits, dt);
     }
   }
 
   _isWalkable(x, y) {
     if (!this.pathfinder) return true;
-    const grid = this.pathfinder.worldToGrid(x, y);
-    return this.pathfinder.grid[grid.y * this.pathfinder.cols + grid.x] === 0;
+    const g = this.pathfinder.worldToGrid(x, y);
+    return this.pathfinder.grid[g.y * this.pathfinder.cols + g.x] === 0;
   }
 
-  // Локальное расталкивание (чтобы юниты не стояли в одной точке)
-  _separateFromOthers(dt, allUnits) {
+  _separate(allUnits, dt) {
     let pushX = 0;
     let pushY = 0;
-    const minDist = this.radius * 2; // Диаметр юнита
+    const minDist = this.radius * 2; // Диаметр = 1.0 метр
 
     for (const other of allUnits) {
       if (other === this) continue;
-      
       const dx = this.x - other.x;
       const dy = this.y - other.y;
       const dist = Math.hypot(dx, dy);
       
-      // Если дистанция слишком маленькая (пересекаются)
       if (dist < minDist && dist > 0.01) {
         const force = (minDist - dist) / minDist; 
         pushX += (dx / dist) * force;
@@ -115,16 +110,19 @@ export class Unit {
       }
     }
 
-    // Применяем расталкивание (с небольшим коэффициентом, чтобы не дергались)
-    const pushSpeed = 5; // Скорость расталкивания
     if (pushX !== 0 || pushY !== 0) {
-      this.x += pushX * pushSpeed * dt;
-      this.y += pushY * pushSpeed * dt;
+      const pushSpeed = 5;
+      // Применяем только если следующая точка не в стене (чтобы не вытолкнуло в стену)
+      const nx = this.x + pushX * pushSpeed * dt;
+      const ny = this.y + pushY * pushSpeed * dt;
+      if (this._isWalkable(nx, ny)) {
+        this.x = nx;
+        this.y = ny;
+      }
     }
   }
 
   draw(ctx, camera) {
-    // ... (отрисовка остается БЕЗ ИЗМЕНЕНИЙ из прошлого файла)
     const screenPos = camera.worldToScreen(this.x, this.y);
     const screenRadius = this.radius * camera.zoom;
     const drawRadius = Math.max(3, screenRadius);
