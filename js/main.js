@@ -9,37 +9,30 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
 const coordsDiv = document.getElementById('coords');
 
-const camera = new Camera();
-let currentWorldSize = 100; // Храним текущий размер мира
+// Передаем canvas в камеру, чтобы она знала размеры
+const camera = new Camera(canvas);
+const map = new GameMap(camera);
+const input = new Input(canvas, camera);
+
 let dpr = 1;
-
-// Функция, которая всегда возвращает актуальные размеры экрана (в CSS-пикселях)
-const getViewport = () => ({
-  w: window.innerWidth,
-  h: window.innerHeight,
-});
-
-const map = new GameMap(camera, getViewport);
-const input = new Input(canvas, camera, getViewport);
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const { w, h } = getViewport();
-  canvas.width = Math.floor(w * dpr);
-  canvas.height = Math.floor(h * dpr);
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  
+  // Важно: сначала задаем стили (CSS size), потом физический размер
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
-  
-  // При ресайзе не даем камере улететь за границы
-  camera.clampTo(currentWorldSize, currentWorldSize, w, h);
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
 }
 
 function setMapSize(meters) {
-  currentWorldSize = meters;
   map.setSize(meters);
+  input.setWorldSize(meters); // Сообщаем инпуту новый размер мира
   
-  const { w, h } = getViewport();
-  camera.fit(meters, meters, w, h);
+  camera.fit(meters, meters); // Камера сама возьмет размеры из canvas
   
   document.querySelectorAll('#hud button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
@@ -56,8 +49,8 @@ document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
 document.getElementById('fit').addEventListener('click', () => {
-  const { w, h } = getViewport();
-  camera.fit(currentWorldSize, currentWorldSize, w, h);
+  // Берем текущий размер из карты
+  camera.fit(map.size, map.size); 
 });
 
 // Цикл отрисовки
@@ -75,8 +68,8 @@ resize();
 setMapSize(100);
 requestAnimationFrame(frame);
 
+// Хак для мобильных: принудительный фит после загрузки
 setTimeout(() => {
     resize();
-    const { w, h } = getViewport();
-    camera.fit(currentWorldSize, currentWorldSize, w, h);
+    camera.fit(map.size, map.size);
 }, 100);
