@@ -1,4 +1,5 @@
-import { CONFIG } from './data/config.js';
+// js/world/map.js
+import { CONFIG } from '../data/config.js'; // ИСПРАВЛЕНО!
 
 export class GameMap {
   constructor(camera) {
@@ -41,6 +42,11 @@ export class GameMap {
     ctx.strokeStyle = c.border;
     ctx.lineWidth = 2;
     ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+
+    // Подпись размера (чтобы точно видеть, что карта отрисовалась)
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px sans-serif';
+    ctx.fillText(`Карта: ${this.size}x${this.size} м`, tl.x + 10, tl.y + 20);
   }
 
   _drawGrid(ctx, x0, y0, x1, y1, step, color) {
