@@ -29,12 +29,10 @@ export class UnitManager {
     for (const unit of this.units) {
       unit.update(dt, this.units); 
       
-      // Если юнит застрял — перестраиваем путь к его текущей цели
+      // Обработка перестроения пути (если юнит застрял)
       if (unit.needsRepath) {
         unit.needsRepath = false;
         
-        // Если у юнита была цель (последняя точка пути), попробуем перестроить
-        // (для этого сохраним цель в юните)
         if (unit.lastTarget) {
           const newPath = this.pathfinder.findPath(
             unit.x, unit.y, 
@@ -99,6 +97,7 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
+    // Тонкие стены (0.5 м) и широкий проход
     const wallW = 0.5; 
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
@@ -205,7 +204,6 @@ export class UnitManager {
         freeTarget.y + offsetY
       );
 
-      // СОХРАНЯЕМ ЦЕЛЬ, чтобы юнит мог перестроить путь
       unit.lastTarget = individualTarget;
       
       const path = this.pathfinder.findPath(unit.x, unit.y, individualTarget.x, individualTarget.y);
@@ -226,9 +224,15 @@ export class UnitManager {
     EventBus.emit('units:selected', this.selectedUnits);
   }
 
+  // Установка позы с проверкой выносливости
   setSelectedStance(stance) {
     for (const unit of this.selectedUnits) {
-      unit.setStance(stance);
+      // Если пытаемся бежать, а стамины мало — принудительно шаг
+      if (stance === 'run' && unit.stamina < 10) {
+        unit.setStance('stand');
+      } else {
+        unit.setStance(stance);
+      }
     }
   }
-      }
+}
