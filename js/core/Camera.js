@@ -11,7 +11,7 @@ export class Camera {
     this.maxZoom = CONFIG.MAX_PX_PER_METER;
   }
 
-  // Геттеры для размеров экрана
+  // Геттеры для размеров экрана (в CSS-пикселях)
   get vw() { return this.canvas.clientWidth; }
   get vh() { return this.canvas.clientHeight; }
 
@@ -55,4 +55,11 @@ export class Camera {
     this.x = worldW / 2;
     this.y = worldH / 2;
   }
-}
+
+  // Проверка, находится ли точка в мировых координатах в пределах экрана
+  isPointVisible(wx, wy, marginPx = 50) {
+    const screen = this.worldToScreen(wx, wy);
+    return screen.x >= -marginPx && screen.x <= this.vw + marginPx &&
+           screen.y >= -marginPx && screen.y <= this.vh + marginPx;
+  }
+                                                                       }
