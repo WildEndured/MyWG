@@ -50,13 +50,11 @@ function spawnInitialUnits(mapSize) {
   const center = mapSize / 2;
   const offset = mapSize * 0.1;
 
-  // Спавним 4 юнитов игрока (для проверки дабл-тапа)
   unitManager.addUnit(new Unit(center - offset, center, 'player'));
   unitManager.addUnit(new Unit(center - offset, center + offset * 0.5, 'player'));
   unitManager.addUnit(new Unit(center - offset * 0.5, center - offset, 'player'));
   unitManager.addUnit(new Unit(center - offset * 1.5, center + offset, 'player'));
   
-  // Враги
   unitManager.addUnit(new Unit(center + offset, center, 'enemy'));
   unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy'));
 
@@ -67,6 +65,7 @@ EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
 
+// HUD
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
@@ -74,6 +73,18 @@ document.querySelectorAll('#hud button[data-size]').forEach(btn => {
 document.getElementById('fit').addEventListener('click', () => {
   camera.fit(map.size, map.size);
 });
+
+// Кнопки смены позы
+const stanceButtons = {
+  'btn-stand': 'stand',
+  'btn-run': 'run',
+  'btn-crouch': 'crouch',
+  'btn-prone': 'prone'
+};
+for (const [id, stance] of Object.entries(stanceButtons)) {
+  const btn = document.getElementById(id);
+  if (btn) btn.addEventListener('click', () => unitManager.setSelectedStance(stance));
+}
 
 function frame(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.1);
