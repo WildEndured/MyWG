@@ -10,32 +10,42 @@ const ctx = canvas.getContext('2d', { alpha: false });
 const coordsDiv = document.getElementById('coords');
 
 const camera = new Camera();
-const map = new GameMap(camera);
-
+let currentWorldSize = 100; // Храним текущий размер мира
 let dpr = 1;
+
+// Функция, которая всегда возвращает актуальные размеры экрана (в CSS-пикселях)
+const getViewport = () => ({
+  w: window.innerWidth,
+  h: window.innerHeight,
+});
+
+const map = new GameMap(camera, getViewport);
+const input = new Input(canvas, camera, getViewport);
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const { w, h } = getViewport();
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
-  camera.setViewport(w, h, dpr);
+  
+  // При ресайзе не даем камере улететь за границы
+  camera.clampTo(currentWorldSize, currentWorldSize, w, h);
 }
 
 function setMapSize(meters) {
+  currentWorldSize = meters;
   map.setSize(meters);
-  camera.setWorld(meters, meters);
-  camera.fit();
+  
+  const { w, h } = getViewport();
+  camera.fit(meters, meters, w, h);
   
   document.querySelectorAll('#hud button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
   });
 }
 
-// Слушаем тапы через EventBus
 EventBus.on('input:tap', (data) => {
   console.log(`[EventBus] Тап по карте: X=${data.x.toFixed(1)}, Y=${data.y.toFixed(1)}`);
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
@@ -45,7 +55,10 @@ EventBus.on('input:tap', (data) => {
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
-document.getElementById('fit').addEventListener('click', () => camera.fit());
+document.getElementById('fit').addEventListener('click', () => {
+  const { w, h } = getViewport();
+  camera.fit(currentWorldSize, currentWorldSize, w, h);
+});
 
 // Цикл отрисовки
 function frame() {
@@ -57,13 +70,13 @@ function frame() {
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
-// Старт
+// --- ЗАПУСК ---
 resize();
-setMapSize(MAP_PRESETS[100].size);
+setMapSize(100);
 requestAnimationFrame(frame);
 
-// ХАК ДЛЯ МОБИЛЬНЫХ: принудительный fit через 100мс
 setTimeout(() => {
     resize();
-    camera.fit();
+    const { w, h } = getViewport();
+    camera.fit(currentWorldSize, currentWorldSize, w, h);
 }, 100);
