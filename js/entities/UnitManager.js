@@ -7,7 +7,10 @@ export class UnitManager {
   constructor() {
     this.units = [];
     this.selectedUnits = [];
-    this.pathfinder = new Pathfinder(100, 5);
+    
+    // МЕНЯЕМ РАЗМЕР КЛЕТКИ НА 1 МЕТР
+    this.pathfinder = new Pathfinder(100, 1);
+    
     this.camera = null; 
     this._isSearchingPath = false;
 
@@ -41,13 +44,11 @@ export class UnitManager {
         const u1 = this.units[i];
         const u2 = this.units[j];
         
-        // Лежачие не участвуют в коллизиях
         if (u1.stance === 'prone' || u2.stance === 'prone') continue;
         
         const dx = u2.x - u1.x;
         const dy = u2.y - u1.y;
         
-        // Быстрая проверка
         if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
         
         const distSq = dx * dx + dy * dy;
@@ -86,14 +87,18 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
+    // Стена толщиной 2 метра, проход между ними 3 метра
     const wallW = 2; 
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
     const wallY = c - wallH / 2;
     
+    // Верхняя часть стены
     this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
+    // Нижняя часть стены (оставляем проход шириной ~3 метра)
     this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
     
+    // Горизонтальная стена
     const hWallW = mapSize * 0.3;
     const hWallH = 2; 
     this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
@@ -210,7 +215,6 @@ export class UnitManager {
     EventBus.emit('units:selected', this.selectedUnits);
   }
 
-  // НОВЫЙ МЕТОД: установка позы для всех выделенных юнитов
   setSelectedStance(stance) {
     for (const unit of this.selectedUnits) {
       unit.setStance(stance);
