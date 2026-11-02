@@ -7,7 +7,7 @@ export class Pathfinder {
     this.cols = Math.ceil(worldSize / cellSize);
     this.rows = Math.ceil(worldSize / cellSize);
     this.grid = new Uint8Array(this.cols * this.rows);
-    this.obstacles = []; // Храним оригинальные размеры для отрисовки
+    this.obstacles = []; 
   }
 
   setWorldSize(worldSize) {
@@ -19,11 +19,7 @@ export class Pathfinder {
   }
 
   addObstacle(x, y, w, h) {
-    // Сохраняем точные размеры для отрисовки и физики
     this.obstacles.push({ x, y, w, h });
-
-    // Для A* мы расширяем препятствие на 0.5 метра (радиус юнита),
-    // чтобы алгоритм строил путь с учетом габаритов юнита
     const padding = 0.5; 
     
     const start = this.worldToGrid(x - padding, y - padding);
@@ -32,7 +28,7 @@ export class Pathfinder {
     for (let gy = start.y; gy <= end.y; gy++) {
       for (let gx = start.x; gx <= end.x; gx++) {
         if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) {
-          this.grid[gy * this.cols + gx] = 1; // 1 = стена
+          this.grid[gy * this.cols + gx] = 1; 
         }
       }
     }
@@ -57,7 +53,28 @@ export class Pathfinder {
     };
   }
 
-  // Проверка прямой видимости (Line of Sight)
+  // НОВЫЙ МЕТОД: Поиск ближайшей свободной точки (если цель в стене)
+  findNearestFreePoint(x, y) {
+    let g = this.worldToGrid(x, y);
+    if (this.grid[g.y * this.cols + g.x] === 0) return { x, y };
+
+    for (let r = 1; r < 20; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const nx = g.x + dx;
+          const ny = g.y + dy;
+          if (nx >= 0 && nx < this.cols && ny >= 0 && ny < this.rows) {
+            if (this.grid[ny * this.cols + nx] === 0) {
+              return this.gridToWorld(nx, ny);
+            }
+          }
+        }
+      }
+    }
+    return { x, y };
+  }
+
   hasLineOfSight(x1, y1, x2, y2) {
     const dist = Math.hypot(x2 - x1, y2 - y1);
     const steps = Math.ceil(dist / (this.cellSize / 2));
@@ -67,40 +84,36 @@ export class Pathfinder {
       const cx = x1 + (x2 - x1) * t;
       const cy = y1 + (y2 - y1) * t;
       const g = this.worldToGrid(cx, cy);
-      
-      if (this.grid[g.y * this.cols + g.x] === 1) {
-        return false; 
-      }
+      if (this.grid[g.y * this.cols + g.x] === 1) return false; 
     }
     return true;
   }
 
-  // Сглаживание пути
   smoothPath(path) {
     if (path.length <= 2) return path;
-
     const smoothed = [path[0]];
     let currentIndex = 0;
 
     while (currentIndex < path.length - 1) {
       let furthestVisible = currentIndex + 1;
-      
-      // Ищем самую дальнюю точку, до которой можно дойти по прямой
       for (let i = path.length - 1; i > currentIndex; i--) {
         if (this.hasLineOfSight(path[currentIndex].x, path[currentIndex].y, path[i].x, path[i].y)) {
           furthestVisible = i;
           break;
         }
       }
-
       smoothed.push(path[furthestVisible]);
       currentIndex = furthestVisible;
     }
-
     return smoothed;
   }
 
   findPath(startX, startY, endX, endY) {
+    // Защита: ищем свободную точку, если цель в стене
+    const freeEnd = this.findNearestFreePoint(endX, endY);
+    endX = freeEnd.x;
+    endY = freeEnd.y;
+
     startX = Math.max(0, Math.min(this.worldSize, startX));
     startY = Math.max(0, Math.min(this.worldSize, startY));
     endX = Math.max(0, Math.min(this.worldSize, endX));
@@ -115,12 +128,6 @@ export class Pathfinder {
 
     const startId = start.y * this.cols + start.x;
     const endId = end.y * this.cols + end.x;
-
-    // Если конечная точка в стене — ищем ближайшую свободную
-    if (this.grid[endId] === 1) {
-      // Упрощенно: просто возвращаем прямую (юнит упрется в стену)
-      return [{ x: endX, y: endY }]; 
-    }
 
     const openSet = new Set([startId]);
     const cameFrom = new Map();
@@ -138,10 +145,7 @@ export class Pathfinder {
       let lowestF = Infinity;
       for (const id of openSet) {
         const f = fScore.get(id) ?? Infinity;
-        if (f < lowestF) {
-          lowestF = f;
-          currentId = id;
-        }
+        if (f < lowestF) { lowestF = f; currentId = id; }
       }
 
       if (currentId === null) break;
@@ -155,14 +159,10 @@ export class Pathfinder {
       const cy = Math.floor(currentId / this.cols);
 
       const neighbors = [
-        { x: cx + 1, y: cy, cost: 1 },
-        { x: cx - 1, y: cy, cost: 1 },
-        { x: cx, y: cy + 1, cost: 1 },
-        { x: cx, y: cy - 1, cost: 1 },
-        { x: cx + 1, y: cy + 1, cost: 1.414 },
-        { x: cx - 1, y: cy + 1, cost: 1.414 },
-        { x: cx + 1, y: cy - 1, cost: 1.414 },
-        { x: cx - 1, y: cy - 1, cost: 1.414 },
+        { x: cx + 1, y: cy, cost: 1 }, { x: cx - 1, y: cy, cost: 1 },
+        { x: cx, y: cy + 1, cost: 1 }, { x: cx, y: cy - 1, cost: 1 },
+        { x: cx + 1, y: cy + 1, cost: 1.414 }, { x: cx - 1, y: cy + 1, cost: 1.414 },
+        { x: cx + 1, y: cy - 1, cost: 1.414 }, { x: cx - 1, y: cy - 1, cost: 1.414 },
       ];
 
       for (const n of neighbors) {
@@ -179,7 +179,6 @@ export class Pathfinder {
         }
       }
     }
-
     return [{ x: endX, y: endY }];
   }
 
@@ -203,4 +202,4 @@ export class Pathfinder {
     path.reverse();
     return path;
   }
-}
+                             }
