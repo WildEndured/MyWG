@@ -15,11 +15,10 @@ const camera = new Camera(canvas);
 const map = new GameMap(camera);
 const input = new Input(canvas, camera);
 const unitManager = new UnitManager();
-unitManager.camera = camera; // ПЕРЕДАЕМ КАМЕРУ СЮДА
+unitManager.camera = camera; 
 
 let dpr = 1;
 let lastTime = performance.now();
-let selectionBox = null;
 
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -51,18 +50,18 @@ function spawnInitialUnits(mapSize) {
   const center = mapSize / 2;
   const offset = mapSize * 0.1;
 
+  // Спавним 4 юнитов игрока (для проверки дабл-тапа)
   unitManager.addUnit(new Unit(center - offset, center, 'player'));
-  unitManager.addUnit(new Unit(center - offset, center + offset, 'player'));
-  unitManager.addUnit(new Unit(center - offset, center - offset, 'player'));
+  unitManager.addUnit(new Unit(center - offset, center + offset * 0.5, 'player'));
+  unitManager.addUnit(new Unit(center - offset * 0.5, center - offset, 'player'));
+  unitManager.addUnit(new Unit(center - offset * 1.5, center + offset, 'player'));
   
+  // Враги
   unitManager.addUnit(new Unit(center + offset, center, 'enemy'));
   unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy'));
 
   unitManager._spawnTestObstacles(mapSize);
 }
-
-EventBus.on('input:dragBox', (data) => { selectionBox = data; });
-EventBus.on('input:clearBox', () => { selectionBox = null; });
 
 EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
@@ -85,20 +84,6 @@ function frame(now) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
-
-  if (selectionBox) {
-    const { startX, startY, endX, endY } = selectionBox;
-    const x = Math.min(startX, endX);
-    const y = Math.min(startY, endY);
-    const w = Math.abs(endX - startX);
-    const h = Math.abs(endY - startY);
-
-    ctx.fillStyle = 'rgba(80, 150, 255, 0.2)';
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = 'rgba(80, 150, 255, 0.8)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x, y, w, h);
-  }
 
   requestAnimationFrame(frame);
 }
