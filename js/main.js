@@ -2,7 +2,7 @@
 import { Camera } from './core/Camera.js';
 import { Input } from './core/Input.js';
 import { EventBus } from './core/EventBus.js';
-import { TimeManager } from './core/TimeManager.js'; // <-- ИМПОРТ
+import { TimeManager } from './core/TimeManager.js';
 import { GameMap } from './world/map.js';
 import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
@@ -54,7 +54,6 @@ function spawnInitialUnits(mapSize) {
   unitManager.addUnit(new Unit(center - offset, center, 'player'));
   unitManager.addUnit(new Unit(center - offset, center + offset * 0.5, 'player'));
   unitManager.addUnit(new Unit(center - offset * 0.5, center - offset, 'player'));
-  unitManager.addUnit(new Unit(center - offset * 1.5, center + offset, 'player'));
   
   unitManager.addUnit(new Unit(center + offset, center, 'enemy'));
   unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy'));
@@ -75,17 +74,37 @@ document.getElementById('fit').addEventListener('click', () => {
   camera.fit(map.size, map.size);
 });
 
-// Кнопки поз
+// --- УПРАВЛЕНИЕ ПОЗАМИ ---
 const stanceButtons = {
   'btn-stand': 'stand',
   'btn-run': 'run',
   'btn-crouch': 'crouch',
   'btn-prone': 'prone'
 };
+
 for (const [id, stance] of Object.entries(stanceButtons)) {
   const btn = document.getElementById(id);
-  if (btn) btn.addEventListener('click', () => unitManager.setSelectedStance(stance));
+  if (btn) {
+    btn.addEventListener('click', () => {
+      unitManager.setSelectedStance(stance);
+      updateStanceUI(stance); // Подсвечиваем нажатую кнопку
+    });
+  }
 }
+
+// Функция обновления подсветки кнопок
+function updateStanceUI(activeStance) {
+  for (const [id, stance] of Object.entries(stanceButtons)) {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.classList.toggle('active', stance === activeStance);
+    }
+  }
+}
+
+// Начальное состояние
+updateStanceUI('stand');
+
 
 // --- УПРАВЛЕНИЕ ВРЕМЕНЕМ ---
 document.getElementById('btn-pause').addEventListener('click', () => {
@@ -96,7 +115,6 @@ document.getElementById('btn-speed-1').addEventListener('click', () => TimeManag
 document.getElementById('btn-speed-2').addEventListener('click', () => TimeManager.setTimeScale(2.0));
 document.getElementById('btn-speed-4').addEventListener('click', () => TimeManager.setTimeScale(4.0));
 
-// Подсветка активной кнопки времени
 EventBus.on('time:changed', ({ scale, isPaused }) => {
   document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
   
@@ -110,19 +128,15 @@ EventBus.on('time:changed', ({ scale, isPaused }) => {
 
 
 function frame(now) {
-  // 1. Считаем реальное время
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
 
-  // 2. Получаем масштабированное время (с учетом паузы/ускорения)
   const dt = TimeManager.getScaledDt(realDt);
 
-  // 3. Обновляем только если не пауза
   if (dt > 0) {
     unitManager.update(dt);
   }
 
-  // 4. Рендерим всегда (чтобы камера работала на паузе)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
