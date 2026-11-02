@@ -1,69 +1,55 @@
 // js/core/Camera.js
-import { CONFIG, clamp } from '../data/config.js';
+import { CONFIG } from '../data/config.js';
 
 export class Camera {
-  constructor() {
-    this.x = 0; this.y = 0;
-    this.zoom = CONFIG.PX_PER_METER_BASE;
-    this.viewW = 0; this.viewH = 0; this.dpr = 1;
-    this.worldW = 100; this.worldH = 100;
+  constructor({ x = 500, y = 500, zoom = 2, minZoom = 0.4, maxZoom = 8 } = {}) {
+    this.x = x;
+    this.y = y;
+    this.zoom = zoom;
+    // Берем лимиты из конфига, если они не переданы явно
+    this.minZoom = minZoom ?? CONFIG.MIN_PX_PER_METER;
+    this.maxZoom = maxZoom ?? CONFIG.MAX_PX_PER_METER;
   }
 
-  setViewport(w, h, dpr) {
-    this.viewW = w; this.viewH = h; this.dpr = dpr;
-    this._clamp();
-  }
-
-  setWorld(w, h) {
-    this.worldW = w; this.worldH = h;
-    this._clamp();
-  }
-
-  worldToScreen(wx, wy) {
+  screenToWorld(sx, sy, vw, vh) {
     return {
-      x: (wx - this.x) * this.zoom + this.viewW / 2,
-      y: (wy - this.y) * this.zoom + this.viewH / 2,
+      x: (sx - vw / 2) / this.zoom + this.x,
+      y: (sy - vh / 2) / this.zoom + this.y,
     };
   }
 
-  screenToWorld(sx, sy) {
+  worldToScreen(wx, wy, vw, vh) {
     return {
-      x: (sx - this.viewW / 2) / this.zoom + this.x,
-      y: (sy - this.viewH / 2) / this.zoom + this.y,
+      x: (wx - this.x) * this.zoom + vw / 2,
+      y: (wy - this.y) * this.zoom + vh / 2,
     };
   }
 
-  panByScreen(dxPx, dyPx) {
-    this.x -= dxPx / this.zoom;
-    this.y -= dyPx / this.zoom;
-    this._clamp();
+  clampTo(worldW, worldH, vw, vh) {
+    const halfW = (vw / 2) / this.zoom;
+    const halfH = (vh / 2) / this.zoom;
+    
+    if (worldW * this.zoom < vw) this.x = worldW / 2;
+    else this.x = Math.max(halfW, Math.min(worldW - halfW, this.x));
+    
+    if (worldH * this.zoom < vh) this.y = worldH / 2;
+    else this.y = Math.max(halfH, Math.min(worldH - halfH, this.y));
   }
 
-  zoomAt(sx, sy, factor) {
-    const before = this.screenToWorld(sx, sy);
-    this.zoom = clamp(this.zoom * factor, CONFIG.MIN_PX_PER_METER, CONFIG.MAX_PX_PER_METER);
-    const after = this.screenToWorld(sx, sy);
+  zoomAt(sx, sy, factor, vw, vh) {
+    const before = this.screenToWorld(sx, sy, vw, vh);
+    this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
+    const after = this.screenToWorld(sx, sy, vw, vh);
     this.x += before.x - after.x;
     this.y += before.y - after.y;
-    this._clamp();
   }
 
-  fit() {
-    const zx = this.viewW / this.worldW;
-    const zy = this.viewH / this.worldH;
-    this.zoom = clamp(Math.min(zx, zy), CONFIG.MIN_PX_PER_METER, CONFIG.MAX_PX_PER_METER);
-    this.x = this.worldW / 2;
-    this.y = this.worldH / 2;
-  }
-
-  _clamp() {
-    const halfW = this.viewW / (2 * this.zoom);
-    const halfH = this.viewH / (2 * this.zoom);
-
-    if (halfW * 2 >= this.worldW) this.x = this.worldW / 2;
-    else this.x = clamp(this.x, halfW, this.worldW - halfW);
-
-    if (halfH * 2 >= this.worldH) this.y = this.worldH / 2;
-    else this.y = clamp(this.y, halfH, this.worldH - halfH);
+  // Новый метод: вписать карту целиком
+  fit(worldW, worldH, vw, vh) {
+    const zx = vw / worldW;
+    const zy = vh / worldH;
+    this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, Math.min(zx, zy)));
+    this.x = worldW / 2;
+    this.y = worldH / 2;
   }
 }
