@@ -2,6 +2,7 @@
 import { Camera } from './core/Camera.js';
 import { Input } from './core/Input.js';
 import { EventBus } from './core/EventBus.js';
+import { TimeManager } from './core/TimeManager.js'; // <-- ИМПОРТ
 import { GameMap } from './world/map.js';
 import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
@@ -65,7 +66,7 @@ EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
 
-// HUD
+// HUD размеров карты
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
@@ -74,7 +75,7 @@ document.getElementById('fit').addEventListener('click', () => {
   camera.fit(map.size, map.size);
 });
 
-// Кнопки смены позы
+// Кнопки поз
 const stanceButtons = {
   'btn-stand': 'stand',
   'btn-run': 'run',
@@ -86,12 +87,42 @@ for (const [id, stance] of Object.entries(stanceButtons)) {
   if (btn) btn.addEventListener('click', () => unitManager.setSelectedStance(stance));
 }
 
+// --- УПРАВЛЕНИЕ ВРЕМЕНЕМ ---
+document.getElementById('btn-pause').addEventListener('click', () => {
+  TimeManager.togglePause();
+});
+
+document.getElementById('btn-speed-1').addEventListener('click', () => TimeManager.setTimeScale(1.0));
+document.getElementById('btn-speed-2').addEventListener('click', () => TimeManager.setTimeScale(2.0));
+document.getElementById('btn-speed-4').addEventListener('click', () => TimeManager.setTimeScale(4.0));
+
+// Подсветка активной кнопки времени
+EventBus.on('time:changed', ({ scale, isPaused }) => {
+  document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
+  
+  if (isPaused) {
+    document.getElementById('btn-pause').classList.add('active');
+  } else {
+    const activeBtn = document.getElementById(`btn-speed-${scale}`);
+    if (activeBtn) activeBtn.classList.add('active');
+  }
+});
+
+
 function frame(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  // 1. Считаем реальное время
+  const realDt = (now - lastTime) / 1000;
   lastTime = now;
 
-  unitManager.update(dt);
+  // 2. Получаем масштабированное время (с учетом паузы/ускорения)
+  const dt = TimeManager.getScaledDt(realDt);
 
+  // 3. Обновляем только если не пауза
+  if (dt > 0) {
+    unitManager.update(dt);
+  }
+
+  // 4. Рендерим всегда (чтобы камера работала на паузе)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
