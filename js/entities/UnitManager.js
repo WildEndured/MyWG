@@ -4,11 +4,11 @@ import { Unit } from './Unit.js';
 import { Pathfinder } from '../core/Pathfinder.js';
 
 export class UnitManager {
-  constructor(camera) {
-    this.camera = camera; // Камера для перевода координат рамки
+  constructor() {
     this.units = [];
     this.selectedUnits = [];
     this.pathfinder = new Pathfinder(100, 5);
+    this.camera = null; // Будет установлен из main.js
     this._isSearchingPath = false;
 
     EventBus.on('input:tap', this.handleTap.bind(this));
@@ -20,15 +20,21 @@ export class UnitManager {
     this._spawnTestObstacles(size);
   }
 
-  addUnit(unit) { this.units.push(unit); }
+  addUnit(unit) {
+    this.units.push(unit);
+  }
 
   update(dt) {
-    for (const unit of this.units) unit.update(dt);
+    for (const unit of this.units) {
+      unit.update(dt);
+    }
   }
 
   draw(ctx, camera) {
     this._drawObstacles(ctx, camera);
-    for (const unit of this.units) unit.draw(ctx, camera);
+    for (const unit of this.units) {
+      unit.draw(ctx, camera);
+    }
   }
 
   _spawnTestObstacles(mapSize) {
@@ -42,13 +48,16 @@ export class UnitManager {
     this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
     this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
     
-    this.pathfinder.addObstacle(c + 20, c - 20, mapSize * 0.3, 5);
+    const hWallW = mapSize * 0.3;
+    const hWallH = 5;
+    this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
   _drawObstacles(ctx, camera) {
     ctx.fillStyle = '#555';
     ctx.strokeStyle = '#888';
     ctx.lineWidth = 1;
+
     for (const obs of this.pathfinder.obstacles) {
       const tl = camera.worldToScreen(obs.x, obs.y);
       const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
@@ -60,11 +69,14 @@ export class UnitManager {
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
 
+    // 1. Проверяем, не тапнули ли по юниту игрока
     let clickedUnit = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
+      if (u.faction !== 'player') continue;
+      
       const dist = Math.hypot(u.x - x, u.y - y);
-      if (u.faction === 'player' && dist <= u.hitRadius) {
+      if (dist <= u.hitRadius) {
         clickedUnit = u;
         break;
       }
@@ -75,14 +87,22 @@ export class UnitManager {
     } else if (this.selectedUnits.length > 0) {
       this._issueMoveOrder(x, y);
     } else {
-      this.selectUnits([]);
+      this.selectUnits([]); // Снять выделение, если кликнули по пустоте
     }
   }
 
   handleBoxSelect({ startX, startY, endX, endY }) {
-    // startX/Y в экранных пикселях — переводим в мировые координаты
-    const w1 = this.camera.screenToWorld(Math.min(startX, endX), Math.min(startY, endY));
-    const w2 = this.camera.screenToWorld(Math.max(startX, endX), Math.max(startY, endY));
+    if (!this.camera) return;
+
+    // Переводим экранные координаты в мировые
+    const w1 = this.camera.screenToWorld(
+      Math.min(startX, endX), 
+      Math.min(startY, endY)
+    );
+    const w2 = this.camera.screenToWorld(
+      Math.max(startX, endX), 
+      Math.max(startY, endY)
+    );
 
     const selected = [];
     for (const u of this.units) {
@@ -95,6 +115,7 @@ export class UnitManager {
 
   _issueMoveOrder(tx, ty) {
     this._isSearchingPath = true;
+    
     const count = this.selectedUnits.length;
     const spacing = 2.5;
 
@@ -110,7 +131,10 @@ export class UnitManager {
         offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing;
       }
 
-      const path = this.pathfinder.findPath(unit.x, unit.y, tx + offsetX, ty + offsetY);
+      const finalX = tx + offsetX;
+      const finalY = ty + offsetY;
+
+      const path = this.pathfinder.findPath(unit.x, unit.y, finalX, finalY);
       unit.setPath(path);
     });
 
@@ -118,9 +142,16 @@ export class UnitManager {
   }
 
   selectUnits(units) {
-    for (const u of this.units) u.isSelected = false;
+    for (const u of this.units) {
+      u.isSelected = false;
+    }
+    
     this.selectedUnits = units;
-    for (const u of this.selectedUnits) u.isSelected = true;
+    
+    for (const u of this.selectedUnits) {
+      u.isSelected = true;
+    }
+    
     EventBus.emit('units:selected', this.selectedUnits);
   }
 }
