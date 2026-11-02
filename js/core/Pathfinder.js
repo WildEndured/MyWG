@@ -7,7 +7,7 @@ export class Pathfinder {
     this.cols = Math.ceil(worldSize / cellSize);
     this.rows = Math.ceil(worldSize / cellSize);
     this.grid = new Uint8Array(this.cols * this.rows);
-    this.obstacles = []; // Храним стены для отрисовки
+    this.obstacles = []; // Храним оригинальные размеры для отрисовки
   }
 
   setWorldSize(worldSize) {
@@ -15,16 +15,19 @@ export class Pathfinder {
     this.cols = Math.ceil(worldSize / this.cellSize);
     this.rows = Math.ceil(worldSize / this.cellSize);
     this.grid = new Uint8Array(this.cols * this.rows);
-    this.obstacles = []; // Очищаем стены при смене карты
+    this.obstacles = [];
   }
 
-  // Добавление прямоугольного препятствия (в метрах)
   addObstacle(x, y, w, h) {
+    // Сохраняем точные размеры для отрисовки и физики
     this.obstacles.push({ x, y, w, h });
 
-    // Переводим в координаты сетки и заполняем
-    const start = this.worldToGrid(x, y);
-    const end = this.worldToGrid(x + w, y + h);
+    // Для A* мы расширяем препятствие на 0.5 метра (радиус юнита),
+    // чтобы алгоритм строил путь с учетом габаритов юнита
+    const padding = 0.5; 
+    
+    const start = this.worldToGrid(x - padding, y - padding);
+    const end = this.worldToGrid(x + w + padding, y + h + padding);
 
     for (let gy = start.y; gy <= end.y; gy++) {
       for (let gx = start.x; gx <= end.x; gx++) {
@@ -54,10 +57,10 @@ export class Pathfinder {
     };
   }
 
-  // Проверка прямой видимости (Line of Sight) между двумя точками
+  // Проверка прямой видимости (Line of Sight)
   hasLineOfSight(x1, y1, x2, y2) {
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const steps = Math.ceil(dist / (this.cellSize / 2)); // Шагаем чаще, чем размер клетки
+    const steps = Math.ceil(dist / (this.cellSize / 2));
 
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
@@ -66,13 +69,13 @@ export class Pathfinder {
       const g = this.worldToGrid(cx, cy);
       
       if (this.grid[g.y * this.cols + g.x] === 1) {
-        return false; // Наткнулись на стену
+        return false; 
       }
     }
     return true;
   }
 
-  // Сглаживание пути: выкидываем точки, до которых можно дойти по прямой
+  // Сглаживание пути
   smoothPath(path) {
     if (path.length <= 2) return path;
 
@@ -82,7 +85,7 @@ export class Pathfinder {
     while (currentIndex < path.length - 1) {
       let furthestVisible = currentIndex + 1;
       
-      // Ищем самую дальнюю точку, до которой есть прямая видимость
+      // Ищем самую дальнюю точку, до которой можно дойти по прямой
       for (let i = path.length - 1; i > currentIndex; i--) {
         if (this.hasLineOfSight(path[currentIndex].x, path[currentIndex].y, path[i].x, path[i].y)) {
           furthestVisible = i;
@@ -98,7 +101,6 @@ export class Pathfinder {
   }
 
   findPath(startX, startY, endX, endY) {
-    // Защита
     startX = Math.max(0, Math.min(this.worldSize, startX));
     startY = Math.max(0, Math.min(this.worldSize, startY));
     endX = Math.max(0, Math.min(this.worldSize, endX));
@@ -114,8 +116,10 @@ export class Pathfinder {
     const startId = start.y * this.cols + start.x;
     const endId = end.y * this.cols + end.x;
 
+    // Если конечная точка в стене — ищем ближайшую свободную
     if (this.grid[endId] === 1) {
-      return [{ x: endX, y: endY }]; // Кликнули в стену
+      // Упрощенно: просто возвращаем прямую (юнит упрется в стену)
+      return [{ x: endX, y: endY }]; 
     }
 
     const openSet = new Set([startId]);
@@ -143,7 +147,6 @@ export class Pathfinder {
       if (currentId === null) break;
       if (currentId === endId) {
         const rawPath = this._reconstructPath(cameFrom, currentId);
-        // Сглаживаем путь перед возвратом!
         return this.smoothPath(rawPath);
       }
 
