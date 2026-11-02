@@ -21,23 +21,20 @@ export class UnitManager {
   }
 
   addUnit(unit) {
-    unit.pathfinder = this.pathfinder; // Даем юниту доступ к стенам
+    unit.pathfinder = this.pathfinder; 
     this.units.push(unit);
   }
 
   update(dt) {
-    // 1. Сначала обновляем логику движения всех юнитов
     for (const unit of this.units) {
-      unit.update(dt, this.units); // Передаем всех юнитов для расталкивания
+      unit.update(dt, this.units); 
     }
-
-    // 2. Глобальное расталкивание (жесткая физика)
+    // Жесткая коллизия
     this._resolveCollisions();
   }
 
-  // Жесткое расталкивание, чтобы они не накладывались друг на друга
   _resolveCollisions() {
-    const minDist = 1.0; // Минимальная дистанция между центрами (2 * радиус 0.5)
+    const minDist = 1.0; // 2 * радиус 0.5
     
     for (let i = 0; i < this.units.length; i++) {
       for (let j = i + 1; j < this.units.length; j++) {
@@ -53,11 +50,20 @@ export class UnitManager {
           const nx = dx / dist;
           const ny = dy / dist;
           
-          // Раздвигаем их в разные стороны
-          u1.x -= nx * overlap;
-          u1.y -= ny * overlap;
-          u2.x += nx * overlap;
-          u2.y += ny * overlap;
+          // Проверяем, не вытолкнем ли мы их в стену
+          const newU1X = u1.x - nx * overlap;
+          const newU1Y = u1.y - ny * overlap;
+          const newU2X = u2.x + nx * overlap;
+          const newU2Y = u2.y + ny * overlap;
+
+          if (u1._isWalkable(newU1X, newU1Y)) {
+            u1.x = newU1X;
+            u1.y = newU1Y;
+          }
+          if (u2._isWalkable(newU2X, newU2Y)) {
+            u2.x = newU2X;
+            u2.y = newU2Y;
+          }
         }
       }
     }
