@@ -5,11 +5,11 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #1a1d21;
-  /* запрет системного зума/скролла на мобиле */
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 #game {
@@ -21,18 +21,37 @@ html, body {
 
 #hud {
   position: fixed;
-  top: calc(8px + env(safe-area-inset-top));
-  left: 8px;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 12px;
   display: flex;
-  gap: 6px;
+  gap: 8px;
   z-index: 10;
 }
 
 #hud button {
-  padding: 8px 12px;
-  font: 600 13px/1 system-ui, sans-serif;
+  padding: 10px 14px;
+  font: 600 14px/1 system-ui, sans-serif;
   color: #e8eaed;
-  background: rgba(40, 44, 52, 0.85);
-  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(30, 34, 40, 0.9);
+  border: 1px solid rgba(255,255,255,0.2);
   border-radius: 8px;
+  cursor: pointer;
+}
+
+#hud button.active {
+  background: rgba(80, 150, 255, 0.8);
+  border-color: #5096ff;
+}
+
+#coords {
+  position: fixed;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  right: 12px;
+  color: #8ab4f8;
+  font: 14px monospace;
+  background: rgba(0,0,0,0.5);
+  padding: 6px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 10;
 }
