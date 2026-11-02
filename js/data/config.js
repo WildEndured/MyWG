@@ -1,4 +1,5 @@
-// Настройки карты
+// js/data/config.js
+
 export const MAP_PRESETS = {
   100:  { size: 100 },
   500:  { size: 500 },
@@ -14,11 +15,11 @@ export const CONFIG = {
   GRID_MAJOR: 10,
 
   COLORS: {
-    bg:        '#1a1d21',
-    mapFill:   '#1e2329',
-    gridMinor: 'rgba(255,255,255,0.05)',
-    gridMajor: 'rgba(255,255,255,0.15)',
-    border:    'rgba(120,200,255,0.8)',
+    bg:        '#121418', // Темный фон вокруг карты
+    mapFill:   '#2a313a', // Светлее, чтобы отличать от фона
+    gridMinor: 'rgba(255,255,255,0.1)', 
+    gridMajor: 'rgba(255,255,255,0.25)', // Сделали линии ярче
+    border:    'rgba(120,200,255,1)', // Яркая рамка
   },
 
   TAP_MAX_MOVE_PX: 10,
