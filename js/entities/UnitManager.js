@@ -34,6 +34,7 @@ export class UnitManager {
 
   _resolveCollisions() {
     const minDist = 1.0; 
+    const minDistSq = minDist * minDist;
     
     for (let i = 0; i < this.units.length; i++) {
       for (let j = i + 1; j < this.units.length; j++) {
@@ -42,9 +43,13 @@ export class UnitManager {
         
         const dx = u2.x - u1.x;
         const dy = u2.y - u1.y;
-        const dist = Math.hypot(dx, dy);
         
-        if (dist < minDist && dist > 0.01) {
+        // Быстрая проверка
+        if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
+        
+        const distSq = dx * dx + dy * dy;
+        if (distSq < minDistSq && distSq > 0.0001) {
+          const dist = Math.sqrt(distSq);
           const overlap = (minDist - dist) / 2;
           const nx = dx / dist;
           const ny = dy / dist;
@@ -54,7 +59,6 @@ export class UnitManager {
           const newU2X = u2.x + nx * overlap;
           const newU2Y = u2.y + ny * overlap;
 
-          // Используем физическую проверку
           if (u1._isPositionFree(newU1X, newU1Y)) {
             u1.x = newU1X;
             u1.y = newU1Y;
@@ -79,21 +83,14 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
-    // ВАЖНО: Стены сделаны тоньше (2 метра), чтобы наглядно видеть,
-    // что юниты (радиус 0.5) могут проходить в проходы шириной 5 метров.
-    // В сетке A* стены все равно занимают клетки 5х5, но физически они тонкие.
-    
-    const wallW = 2; // Тонкая стена (2 метра)
+    const wallW = 2; 
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
     const wallY = c - wallH / 2;
     
-    // Верхняя часть
     this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
-    // Нижняя часть (оставляем проход 5 метров посередине)
     this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
     
-    // Горизонтальная стена
     const hWallW = mapSize * 0.3;
     const hWallH = 2; 
     this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
@@ -170,6 +167,9 @@ export class UnitManager {
   _issueMoveOrder(tx, ty) {
     this._isSearchingPath = true;
     
+    // Ищем свободную точку, если тапнули в стену
+    const freeTarget = this.pathfinder.findNearestFreePoint(tx, ty);
+    
     const count = this.selectedUnits.length;
     const spacing = 2.5;
 
@@ -185,10 +185,13 @@ export class UnitManager {
         offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing;
       }
 
-      const finalX = tx + offsetX;
-      const finalY = ty + offsetY;
+      // Для каждого юнита тоже проверяем, чтобы его смещенная точка не была в стене
+      const individualTarget = this.pathfinder.findNearestFreePoint(
+        freeTarget.x + offsetX, 
+        freeTarget.y + offsetY
+      );
 
-      const path = this.pathfinder.findPath(unit.x, unit.y, finalX, finalY);
+      const path = this.pathfinder.findPath(unit.x, unit.y, individualTarget.x, individualTarget.y);
       unit.setPath(path);
     });
 
