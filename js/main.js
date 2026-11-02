@@ -1,6 +1,6 @@
 import { Camera } from './core/Camera.js';
-import { Input } from './core/Input.js';
-import { GameMap } from './map.js';
+import { Input } from './world/core/Input.js';
+import { GameMap } from './world/map.js';
 import { MAP_PRESETS } from './data/config.js';
 
 const canvas = document.getElementById('game');
