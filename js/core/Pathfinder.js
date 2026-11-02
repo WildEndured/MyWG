@@ -7,8 +7,7 @@ export class Pathfinder {
     this.cols = Math.ceil(worldSize / cellSize);
     this.rows = Math.ceil(worldSize / cellSize);
     
-    // Сетка проходимости: 0 - можно ходить, 1 - препятствие
-    // Пока пустая (все нули). Позже сюда добавим стены и камни.
+    // Сетка проходимости: 0 - можно, 1 - нельзя
     this.grid = new Uint8Array(this.cols * this.rows);
   }
 
@@ -19,7 +18,7 @@ export class Pathfinder {
     this.grid = new Uint8Array(this.cols * this.rows);
   }
 
-  // Перевод мировых координат (метры) в индексы сетки
+  // Перевод мировых координат в индексы сетки
   worldToGrid(x, y) {
     return {
       x: Math.max(0, Math.min(this.cols - 1, Math.floor(x / this.cellSize))),
@@ -35,40 +34,58 @@ export class Pathfinder {
     };
   }
 
-  // Главный метод: поиск пути
   findPath(startX, startY, endX, endY) {
+    // Защита: ограничиваем координаты границами карты
+    startX = Math.max(0, Math.min(this.worldSize, startX));
+    startY = Math.max(0, Math.min(this.worldSize, startY));
+    endX = Math.max(0, Math.min(this.worldSize, endX));
+    endY = Math.max(0, Math.min(this.worldSize, endY));
+
     const start = this.worldToGrid(startX, startY);
     const end = this.worldToGrid(endX, endY);
 
-    // Если старт и финиш в одной клетке — возвращаем прямую
+    // Если старт и финиш в одной клетке — просто идем напрямую
     if (start.x === end.x && start.y === end.y) {
       return [{ x: endX, y: endY }];
     }
 
-    // Алгоритм A*
-    const openSet = new Set();
-    const cameFrom = new Map();
-    const gScore = new Map();
-    const fScore = new Map();
-
     const startId = start.y * this.cols + start.x;
     const endId = end.y * this.cols + end.x;
 
-    openSet.add(startId);
-    gScore.set(startId, 0);
-    fScore.set(startId, this._heuristic(start.x, start.y, end.x, end.y));
+    // ЗАЩИТА 1: если финиш в препятствии — возвращаем прямую
+    if (this.grid[endId] === 1) {
+      return [{ x: endX, y: endY }];
+    }
+
+    // Массивы для A*
+    const openSet = new Set([startId]);
+    const cameFrom = new Map();
+    const gScore = new Map([[startId, 0]]);
+    const fScore = new Map([[startId, this._heuristic(start.x, start.y, end.x, end.y)]]);
+
+    // ЗАЩИТА 2: лимит итераций (чтобы не зависло)
+    const maxIterations = this.cols * this.rows;
+    let iterations = 0;
 
     while (openSet.size > 0) {
-      // Ищем узел с наименьшим fScore
+      iterations++;
+      if (iterations > maxIterations) {
+        console.warn('[Pathfinder] Превышен лимит итераций, возвращаем прямую');
+        return [{ x: endX, y: endY }];
+      }
+
+      // Ищем узел с минимальным fScore
       let currentId = null;
       let lowestF = Infinity;
       for (const id of openSet) {
-        const f = fScore.get(id) || Infinity;
+        const f = fScore.get(id) ?? Infinity;
         if (f < lowestF) {
           lowestF = f;
           currentId = id;
         }
       }
+
+      if (currentId === null) break;
 
       if (currentId === endId) {
         return this._reconstructPath(cameFrom, currentId);
@@ -78,7 +95,7 @@ export class Pathfinder {
       const cx = currentId % this.cols;
       const cy = Math.floor(currentId / this.cols);
 
-      // Проверяем 8 соседей (включая диагонали)
+      // 8 соседей
       const neighbors = [
         { x: cx + 1, y: cy, cost: 1 },
         { x: cx - 1, y: cy, cost: 1 },
@@ -91,17 +108,14 @@ export class Pathfinder {
       ];
 
       for (const n of neighbors) {
-        // Проверка выхода за границы
         if (n.x < 0 || n.x >= this.cols || n.y < 0 || n.y >= this.rows) continue;
         
         const neighborId = n.y * this.cols + n.x;
-        
-        // Проверка препятствий
         if (this.grid[neighborId] === 1) continue;
 
-        const tentativeG = (gScore.get(currentId) || 0) + n.cost;
+        const tentativeG = (gScore.get(currentId) ?? Infinity) + n.cost;
 
-        if (tentativeG < (gScore.get(neighborId) || Infinity)) {
+        if (tentativeG < (gScore.get(neighborId) ?? Infinity)) {
           cameFrom.set(neighborId, currentId);
           gScore.set(neighborId, tentativeG);
           fScore.set(neighborId, tentativeG + this._heuristic(n.x, n.y, end.x, end.y));
@@ -110,26 +124,36 @@ export class Pathfinder {
       }
     }
 
-    // Путь не найден (возвращаем прямую, если застряли)
+    // Путь не найден — идем по прямой (лучше, чем ничего)
     return [{ x: endX, y: endY }];
   }
 
   _heuristic(x1, y1, x2, y2) {
-    // Дистанция Чебышева (для 8 направлений)
     const dx = Math.abs(x1 - x2);
     const dy = Math.abs(y1 - y2);
+    // Октальная дистанция
     return (dx + dy) + (1.414 - 2) * Math.min(dx, dy);
   }
 
   _reconstructPath(cameFrom, currentId) {
     const path = [];
+    let safety = 0;
+    const maxSteps = this.cols * this.rows;
+    
     while (cameFrom.has(currentId)) {
+      safety++;
+      if (safety > maxSteps) {
+        console.warn('[Pathfinder] Цикл в reconstructPath!');
+        break;
+      }
       const gx = currentId % this.cols;
       const gy = Math.floor(currentId / this.cols);
       path.push(this.gridToWorld(gx, gy));
       currentId = cameFrom.get(currentId);
     }
     path.reverse();
-    return path;
+    
+    // Если путь пустой — вернуть хотя бы конечную точку
+    return path.length > 0 ? path : [];
   }
 }
