@@ -1,24 +1,36 @@
 // js/entities/Unit.js
 
 export class Unit {
-  constructor(x, y, faction = 'player') {
+  constructor(x, y, faction = 'player', type = 'infantry') {
+    // Позиция в метрах
     this.x = x;
     this.y = y;
-    this.faction = faction;
-    this.radius = 0.5;
-    this.hitRadius = 2.0;
-    this.speed = 15;
+    
+    // Характеристики
+    this.faction = faction; 
+    this.type = type; // Тип юнита ('infantry', 'tank' и т.д.)
+    
+    // Визуальный радиус 0.5 метра
+    this.radius = 0.5; 
+    
+    // Радиус клика 2 метра (для удобного тапа пальцем)
+    this.hitRadius = 2.0; 
+    
+    this.speed = 15;        // Скорость в метрах в секунду
     this.maxHp = 100;
     this.hp = this.maxHp;
     
+    // Состояние
     this.isSelected = false;
-    this.path = [];
-    this.pathIndex = 0;
+    
+    // Движение по пути
+    this.path = [];        
+    this.pathIndex = 0;    
     this.isMoving = false;
-    this.angle = 0;
+    this.angle = 0;        
   }
 
-  // Проверка: находится ли юнит внутри прямоугольника
+  // Проверка: находится ли юнит внутри прямоугольника (для будущих механик)
   isInsideRect(minX, minY, maxX, maxY) {
     return this.x >= minX && this.x <= maxX && this.y >= minY && this.y <= maxY;
   }
@@ -47,6 +59,7 @@ export class Unit {
     const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
 
+    // Достигли текущей точки
     if (dist < 0.5) {
       this.pathIndex++;
       if (this.pathIndex >= this.path.length) {
@@ -72,10 +85,13 @@ export class Unit {
   draw(ctx, camera) {
     const screenPos = camera.worldToScreen(this.x, this.y);
     const screenRadius = this.radius * camera.zoom;
+    // Защита от микроскопического размера
     const drawRadius = Math.max(3, screenRadius);
+    
+    // Цвет фракции
     const color = this.faction === 'player' ? '#4285F4' : '#EA4335';
     
-    // Тело
+    // 1. Тело юнита
     ctx.beginPath();
     ctx.arc(screenPos.x, screenPos.y, drawRadius, 0, Math.PI * 2);
     ctx.fillStyle = color;
@@ -84,7 +100,7 @@ export class Unit {
     ctx.strokeStyle = '#000';
     ctx.stroke();
 
-    // Направление
+    // 2. Индикатор направления (маленькая белая точка)
     if (drawRadius > 5) {
       const dirX = screenPos.x + Math.cos(this.angle) * drawRadius * 0.6;
       const dirY = screenPos.y + Math.sin(this.angle) * drawRadius * 0.6;
@@ -94,7 +110,7 @@ export class Unit {
       ctx.fill();
     }
 
-    // Выделение
+    // 3. Выделение (желтое кольцо)
     if (this.isSelected) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y, drawRadius + 4, 0, Math.PI * 2);
@@ -102,6 +118,7 @@ export class Unit {
       ctx.lineWidth = 2;
       ctx.stroke();
       
+      // Отладка: линия оставшегося пути
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
         const start = camera.worldToScreen(this.x, this.y);
@@ -116,7 +133,7 @@ export class Unit {
       }
     }
 
-    // HP бар
+    // 4. HP бар
     if (this.hp < this.maxHp) {
       const barW = Math.max(20, drawRadius * 2);
       const barH = 4;
