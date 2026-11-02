@@ -7,10 +7,7 @@ export class UnitManager {
   constructor() {
     this.units = [];
     this.selectedUnits = [];
-    
-    // МЕНЯЕМ РАЗМЕР КЛЕТКИ НА 1 МЕТР
     this.pathfinder = new Pathfinder(100, 1);
-    
     this.camera = null; 
     this._isSearchingPath = false;
 
@@ -87,20 +84,20 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
-    // Стена толщиной 2 метра, проход между ними 3 метра
-    const wallW = 2; 
+    // Тонкие стены (0.5 метра) и широкий проход (6 метров)
+    const wallW = 0.5; 
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
     const wallY = c - wallH / 2;
     
-    // Верхняя часть стены
-    this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
-    // Нижняя часть стены (оставляем проход шириной ~3 метра)
-    this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
+    // Верхняя стена
+    this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.3);
+    // Нижняя стена (проход между ними = 6 метров)
+    this.pathfinder.addObstacle(wallX, wallY + wallH * 0.7, wallW, wallH * 0.3);
     
     // Горизонтальная стена
     const hWallW = mapSize * 0.3;
-    const hWallH = 2; 
+    const hWallH = 0.5; 
     this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
