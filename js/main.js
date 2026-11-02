@@ -36,7 +36,7 @@ function resize() {
 function setMapSize(meters) {
   map.setSize(meters);
   input.setWorldSize(meters);
-  unitManager.setWorldSize(meters); // Обновляем сетку A*
+  unitManager.setWorldSize(meters); // Обновляет Pathfinder и создает стены
   
   camera.fit(meters, meters);
   
@@ -49,9 +49,9 @@ function setMapSize(meters) {
   spawnInitialUnits(meters);
 }
 
-// 4. Спавн юнитов (адаптированный под размер карты)
+// 4. Спавн юнитов и окружения
 function spawnInitialUnits(mapSize) {
-  unitManager.units = []; // Очищаем старых
+  unitManager.units = []; // Очищаем старых юнитов
   unitManager.selectedUnit = null;
 
   // Размещаем юнитов в центре карты, разнесенными друг от друга
@@ -64,6 +64,9 @@ function spawnInitialUnits(mapSize) {
   
   // Враг (красный)
   unitManager.addUnit(new Unit(center + offset, center, 'enemy'));
+
+  // Генерация стен (в UnitManager создается свой метод)
+  unitManager._spawnTestObstacles(mapSize);
 }
 
 // 5. Подписка на события (координаты в HUD)
@@ -90,9 +93,10 @@ function frame(now) {
   unitManager.update(dt);
 
   // --- ОТРИСОВКА (Render) ---
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Сброс под DPR
-  map.draw(ctx);
-  unitManager.draw(ctx, camera);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // Сброс трансформации под DPR
+  
+  map.draw(ctx);          // Сетка и фон
+  unitManager.draw(ctx, camera); // Стены и юниты
 
   requestAnimationFrame(frame);
 }
