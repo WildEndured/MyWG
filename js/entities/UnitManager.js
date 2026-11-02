@@ -41,6 +41,9 @@ export class UnitManager {
         const u1 = this.units[i];
         const u2 = this.units[j];
         
+        // Лежачие не участвуют в коллизиях
+        if (u1.stance === 'prone' || u2.stance === 'prone') continue;
+        
         const dx = u2.x - u1.x;
         const dy = u2.y - u1.y;
         
@@ -167,7 +170,6 @@ export class UnitManager {
   _issueMoveOrder(tx, ty) {
     this._isSearchingPath = true;
     
-    // Ищем свободную точку, если тапнули в стену
     const freeTarget = this.pathfinder.findNearestFreePoint(tx, ty);
     
     const count = this.selectedUnits.length;
@@ -185,7 +187,6 @@ export class UnitManager {
         offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing;
       }
 
-      // Для каждого юнита тоже проверяем, чтобы его смещенная точка не была в стене
       const individualTarget = this.pathfinder.findNearestFreePoint(
         freeTarget.x + offsetX, 
         freeTarget.y + offsetY
@@ -207,5 +208,12 @@ export class UnitManager {
       u.isSelected = true;
     }
     EventBus.emit('units:selected', this.selectedUnits);
+  }
+
+  // НОВЫЙ МЕТОД: установка позы для всех выделенных юнитов
+  setSelectedStance(stance) {
+    for (const unit of this.selectedUnits) {
+      unit.setStance(stance);
+    }
   }
 }
