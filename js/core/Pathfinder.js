@@ -1,7 +1,6 @@
 // js/core/Pathfinder.js
 
 export class Pathfinder {
-  // cellSize = 1 метр (вместо 5)
   constructor(worldSize, cellSize = 1) {
     this.cellSize = cellSize;
     this.worldSize = worldSize;
@@ -22,11 +21,9 @@ export class Pathfinder {
   addObstacle(x, y, w, h) {
     this.obstacles.push({ x, y, w, h });
     
-    // Отступ всего 0.1 метра, чтобы не перекрывать узкие проходы
-    const padding = 0.1; 
-    
-    const start = this.worldToGrid(x - padding, y - padding);
-    const end = this.worldToGrid(x + w + padding, y + h + padding);
+    // УБРАЛИ PADDING! Теперь стены занимают ровно свои клетки.
+    const start = this.worldToGrid(x, y);
+    const end = this.worldToGrid(x + w, y + h);
 
     for (let gy = start.y; gy <= end.y; gy++) {
       for (let gx = start.x; gx <= end.x; gx++) {
@@ -79,7 +76,6 @@ export class Pathfinder {
 
   hasLineOfSight(x1, y1, x2, y2) {
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    // Шагаем с шагом 0.2 метра для точности
     const steps = Math.ceil(dist / 0.2);
 
     for (let i = 0; i <= steps; i++) {
@@ -130,6 +126,14 @@ export class Pathfinder {
 
     const startId = start.y * this.cols + start.x;
     const endId = end.y * this.cols + end.x;
+
+    // Если старт в стене (например, застрял), сдвигаем его
+    if (this.grid[startId] === 1) {
+      const freeStart = this.findNearestFreePoint(startX, startY);
+      const newStart = this.worldToGrid(freeStart.x, freeStart.y);
+      start.x = newStart.x;
+      start.y = newStart.y;
+    }
 
     const openSet = new Set([startId]);
     const cameFrom = new Map();
