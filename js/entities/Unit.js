@@ -20,7 +20,10 @@ export class Unit {
     this.path = [];        
     this.pathIndex = 0;    
     this.isMoving = false;
+    
+    // Для плавного поворота
     this.angle = 0;        
+    this.targetAngle = 0;
     
     this.pathfinder = null; 
   }
@@ -54,43 +57,49 @@ export class Unit {
             this.path = [];
           }
         } else {
-          this.angle = Math.atan2(dy, dx);
-          const moveStep = this.speed * dt;
+          this.targetAngle = Math.atan2(dy, dx);
           
+          const moveStep = this.speed * dt;
           const nextX = this.x + (dx / dist) * moveStep;
           const nextY = this.y + (dy / dist) * moveStep;
 
-          // Проверяем физическую коллизию (круг против прямоугольников)
+          // СКОЛЬЖЕНИЕ ВДОЛЬ СТЕН
           if (this._isPositionFree(nextX, nextY)) {
-            if (moveStep >= dist) {
-              this.x = target.x;
-              this.y = target.y;
-              this.pathIndex++;
-            } else {
-              this.x = nextX;
-              this.y = nextY;
-            }
+            this.x = nextX;
+            this.y = nextY;
           } else {
-            // Если впереди стена, пробуем скользить вдоль неё (упрощенно - просто стоп)
-            this.isMoving = false;
-            this.path = [];
+            // Пробуем сдвинуться только по X
+            if (this._isPositionFree(nextX, this.y)) {
+              this.x = nextX;
+            } 
+            // Или только по Y
+            else if (this._isPositionFree(this.x, nextY)) {
+              this.y = nextY;
+            } else {
+              // Полный тупик
+              this.isMoving = false;
+              this.path = [];
+            }
           }
         }
       }
     }
 
-    // Расталкивание от юнитов
+    // ПЛАВНЫЙ ПОВОРОТ
+    let angleDiff = this.targetAngle - this.angle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    this.angle += angleDiff * Math.min(10 * dt, 1);
+
     if (allUnits) {
       this._separate(allUnits, dt);
     }
   }
 
-  // ТОЧНАЯ ФИЗИЧЕСКАЯ ПРОВЕРКА
   _isPositionFree(x, y) {
     if (!this.pathfinder || !this.pathfinder.obstacles) return true;
 
     for (const obs of this.pathfinder.obstacles) {
-      // Проверяем, пересекается ли круг (x, y, radius) с прямоугольником obs
       const closestX = Math.max(obs.x, Math.min(x, obs.x + obs.w));
       const closestY = Math.max(obs.y, Math.min(y, obs.y + obs.h));
       
@@ -99,7 +108,7 @@ export class Unit {
       const distSq = dx * dx + dy * dy;
       
       if (distSq < this.radius * this.radius) {
-        return false; // Пересекаемся со стеной
+        return false; 
       }
     }
     return true;
@@ -114,9 +123,13 @@ export class Unit {
       if (other === this) continue;
       const dx = this.x - other.x;
       const dy = this.y - other.y;
-      const dist = Math.hypot(dx, dy);
       
-      if (dist < minDist && dist > 0.01) {
+      // Оптимизация: быстрая проверка по квадратам
+      if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
+
+      const distSq = dx * dx + dy * dy;
+      if (distSq < minDist * minDist && distSq > 0.0001) {
+        const dist = Math.sqrt(distSq);
         const force = (minDist - dist) / minDist; 
         pushX += (dx / dist) * force;
         pushY += (dy / dist) * force;
@@ -127,7 +140,6 @@ export class Unit {
       const pushSpeed = 5;
       const nx = this.x + pushX * pushSpeed * dt;
       const ny = this.y + pushY * pushSpeed * dt;
-      // Проверяем, что расталкивание не вытолкнет в стену
       if (this._isPositionFree(nx, ny)) {
         this.x = nx;
         this.y = ny;
