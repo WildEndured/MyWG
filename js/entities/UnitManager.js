@@ -8,13 +8,37 @@ export class UnitManager {
     this.units = [];
     this.selectedUnit = null;
     this.pathfinder = new Pathfinder(100, 5);
-    this._isSearchingPath = false; // Защита от параллельных запросов
+    this._isSearchingPath = false;
 
+    // Подписываемся на клики
     EventBus.on('input:tap', this.handleTap.bind(this));
   }
 
   setWorldSize(size) {
     this.pathfinder.setWorldSize(size);
+    this._spawnTestObstacles(size);
+  }
+
+  // Создаем тестовые стены для проверки A*
+  _spawnTestObstacles(mapSize) {
+    this.pathfinder.clearObstacles();
+    const c = mapSize / 2;
+    
+    // Вертикальная стена по центру с проходом
+    const wallW = 5; // Ширина стены в метрах
+    const wallH = mapSize * 0.4;
+    const wallX = c - wallW / 2;
+    const wallY = c - wallH / 2;
+    
+    // Верхняя часть стены
+    this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
+    // Нижняя часть стены (оставляем проход посередине)
+    this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
+    
+    // Еще одна стена для интереса
+    const hWallW = mapSize * 0.3;
+    const hWallH = 5;
+    this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
   addUnit(unit) {
@@ -28,13 +52,30 @@ export class UnitManager {
   }
 
   draw(ctx, camera) {
+    // Сначала рисуем стены (под юнитами)
+    this._drawObstacles(ctx, camera);
+    
+    // Потом юнитов
     for (const unit of this.units) {
       unit.draw(ctx, camera);
     }
   }
 
+  _drawObstacles(ctx, camera) {
+    ctx.fillStyle = '#555';
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+
+    for (const obs of this.pathfinder.obstacles) {
+      const tl = camera.worldToScreen(obs.x, obs.y);
+      const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
+      
+      ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+      ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+    }
+  }
+
   handleTap({ x, y }) {
-    // ЗАЩИТА: не запускать новый поиск, пока идет предыдущий
     if (this._isSearchingPath) return;
 
     let clickedUnit = null;
@@ -54,13 +95,10 @@ export class UnitManager {
 
     if (this.selectedUnit) {
       this._isSearchingPath = true;
-      
-      // Поиск пути (можно вынести в setTimeout, чтобы UI не блокировался)
       const path = this.pathfinder.findPath(
         this.selectedUnit.x, this.selectedUnit.y, 
         x, y
       );
-      
       this.selectedUnit.setPath(path);
       this._isSearchingPath = false;
     }
