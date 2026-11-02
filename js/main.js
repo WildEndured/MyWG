@@ -37,7 +37,8 @@ function setMapSize(meters) {
   unitManager.setWorldSize(meters);
   camera.fit(meters, meters);
   
-  document.querySelectorAll('#hud button[data-size]').forEach(b => {
+  // Обновляем активную кнопку размера карты (используем класс hud-top-left)
+  document.querySelectorAll('.hud-top-left button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
   });
   
@@ -66,7 +67,7 @@ EventBus.on('input:tap', (data) => {
 });
 
 // HUD размеров карты
-document.querySelectorAll('#hud button[data-size]').forEach(btn => {
+document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
 
@@ -87,12 +88,11 @@ for (const [id, stance] of Object.entries(stanceButtons)) {
   if (btn) {
     btn.addEventListener('click', () => {
       unitManager.setSelectedStance(stance);
-      updateStanceUI(stance); // Подсвечиваем нажатую кнопку
+      updateStanceUI(stance); 
     });
   }
 }
 
-// Функция обновления подсветки кнопок
 function updateStanceUI(activeStance) {
   for (const [id, stance] of Object.entries(stanceButtons)) {
     const btn = document.getElementById(id);
@@ -116,6 +116,7 @@ document.getElementById('btn-speed-2').addEventListener('click', () => TimeManag
 document.getElementById('btn-speed-4').addEventListener('click', () => TimeManager.setTimeScale(4.0));
 
 EventBus.on('time:changed', ({ scale, isPaused }) => {
+  // Снимаем выделение со всех кнопок времени (используем класс time-btn)
   document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
   
   if (isPaused) {
@@ -126,7 +127,7 @@ EventBus.on('time:changed', ({ scale, isPaused }) => {
   }
 });
 
-
+// --- ГЛАВНЫЙ ЦИКЛ ---
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
@@ -137,6 +138,7 @@ function frame(now) {
     unitManager.update(dt);
   }
 
+  // Отрисовка (всегда)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
@@ -144,14 +146,16 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// --- ОКНО И ЗАПУСК ---
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
 resize();
-setMapSize(100);
+setMapSize(100); // Стартовая карта
 lastTime = performance.now();
 requestAnimationFrame(frame);
 
+// Хак для мобилок
 setTimeout(() => {
   resize();
   camera.fit(map.size, map.size);
