@@ -28,6 +28,21 @@ export class UnitManager {
   update(dt) {
     for (const unit of this.units) {
       unit.update(dt, this.units); 
+      
+      // Если юнит застрял — перестраиваем путь к его текущей цели
+      if (unit.needsRepath) {
+        unit.needsRepath = false;
+        
+        // Если у юнита была цель (последняя точка пути), попробуем перестроить
+        // (для этого сохраним цель в юните)
+        if (unit.lastTarget) {
+          const newPath = this.pathfinder.findPath(
+            unit.x, unit.y, 
+            unit.lastTarget.x, unit.lastTarget.y
+          );
+          unit.setPath(newPath);
+        }
+      }
     }
     this._resolveCollisions();
   }
@@ -84,18 +99,14 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
-    // Тонкие стены (0.5 метра) и широкий проход (6 метров)
     const wallW = 0.5; 
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
     const wallY = c - wallH / 2;
     
-    // Верхняя стена
     this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.3);
-    // Нижняя стена (проход между ними = 6 метров)
     this.pathfinder.addObstacle(wallX, wallY + wallH * 0.7, wallW, wallH * 0.3);
     
-    // Горизонтальная стена
     const hWallW = mapSize * 0.3;
     const hWallH = 0.5; 
     this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
@@ -194,6 +205,9 @@ export class UnitManager {
         freeTarget.y + offsetY
       );
 
+      // СОХРАНЯЕМ ЦЕЛЬ, чтобы юнит мог перестроить путь
+      unit.lastTarget = individualTarget;
+      
       const path = this.pathfinder.findPath(unit.x, unit.y, individualTarget.x, individualTarget.y);
       unit.setPath(path);
     });
@@ -217,4 +231,4 @@ export class UnitManager {
       unit.setStance(stance);
     }
   }
-}
+      }
