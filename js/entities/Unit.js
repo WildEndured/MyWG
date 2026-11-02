@@ -2,6 +2,8 @@
 import { Weapon } from './Weapon.js';
 import { WEAPONS } from '../data/weapons.js';
 import { UNIT_TYPES } from '../data/units.js';
+import { Physics } from '../core/Physics.js';
+import { EventBus } from '../core/EventBus.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', type = 'infantry') {
@@ -10,7 +12,6 @@ export class Unit {
     
     this.faction = faction; 
     
-    // Загружаем конфигурацию из data
     const config = UNIT_TYPES[type] || UNIT_TYPES['infantry'];
     this.type = config.id;
     this.name = config.name;
@@ -22,24 +23,20 @@ export class Unit {
     this.hp = this.maxHp;
     this.isDead = false;
     
-    // Выносливость
     this.maxStamina = config.maxStamina;
     this.stamina = this.maxStamina;
     this.speedEndurance = config.speedEndurance;
     this.recoveryRate = config.recoveryRate;
     this.staminaCooldown = 0;
     
-    // Позы и скорость
     this.stance = 'stand'; 
     this.speeds = config.speeds;
     this.speed = this.speeds[this.stance];
     
-    // Оружие
     const weaponConfig = WEAPONS[config.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
     
     this.target = null;
-    
     this.isSelected = false;
     this.path = [];        
     this.pathIndex = 0;    
@@ -114,15 +111,18 @@ export class Unit {
           const nextX = this.x + (dx / dist) * moveStep;
           const nextY = this.y + (dy / dist) * moveStep;
 
-          if (this.stance === 'prone' || this._isPositionFree(nextX, nextY)) {
+          // Используем Physics для проверки
+          const obs = this.pathfinder ? this.pathfinder.obstacles : null;
+
+          if (this.stance === 'prone' || Physics.isPositionFree(nextX, nextY, this.baseRadius, obs)) {
             this.x = nextX;
             this.y = nextY;
           } else {
             let slid = false;
-            if (this._isPositionFree(nextX, this.y)) {
+            if (Physics.isPositionFree(nextX, this.y, this.baseRadius, obs)) {
               this.x = nextX;
               slid = true;
-            } else if (this._isPositionFree(this.x, nextY)) {
+            } else if (Physics.isPositionFree(this.x, nextY, this.baseRadius, obs)) {
               this.y = nextY;
               slid = true;
             }
@@ -143,10 +143,6 @@ export class Unit {
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1);
-
-    if (allUnits && this.stance !== 'prone') {
-      this._separate(allUnits, dt);
-    }
   }
 
   _updateCombat(dt, allUnits, currentTime) {
@@ -157,9 +153,12 @@ export class Unit {
       if (other.faction === this.faction || other.isDead) continue;
       const dist = Math.hypot(other.x - this.x, other.y - this.y);
       
-      if (dist < minDist && this._hasLineOfSight(other)) {
-        minDist = dist;
-        closestEnemy = other;
+      if (dist < minDist) {
+        const obs = this.pathfinder ? this.pathfinder.obstacles : null;
+        if (Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obs)) {
+          minDist = dist;
+          closestEnemy = other;
+        }
       }
     }
 
@@ -182,31 +181,17 @@ export class Unit {
       const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
       const spread = this.weapon.spreadBase * (dist / 100); 
       const hitChance = Math.max(0.3, 1 - spread / 10); 
+
+      // Отправляем событие выстрела
+      EventBus.emit('unit:shoot', {
+        x1: this.x, y1: this.y,
+        x2: this.target.x, y2: this.target.y
+      });
       
       if (Math.random() < hitChance) {
         this.target.takeDamage(this.weapon.damage);
-        if (this.onShoot) this.onShoot(this.target);
       }
     }
-  }
-
-  _hasLineOfSight(other) {
-    if (!this.pathfinder) return true;
-    for (const obs of this.pathfinder.obstacles) {
-      if (this._lineIntersectsRect(this.x, this.y, other.x, other.y, obs)) return false;
-    }
-    return true;
-  }
-
-  _lineIntersectsRect(x1, y1, x2, y2, rect) {
-    const steps = 10;
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const px = x1 + (x2 - x1) * t;
-      const py = y1 + (y2 - y1) * t;
-      if (px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h) return true;
-    }
-    return false;
   }
 
   _updateStamina(dt) {
@@ -235,50 +220,6 @@ export class Unit {
     this.stamina = Math.max(0, Math.min(this.maxStamina, this.stamina));
     if (this.stance === 'run' && this.stamina <= 0) {
       this.setStance('stand');
-    }
-  }
-
-  _isPositionFree(x, y) {
-    if (!this.pathfinder || !this.pathfinder.obstacles) return true;
-    for (const obs of this.pathfinder.obstacles) {
-      const closestX = Math.max(obs.x, Math.min(x, obs.x + obs.w));
-      const closestY = Math.max(obs.y, Math.min(y, obs.y + obs.h));
-      const dx = x - closestX;
-      const dy = y - closestY;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < this.baseRadius * this.baseRadius) return false; 
-    }
-    return true;
-  }
-
-  _separate(allUnits, dt) {
-    let pushX = 0;
-    let pushY = 0;
-    const minDist = this.baseRadius * 2; 
-
-    for (const other of allUnits) {
-      if (other === this || other.stance === 'prone' || other.isDead) continue;
-      const dx = this.x - other.x;
-      const dy = this.y - other.y;
-      if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
-
-      const distSq = dx * dx + dy * dy;
-      if (distSq < minDist * minDist && distSq > 0.0001) {
-        const dist = Math.sqrt(distSq);
-        const force = (minDist - dist) / minDist; 
-        pushX += (dx / dist) * force;
-        pushY += (dy / dist) * force;
-      }
-    }
-
-    if (pushX !== 0 || pushY !== 0) {
-      const pushSpeed = 5;
-      const nx = this.x + pushX * pushSpeed * dt;
-      const ny = this.y + pushY * pushSpeed * dt;
-      if (this._isPositionFree(nx, ny)) {
-        this.x = nx;
-        this.y = ny;
-      }
     }
   }
 
@@ -380,4 +321,4 @@ export class Unit {
       }
     }
   }
-  }
+}
