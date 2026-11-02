@@ -11,11 +11,11 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
 const coordsDiv = document.getElementById('coords');
 
-// 1. Инициализация систем
 const camera = new Camera(canvas);
 const map = new GameMap(camera);
 const input = new Input(canvas, camera);
-const unitManager = new UnitManager(camera); // Передаем камеру сразу
+const unitManager = new UnitManager();
+unitManager.camera = camera; // ПЕРЕДАЕМ КАМЕРУ СЮДА
 
 let dpr = 1;
 let lastTime = performance.now();
@@ -49,7 +49,7 @@ function spawnInitialUnits(mapSize) {
   unitManager.selectedUnits = [];
 
   const center = mapSize / 2;
-  const offset = mapSize * 0.15;
+  const offset = mapSize * 0.1;
 
   unitManager.addUnit(new Unit(center - offset, center, 'player'));
   unitManager.addUnit(new Unit(center - offset, center + offset, 'player'));
@@ -63,6 +63,7 @@ function spawnInitialUnits(mapSize) {
 
 EventBus.on('input:dragBox', (data) => { selectionBox = data; });
 EventBus.on('input:clearBox', () => { selectionBox = null; });
+
 EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
@@ -70,6 +71,7 @@ EventBus.on('input:tap', (data) => {
 document.querySelectorAll('#hud button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
+
 document.getElementById('fit').addEventListener('click', () => {
   camera.fit(map.size, map.size);
 });
