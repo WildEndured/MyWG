@@ -1,27 +1,21 @@
+// js/core/Camera.js
 import { CONFIG, clamp } from '../data/config.js';
 
 export class Camera {
   constructor() {
-    this.x = 0;
-    this.y = 0;
+    this.x = 0; this.y = 0;
     this.zoom = CONFIG.PX_PER_METER_BASE;
-    this.viewW = 0;
-    this.viewH = 0;
-    this.dpr = 1;
-    this.worldW = 100;
-    this.worldH = 100;
+    this.viewW = 0; this.viewH = 0; this.dpr = 1;
+    this.worldW = 100; this.worldH = 100;
   }
 
   setViewport(w, h, dpr) {
-    this.viewW = w;
-    this.viewH = h;
-    this.dpr = dpr;
+    this.viewW = w; this.viewH = h; this.dpr = dpr;
     this._clamp();
   }
 
   setWorld(w, h) {
-    this.worldW = w;
-    this.worldH = h;
+    this.worldW = w; this.worldH = h;
     this._clamp();
   }
 
