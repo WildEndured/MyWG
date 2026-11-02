@@ -6,39 +6,17 @@ import { Pathfinder } from '../core/Pathfinder.js';
 export class UnitManager {
   constructor() {
     this.units = [];
-    this.selectedUnit = null;
+    this.selectedUnits = []; // ТЕПЕРЬ МАССИВ
     this.pathfinder = new Pathfinder(100, 5);
     this._isSearchingPath = false;
 
-    // Подписываемся на клики
     EventBus.on('input:tap', this.handleTap.bind(this));
+    EventBus.on('input:boxSelect', this.handleBoxSelect.bind(this));
   }
 
   setWorldSize(size) {
     this.pathfinder.setWorldSize(size);
     this._spawnTestObstacles(size);
-  }
-
-  // Создаем тестовые стены для проверки A*
-  _spawnTestObstacles(mapSize) {
-    this.pathfinder.clearObstacles();
-    const c = mapSize / 2;
-    
-    // Вертикальная стена по центру с проходом
-    const wallW = 5; // Ширина стены в метрах
-    const wallH = mapSize * 0.4;
-    const wallX = c - wallW / 2;
-    const wallY = c - wallH / 2;
-    
-    // Верхняя часть стены
-    this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
-    // Нижняя часть стены (оставляем проход посередине)
-    this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
-    
-    // Еще одна стена для интереса
-    const hWallW = mapSize * 0.3;
-    const hWallH = 5;
-    this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
   addUnit(unit) {
@@ -52,13 +30,26 @@ export class UnitManager {
   }
 
   draw(ctx, camera) {
-    // Сначала рисуем стены (под юнитами)
     this._drawObstacles(ctx, camera);
-    
-    // Потом юнитов
     for (const unit of this.units) {
       unit.draw(ctx, camera);
     }
+  }
+
+  _spawnTestObstacles(mapSize) {
+    this.pathfinder.clearObstacles();
+    const c = mapSize / 2;
+    const wallW = 5;
+    const wallH = mapSize * 0.4;
+    const wallX = c - wallW / 2;
+    const wallY = c - wallH / 2;
+    
+    this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.4);
+    this.pathfinder.addObstacle(wallX, wallY + wallH * 0.6, wallW, wallH * 0.4);
+    
+    const hWallW = mapSize * 0.3;
+    const hWallH = 5;
+    this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
   _drawObstacles(ctx, camera) {
@@ -69,7 +60,6 @@ export class UnitManager {
     for (const obs of this.pathfinder.obstacles) {
       const tl = camera.worldToScreen(obs.x, obs.y);
       const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
-      
       ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
       ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
     }
@@ -82,36 +72,89 @@ export class UnitManager {
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
       const dist = Math.hypot(u.x - x, u.y - y);
-      if (dist <= u.hitRadius) {
+      // Выделяем только своих (player)
+      if (u.faction === 'player' && dist <= u.hitRadius) {
         clickedUnit = u;
         break;
       }
     }
 
     if (clickedUnit) {
-      this.selectUnit(clickedUnit);
-      return;
-    }
-
-    if (this.selectedUnit) {
-      this._isSearchingPath = true;
-      const path = this.pathfinder.findPath(
-        this.selectedUnit.x, this.selectedUnit.y, 
-        x, y
-      );
-      this.selectedUnit.setPath(path);
-      this._isSearchingPath = false;
+      this.selectUnits([clickedUnit]);
+    } else if (this.selectedUnits.length > 0) {
+      // Отдаем приказ всем выделенным
+      this._issueMoveOrder(x, y);
+    } else {
+      this.selectUnits([]); // Снять выделение
     }
   }
 
-  selectUnit(unit) {
-    if (this.selectedUnit) {
-      this.selectedUnit.isSelected = false;
+  handleBoxSelect({ startX, startY, endX, endY }) {
+    // Переводим экранные координаты в мировые
+    // Примечание: startX/Y приходят из Input в экранных пикселях
+    // Но нам нужно перевести их в мировые. Для этого UnitManager нужен доступ к камере.
+    // Проще всего передавать камеру в EventBus, либо использовать глобальную.
+    // Чтобы не усложнять, мы передадим камеру в конструктор (см. main.js).
+    
+    // Временно используем хак: камера берется из EventBus (или передается напрямую)
+    // Для простоты я добавлю камеру в UnitManager через сеттер.
+    if (!this.camera) return;
+
+    const w1 = this.camera.screenToWorld(Math.min(startX, endX), Math.min(startY, endY));
+    const w2 = this.camera.screenToWorld(Math.max(startX, endX), Math.max(startY, endY));
+
+    const selected = [];
+    for (const u of this.units) {
+      if (u.faction === 'player' && u.isInsideRect(w1.x, w1.y, w2.x, w2.y)) {
+        selected.push(u);
+      }
     }
-    this.selectedUnit = unit;
-    if (this.selectedUnit) {
-      this.selectedUnit.isSelected = true;
+    this.selectUnits(selected);
+  }
+
+  _issueMoveOrder(tx, ty) {
+    this._isSearchingPath = true;
+    
+    // Распределяем точки назначения, чтобы юниты не слипались в одну кучу
+    const count = this.selectedUnits.length;
+    const spacing = 2.5; // Расстояние между юнитами в метрах
+
+    this.selectedUnits.forEach((unit, index) => {
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (count > 1) {
+        // Простая сетка для распределения
+        const cols = Math.ceil(Math.sqrt(count));
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        offsetX = (col - (cols - 1) / 2) * spacing;
+        offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing;
+      }
+
+      const finalX = tx + offsetX;
+      const finalY = ty + offsetY;
+
+      const path = this.pathfinder.findPath(unit.x, unit.y, finalX, finalY);
+      unit.setPath(path);
+    });
+
+    this._isSearchingPath = false;
+  }
+
+  selectUnits(units) {
+    // Снимаем выделение со всех
+    for (const u of this.units) {
+      u.isSelected = false;
     }
-    EventBus.emit('unit:selected', this.selectedUnit);
+    
+    this.selectedUnits = units;
+    
+    // Назначаем новое
+    for (const u of this.selectedUnits) {
+      u.isSelected = true;
+    }
+    
+    EventBus.emit('units:selected', this.selectedUnits);
   }
 }
