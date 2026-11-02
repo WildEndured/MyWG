@@ -18,6 +18,14 @@ export class Unit {
     this.maxHp = 100;
     this.hp = this.maxHp;
     
+    // --- СИСТЕМА ВЫНОСЛИВОСТИ ---
+    this.maxStamina = 100;          // Общая выносливость (макс запас)
+    this.stamina = 100;             // Текущая стамина
+    this.speedEndurance = 1.0;      // Скоростная выносливость (чем выше, тем быстрее тратится)
+    this.recoveryRate = 10;         // Восстановление стамины в секунду (стоя на месте)
+    
+    this.staminaCooldown = 0;       // Задержка перед началом восстановления после бега
+    
     this.isSelected = false;
     
     this.path = [];        
@@ -28,9 +36,8 @@ export class Unit {
     this.targetAngle = 0;
     
     this.pathfinder = null; 
-    
-    // Флаг для запроса на перестроение пути
     this.needsRepath = false;
+    this.lastTarget = null;
   }
 
   _updateSpeed() {
@@ -45,6 +52,10 @@ export class Unit {
 
   setStance(newStance) {
     if (this.stance === newStance) return;
+    
+    // Если пытаемся бежать, но нет сил — не даем
+    if (newStance === 'run' && this.stamina < 10) return;
+
     this.stance = newStance;
     this._updateSpeed();
   }
@@ -62,6 +73,7 @@ export class Unit {
   }
 
   update(dt, allUnits) {
+    // 1. Обновление логики пути
     if (this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) {
         this.isMoving = false;
@@ -89,7 +101,7 @@ export class Unit {
             this.x = nextX;
             this.y = nextY;
           } else {
-            // СКОЛЬЖЕНИЕ ВДОЛЬ СТЕНЫ
+            // Скольжение вдоль стены
             let slid = false;
             if (this._isPositionFree(nextX, this.y)) {
               this.x = nextX;
@@ -100,23 +112,62 @@ export class Unit {
             }
 
             if (!slid) {
-              // Застряли — запрашиваем перестроение пути
               this.isMoving = false;
               this.path = [];
-              this.needsRepath = true; // Менеджер увидит это и перестроит
+              this.needsRepath = true; 
             }
           }
         }
       }
     }
 
+    // 2. Логика выносливости
+    this._updateStamina(dt);
+
+    // 3. Поворот
     let angleDiff = this.targetAngle - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1);
 
+    // 4. Расталкивание
     if (allUnits && this.stance !== 'prone') {
       this._separate(allUnits, dt);
+    }
+  }
+
+  _updateStamina(dt) {
+    // Расход стамины в зависимости от позы и движения
+    if (this.isMoving) {
+      let drain = 0;
+      if (this.stance === 'run') drain = 8 * this.speedEndurance;       // Бег тратит много
+      else if (this.stance === 'stand') drain = 0.5 * this.speedEndurance; // Шаг тратит чуть-чуть
+      else if (this.stance === 'crouch') drain = 0.2 * this.speedEndurance;
+      else if (this.stance === 'prone') drain = 0.05 * this.speedEndurance;
+      
+      this.stamina -= drain * dt;
+      this.staminaCooldown = 2.0; // 2 секунды после остановки/смены позы не восстанавливаемся
+    } else {
+      // Восстановление, если стоим
+      if (this.staminaCooldown > 0) {
+        this.staminaCooldown -= dt;
+      } else {
+        // Стоя восстанавливаемся быстрее, чем лежа
+        let recoveryMultiplier = 1.0;
+        if (this.stance === 'stand') recoveryMultiplier = 1.0;
+        else if (this.stance === 'crouch') recoveryMultiplier = 1.2;
+        else if (this.stance === 'prone') recoveryMultiplier = 1.5;
+        
+        this.stamina += this.recoveryRate * recoveryMultiplier * dt;
+      }
+    }
+
+    // Ограничения
+    this.stamina = Math.max(0, Math.min(this.maxStamina, this.stamina));
+
+    // Принудительный переход в шаг, если бежим и стамина кончилась
+    if (this.stance === 'run' && this.stamina <= 0) {
+      this.setStance('stand');
     }
   }
 
@@ -131,10 +182,7 @@ export class Unit {
       const dy = y - closestY;
       const distSq = dx * dx + dy * dy;
       
-      // Точный радиус
-      const collisionRadius = this.baseRadius; 
-      
-      if (distSq < collisionRadius * collisionRadius) {
+      if (distSq < this.baseRadius * this.baseRadius) {
         return false; 
       }
     }
@@ -211,6 +259,7 @@ export class Unit {
     
     ctx.restore();
 
+    // Выделение
     if (this.isSelected) {
       ctx.beginPath();
       const ringRadius = this.stance === 'prone' ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
@@ -233,17 +282,34 @@ export class Unit {
       }
     }
 
-    if (this.hp < this.maxHp) {
+    // --- ОТРИСОВКА HP И СТАМИНЫ ---
+    const isDamaged = this.hp < this.maxHp;
+    const isTired = this.stamina < this.maxStamina;
+    
+    if (isDamaged || isTired) {
       const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
-      const barH = 4;
+      const barH = 3;
       const barX = screenPos.x - barW / 2;
-      const barY = screenPos.y - (this.baseRadius * camera.zoom) - 12;
       
-      ctx.fillStyle = '#333';
-      ctx.fillRect(barX, barY, barW, barH);
-      
-      ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
-      ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), barH);
+      let currentY = screenPos.y - (this.baseRadius * camera.zoom) - 12;
+
+      // HP бар
+      if (isDamaged) {
+        ctx.fillStyle = '#333';
+        ctx.fillRect(barX, currentY, barW, barH);
+        ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
+        ctx.fillRect(barX, currentY, barW * (this.hp / this.maxHp), barH);
+        currentY -= (barH + 2); // Сдвигаем вверх для следующего бара
+      }
+
+      // Бар стамины
+      if (isTired) {
+        ctx.fillStyle = '#333';
+        ctx.fillRect(barX, currentY, barW, barH);
+        // Цвет: желтый если норма, красный если на нуле
+        ctx.fillStyle = this.stamina > 20 ? '#F4B400' : '#EA4335';
+        ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
+      }
     }
   }
-          }
+}
