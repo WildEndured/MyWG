@@ -28,6 +28,9 @@ export class Unit {
     this.targetAngle = 0;
     
     this.pathfinder = null; 
+    
+    // Флаг для запроса на перестроение пути
+    this.needsRepath = false;
   }
 
   _updateSpeed() {
@@ -55,6 +58,7 @@ export class Unit {
     this.path = path;
     this.pathIndex = 0;
     this.isMoving = true;
+    this.needsRepath = false;
   }
 
   update(dt, allUnits) {
@@ -85,7 +89,7 @@ export class Unit {
             this.x = nextX;
             this.y = nextY;
           } else {
-            // ПРОБУЕМ СКОЛЬЗИТЬ ВДОЛЬ СТЕНЫ
+            // СКОЛЬЖЕНИЕ ВДОЛЬ СТЕНЫ
             let slid = false;
             if (this._isPositionFree(nextX, this.y)) {
               this.x = nextX;
@@ -96,9 +100,10 @@ export class Unit {
             }
 
             if (!slid) {
-              // Если не можем сдвинуться — останавливаемся
+              // Застряли — запрашиваем перестроение пути
               this.isMoving = false;
               this.path = [];
+              this.needsRepath = true; // Менеджер увидит это и перестроит
             }
           }
         }
@@ -126,9 +131,8 @@ export class Unit {
       const dy = y - closestY;
       const distSq = dx * dx + dy * dy;
       
-      // Используем радиус 0.4 (чуть меньше визуального), 
-      // чтобы юнит мог "протиснуться" в узкие щели
-      const collisionRadius = this.baseRadius * 0.9; 
+      // Точный радиус
+      const collisionRadius = this.baseRadius; 
       
       if (distSq < collisionRadius * collisionRadius) {
         return false; 
@@ -242,4 +246,4 @@ export class Unit {
       ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), barH);
     }
   }
-}
+          }
