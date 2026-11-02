@@ -1,73 +1,72 @@
 // js/entities/Unit.js
-import { CONFIG } from '../data/config.js';
-
 export class Unit {
   constructor(x, y, faction = 'player') {
-    // Позиция в метрах
     this.x = x;
     this.y = y;
     
-    // Характеристики
-    this.faction = faction; // 'player' (синий) или 'enemy' (красный)
-    this.radius = 1.5;      // Радиус в метрах (для попадания тапом)
-    this.speed = 20;        // Скорость в метрах в секунду
+    this.faction = faction;
+    this.radius = 1.5;
+    this.speed = 15; // Чуть замедлили для красоты
     this.maxHp = 100;
     this.hp = this.maxHp;
     
-    // Состояние
     this.isSelected = false;
     
-    // Движение
-    this.targetX = x;
-    this.targetY = y;
+    // Движение по пути
+    this.path = [];        // Массив точек {x, y}
+    this.pathIndex = 0;    // Текущая точка, к которой едем
     this.isMoving = false;
+    
+    this.angle = 0;        // Угол поворота для отрисовки
   }
 
-  // Установка точки назначения
-  setTarget(tx, ty) {
-    this.targetX = tx;
-    this.targetY = ty;
+  setPath(path) {
+    if (!path || path.length === 0) return;
+    this.path = path;
+    this.pathIndex = 0;
     this.isMoving = true;
   }
 
-  // Обновление логики (вызывается каждый кадр)
   update(dt) {
-    if (!this.isMoving) return;
+    if (!this.isMoving || this.path.length === 0) return;
 
-    const dx = this.targetX - this.x;
-    const dy = this.targetY - this.y;
+    const target = this.path[this.pathIndex];
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
 
-    // Если дистанция меньше 0.5 метра — мы на месте
-    if (dist < 0.5) {
-      this.isMoving = false;
-      this.x = this.targetX;
-      this.y = this.targetY;
+    // Если достигли текущей точки пути
+    if (dist < 1.0) { // Порог 1 метр
+      this.pathIndex++;
+      if (this.pathIndex >= this.path.length) {
+        // Дошли до конца
+        this.isMoving = false;
+        this.path = [];
+      }
       return;
     }
 
-    // Двигаемся к цели
+    // Вычисляем угол (для отрисовки направления)
+    this.angle = Math.atan2(dy, dx);
+
+    // Двигаемся
     const moveStep = this.speed * dt;
-    // Если осталось идти меньше, чем шаг за кадр, просто телепортируемся в цель
     if (moveStep >= dist) {
-      this.x = this.targetX;
-      this.y = this.targetY;
-      this.isMoving = false;
+      this.x = target.x;
+      this.y = target.y;
     } else {
       this.x += (dx / dist) * moveStep;
       this.y += (dy / dist) * moveStep;
     }
   }
 
-  // Отрисовка юнита
   draw(ctx, camera) {
     const screenPos = camera.worldToScreen(this.x, this.y);
     const screenRadius = this.radius * camera.zoom;
 
-    // Цвет фракции
+    // ... (Отрисовка круга, выделения и HP остаются как были) ...
     const color = this.faction === 'player' ? '#4285F4' : '#EA4335';
     
-    // Отрисовка тела (круг)
     ctx.beginPath();
     ctx.arc(screenPos.x, screenPos.y, screenRadius, 0, Math.PI * 2);
     ctx.fillStyle = color;
@@ -76,27 +75,36 @@ export class Unit {
     ctx.strokeStyle = '#000';
     ctx.stroke();
 
-    // Отрисовка выделения (желтое кольцо)
+    // Отрисовка направления (маленькая точка впереди)
+    if (screenRadius > 4) {
+      const dirX = screenPos.x + Math.cos(this.angle) * screenRadius * 0.6;
+      const dirY = screenPos.y + Math.sin(this.angle) * screenRadius * 0.6;
+      ctx.beginPath();
+      ctx.arc(dirX, dirY, screenRadius * 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+    }
+
     if (this.isSelected) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y, screenRadius + 4, 0, Math.PI * 2);
-      ctx.strokeStyle = '#F4B400'; // Желтый
+      ctx.strokeStyle = '#F4B400';
       ctx.lineWidth = 2;
       ctx.stroke();
-    }
-
-    // Отрисовка HP бара (если здоровье не полное)
-    if (this.hp < this.maxHp) {
-      const barW = screenRadius * 2;
-      const barH = 4;
-      const barX = screenPos.x - barW / 2;
-      const barY = screenPos.y - screenRadius - 8;
       
-      ctx.fillStyle = '#333';
-      ctx.fillRect(barX, barY, barW, barH);
-      
-      ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
-      ctx.fillRect(barX, barY, barW * (this.hp / this.maxHp), barH);
+      // Если выделен и есть путь — рисуем линию пути (отладочная инфа)
+      if (this.isMoving && this.path.length > 0) {
+        ctx.beginPath();
+        const start = camera.worldToScreen(this.x, this.y);
+        ctx.moveTo(start.x, start.y);
+        for (let i = this.pathIndex; i < this.path.length; i++) {
+           const p = camera.worldToScreen(this.path[i].x, this.path[i].y);
+           ctx.lineTo(p.x, p.y);
+        }
+        ctx.strokeStyle = 'rgba(244, 180, 0, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
   }
 }
