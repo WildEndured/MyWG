@@ -21,12 +21,45 @@ export class UnitManager {
   }
 
   addUnit(unit) {
+    unit.pathfinder = this.pathfinder; // Даем юниту доступ к стенам
     this.units.push(unit);
   }
 
   update(dt) {
+    // 1. Сначала обновляем логику движения всех юнитов
     for (const unit of this.units) {
-      unit.update(dt);
+      unit.update(dt, this.units); // Передаем всех юнитов для расталкивания
+    }
+
+    // 2. Глобальное расталкивание (жесткая физика)
+    this._resolveCollisions();
+  }
+
+  // Жесткое расталкивание, чтобы они не накладывались друг на друга
+  _resolveCollisions() {
+    const minDist = 1.0; // Минимальная дистанция между центрами (2 * радиус 0.5)
+    
+    for (let i = 0; i < this.units.length; i++) {
+      for (let j = i + 1; j < this.units.length; j++) {
+        const u1 = this.units[i];
+        const u2 = this.units[j];
+        
+        const dx = u2.x - u1.x;
+        const dy = u2.y - u1.y;
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist < minDist && dist > 0.01) {
+          const overlap = (minDist - dist) / 2;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          
+          // Раздвигаем их в разные стороны
+          u1.x -= nx * overlap;
+          u1.y -= ny * overlap;
+          u2.x += nx * overlap;
+          u2.y += ny * overlap;
+        }
+      }
     }
   }
 
@@ -93,7 +126,6 @@ export class UnitManager {
   handleDoubleTap({ x, y }) {
     if (this._isSearchingPath) return;
 
-    // 1. Находим юнита, по которому тапнули
     let clickedUnit = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
@@ -106,17 +138,14 @@ export class UnitManager {
       }
     }
 
-    if (!clickedUnit) return; // Дабл-тап по пустоте игнорируем
+    if (!clickedUnit) return; 
 
-    // 2. Собираем всех юнитов ТОГО ЖЕ ТИПА, которые видны на экране
     const selected = [];
-    const type = clickedUnit.type; // Предполагаем, что у юнита есть свойство type
+    const type = clickedUnit.type; 
     const faction = clickedUnit.faction;
 
     for (const u of this.units) {
       if (u.faction !== faction || u.type !== type) continue;
-      
-      // Проверяем, виден ли юнит на экране
       if (this.camera.isPointVisible(u.x, u.y)) {
         selected.push(u);
       }
@@ -157,13 +186,10 @@ export class UnitManager {
     for (const u of this.units) {
       u.isSelected = false;
     }
-    
     this.selectedUnits = units;
-    
     for (const u of this.selectedUnits) {
       u.isSelected = true;
     }
-    
     EventBus.emit('units:selected', this.selectedUnits);
   }
-  }
+}
