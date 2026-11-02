@@ -37,7 +37,6 @@ export class Unit {
   }
 
   update(dt, allUnits) {
-    // 1. Движение
     if (this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) {
         this.isMoving = false;
@@ -61,7 +60,6 @@ export class Unit {
           const nextX = this.x + (dx / dist) * moveStep;
           const nextY = this.y + (dy / dist) * moveStep;
 
-          // ПРОСТАЯ КОЛЛИЗИЯ СО СТЕНОЙ
           if (this._isWalkable(nextX, nextY)) {
             if (moveStep >= dist) {
               this.x = target.x;
@@ -72,7 +70,6 @@ export class Unit {
               this.y = nextY;
             }
           } else {
-            // Наткнулись на стену — останавливаемся (ждем новых приказов)
             this.isMoving = false;
             this.path = [];
           }
@@ -80,22 +77,37 @@ export class Unit {
       }
     }
 
-    // 2. Расталкивание от других юнитов (мягкое)
     if (allUnits) {
       this._separate(allUnits, dt);
     }
   }
 
+  // НОВАЯ ПРОВЕРКА: проверяем не только центр, но и края юнита
   _isWalkable(x, y) {
     if (!this.pathfinder) return true;
-    const g = this.pathfinder.worldToGrid(x, y);
-    return this.pathfinder.grid[g.y * this.pathfinder.cols + g.x] === 0;
+    
+    const r = this.radius;
+    const points = [
+      { x: x, y: y },              // Центр
+      { x: x - r, y: y - r },      // Левый верх
+      { x: x + r, y: y - r },      // Правый верх
+      { x: x - r, y: y + r },      // Левый низ
+      { x: x + r, y: y + r },      // Правый низ
+    ];
+
+    for (const p of points) {
+      const g = this.pathfinder.worldToGrid(p.x, p.y);
+      if (this.pathfinder.grid[g.y * this.pathfinder.cols + g.x] === 1) {
+        return false; // Хотя бы одна точка в стене
+      }
+    }
+    return true;
   }
 
   _separate(allUnits, dt) {
     let pushX = 0;
     let pushY = 0;
-    const minDist = this.radius * 2; // Диаметр = 1.0 метр
+    const minDist = this.radius * 2; 
 
     for (const other of allUnits) {
       if (other === this) continue;
@@ -112,7 +124,6 @@ export class Unit {
 
     if (pushX !== 0 || pushY !== 0) {
       const pushSpeed = 5;
-      // Применяем только если следующая точка не в стене (чтобы не вытолкнуло в стену)
       const nx = this.x + pushX * pushSpeed * dt;
       const ny = this.y + pushY * pushSpeed * dt;
       if (this._isWalkable(nx, ny)) {
