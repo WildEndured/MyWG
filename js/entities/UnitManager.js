@@ -8,11 +8,11 @@ export class UnitManager {
     this.units = [];
     this.selectedUnits = [];
     this.pathfinder = new Pathfinder(100, 5);
-    this.camera = null; // Будет установлен из main.js
+    this.camera = null; 
     this._isSearchingPath = false;
 
     EventBus.on('input:tap', this.handleTap.bind(this));
-    EventBus.on('input:boxSelect', this.handleBoxSelect.bind(this));
+    EventBus.on('input:doubleTap', this.handleDoubleTap.bind(this));
   }
 
   setWorldSize(size) {
@@ -69,7 +69,6 @@ export class UnitManager {
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
 
-    // 1. Проверяем, не тапнули ли по юниту игрока
     let clickedUnit = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
@@ -87,29 +86,42 @@ export class UnitManager {
     } else if (this.selectedUnits.length > 0) {
       this._issueMoveOrder(x, y);
     } else {
-      this.selectUnits([]); // Снять выделение, если кликнули по пустоте
+      this.selectUnits([]); 
     }
   }
 
-  handleBoxSelect({ startX, startY, endX, endY }) {
-    if (!this.camera) return;
+  handleDoubleTap({ x, y }) {
+    if (this._isSearchingPath) return;
 
-    // Переводим экранные координаты в мировые
-    const w1 = this.camera.screenToWorld(
-      Math.min(startX, endX), 
-      Math.min(startY, endY)
-    );
-    const w2 = this.camera.screenToWorld(
-      Math.max(startX, endX), 
-      Math.max(startY, endY)
-    );
+    // 1. Находим юнита, по которому тапнули
+    let clickedUnit = null;
+    for (let i = this.units.length - 1; i >= 0; i--) {
+      const u = this.units[i];
+      if (u.faction !== 'player') continue;
+      
+      const dist = Math.hypot(u.x - x, u.y - y);
+      if (dist <= u.hitRadius) {
+        clickedUnit = u;
+        break;
+      }
+    }
 
+    if (!clickedUnit) return; // Дабл-тап по пустоте игнорируем
+
+    // 2. Собираем всех юнитов ТОГО ЖЕ ТИПА, которые видны на экране
     const selected = [];
+    const type = clickedUnit.type; // Предполагаем, что у юнита есть свойство type
+    const faction = clickedUnit.faction;
+
     for (const u of this.units) {
-      if (u.faction === 'player' && u.isInsideRect(w1.x, w1.y, w2.x, w2.y)) {
+      if (u.faction !== faction || u.type !== type) continue;
+      
+      // Проверяем, виден ли юнит на экране
+      if (this.camera.isPointVisible(u.x, u.y)) {
         selected.push(u);
       }
     }
+
     this.selectUnits(selected);
   }
 
@@ -154,4 +166,4 @@ export class UnitManager {
     
     EventBus.emit('units:selected', this.selectedUnits);
   }
-}
+  }
