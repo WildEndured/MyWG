@@ -1,13 +1,14 @@
 // js/core/Pathfinder.js
 
 export class Pathfinder {
-  constructor(worldSize, cellSize = 5) {
+  // cellSize = 1 метр (вместо 5)
+  constructor(worldSize, cellSize = 1) {
     this.cellSize = cellSize;
     this.worldSize = worldSize;
     this.cols = Math.ceil(worldSize / cellSize);
     this.rows = Math.ceil(worldSize / cellSize);
     this.grid = new Uint8Array(this.cols * this.rows);
-    this.obstacles = []; 
+    this.obstacles = [];
   }
 
   setWorldSize(worldSize) {
@@ -20,7 +21,9 @@ export class Pathfinder {
 
   addObstacle(x, y, w, h) {
     this.obstacles.push({ x, y, w, h });
-    const padding = 0.5; 
+    
+    // Отступ всего 0.1 метра, чтобы не перекрывать узкие проходы
+    const padding = 0.1; 
     
     const start = this.worldToGrid(x - padding, y - padding);
     const end = this.worldToGrid(x + w + padding, y + h + padding);
@@ -28,7 +31,7 @@ export class Pathfinder {
     for (let gy = start.y; gy <= end.y; gy++) {
       for (let gx = start.x; gx <= end.x; gx++) {
         if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) {
-          this.grid[gy * this.cols + gx] = 1; 
+          this.grid[gy * this.cols + gx] = 1;
         }
       }
     }
@@ -53,12 +56,11 @@ export class Pathfinder {
     };
   }
 
-  // НОВЫЙ МЕТОД: Поиск ближайшей свободной точки (если цель в стене)
   findNearestFreePoint(x, y) {
     let g = this.worldToGrid(x, y);
     if (this.grid[g.y * this.cols + g.x] === 0) return { x, y };
 
-    for (let r = 1; r < 20; r++) {
+    for (let r = 1; r < 30; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dy = -r; dy <= r; dy++) {
           if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
@@ -77,7 +79,8 @@ export class Pathfinder {
 
   hasLineOfSight(x1, y1, x2, y2) {
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const steps = Math.ceil(dist / (this.cellSize / 2));
+    // Шагаем с шагом 0.2 метра для точности
+    const steps = Math.ceil(dist / 0.2);
 
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
@@ -109,7 +112,6 @@ export class Pathfinder {
   }
 
   findPath(startX, startY, endX, endY) {
-    // Защита: ищем свободную точку, если цель в стене
     const freeEnd = this.findNearestFreePoint(endX, endY);
     endX = freeEnd.x;
     endY = freeEnd.y;
@@ -202,4 +204,4 @@ export class Pathfinder {
     path.reverse();
     return path;
   }
-                             }
+}
