@@ -5,7 +5,7 @@ export class GameMap {
   constructor(camera) {
     this.camera = camera;
     this.size = 100;
-    this.cellSize = 5; // <-- ДОЛЖНО СОВПАДАТЬ С PATHFINDER
+    this.cellSize = 5;
   }
 
   setSize(meters) { this.size = meters; }
@@ -28,12 +28,12 @@ export class GameMap {
     const x0 = Math.max(0, wTL.x), y0 = Math.max(0, wTL.y);
     const x1 = Math.min(this.size, wBR.x), y1 = Math.min(this.size, wBR.y);
 
-    // Рисуем сетку с шагом cellSize (5 метров)
-    if (this.cellSize * cam.zoom >= 6) {
+    // Показываем мелкую сетку ТОЛЬКО при достаточном зуме
+    if (this.cellSize * cam.zoom >= 15) {
       this._drawGrid(ctx, x0, y0, x1, y1, this.cellSize, 'rgba(255,255,255,0.05)');
     }
-    // Крупная сетка для ориентации (каждые 20 метров)
-    if (20 * cam.zoom >= 6) {
+    // Крупная сетка каждые 20 метров
+    if (20 * cam.zoom >= 10) {
       this._drawGrid(ctx, x0, y0, x1, y1, 20, 'rgba(255,255,255,0.15)');
     }
 
