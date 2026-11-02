@@ -21,9 +21,11 @@ export class Pathfinder {
   addObstacle(x, y, w, h) {
     this.obstacles.push({ x, y, w, h });
     
-    // УБРАЛИ PADDING! Теперь стены занимают ровно свои клетки.
-    const start = this.worldToGrid(x, y);
-    const end = this.worldToGrid(x + w, y + h);
+    // PADDING 0.3 метра — A* будет огибать стены, оставляя зазор
+    const padding = 0.3; 
+    
+    const start = this.worldToGrid(x - padding, y - padding);
+    const end = this.worldToGrid(x + w + padding, y + h + padding);
 
     for (let gy = start.y; gy <= end.y; gy++) {
       for (let gx = start.x; gx <= end.x; gx++) {
@@ -126,14 +128,6 @@ export class Pathfinder {
 
     const startId = start.y * this.cols + start.x;
     const endId = end.y * this.cols + end.x;
-
-    // Если старт в стене (например, застрял), сдвигаем его
-    if (this.grid[startId] === 1) {
-      const freeStart = this.findNearestFreePoint(startX, startY);
-      const newStart = this.worldToGrid(freeStart.x, freeStart.y);
-      start.x = newStart.x;
-      start.y = newStart.y;
-    }
 
     const openSet = new Set([startId]);
     const cameFrom = new Map();
