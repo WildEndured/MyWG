@@ -1,4 +1,5 @@
 // js/core/Pathfinder.js
+import { CONFIG } from '../data/config.js';
 
 export class Pathfinder {
   constructor(worldSize, cellSize = 1) {
@@ -21,8 +22,7 @@ export class Pathfinder {
   addObstacle(x, y, w, h) {
     this.obstacles.push({ x, y, w, h });
     
-    // PADDING 0.3 метра — A* будет огибать стены, оставляя зазор
-    const padding = 0.3; 
+    const padding = CONFIG.PHYSICS.PATHFINDER_PADDING; 
     
     const start = this.worldToGrid(x - padding, y - padding);
     const end = this.worldToGrid(x + w + padding, y + h + padding);
@@ -128,6 +128,13 @@ export class Pathfinder {
 
     const startId = start.y * this.cols + start.x;
     const endId = end.y * this.cols + end.x;
+
+    if (this.grid[startId] === 1) {
+      const freeStart = this.findNearestFreePoint(startX, startY);
+      const newStart = this.worldToGrid(freeStart.x, freeStart.y);
+      start.x = newStart.x;
+      start.y = newStart.y;
+    }
 
     const openSet = new Set([startId]);
     const cameFrom = new Map();
