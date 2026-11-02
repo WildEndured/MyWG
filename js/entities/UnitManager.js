@@ -1,14 +1,22 @@
 // js/entities/UnitManager.js
 import { EventBus } from '../core/EventBus.js';
 import { Unit } from './Unit.js';
+import { Pathfinder } from '../core/Pathfinder.js'; // ИМПОРТ
 
 export class UnitManager {
   constructor() {
     this.units = [];
     this.selectedUnit = null;
+    
+    // Создаем Pathfinder (изначально для 100м карты)
+    this.pathfinder = new Pathfinder(100, 5); 
 
-    // Подписываемся на клики по карте
     EventBus.on('input:tap', this.handleTap.bind(this));
+  }
+
+  setWorldSize(size) {
+    // При смене карты пересоздаем сетку
+    this.pathfinder.setWorldSize(size);
   }
 
   addUnit(unit) {
@@ -22,20 +30,17 @@ export class UnitManager {
   }
 
   draw(ctx, camera) {
-    // Сначала рисуем всех, потом (если нужно) поверх — выделение
+    // ... (отрисовка как раньше)
     for (const unit of this.units) {
       unit.draw(ctx, camera);
     }
   }
 
   handleTap({ x, y }) {
-    // 1. Проверяем, попали ли мы по какому-то юниту
-    // Идем с конца, чтобы выбирать тех, кто нарисован сверху
     let clickedUnit = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
       const dist = Math.hypot(u.x - x, u.y - y);
-      // Если клик в пределах радиуса юнита (чуть увеличенного)
       if (dist <= u.radius + 1.0) {
         clickedUnit = u;
         break;
@@ -43,27 +48,22 @@ export class UnitManager {
     }
 
     if (clickedUnit) {
-      // Если кликнули по юниту — выделяем его
       this.selectUnit(clickedUnit);
     } else if (this.selectedUnit) {
-      // Если кликнули по пустой земле и есть выделенный юнит — приказ идти
-      this.selectedUnit.setTarget(x, y);
-      
-      // (Опционально) можно снять выделение после приказа
-      // this.selectUnit(null); 
+      // ИЩЕМ ПУТЬ вместо прямой линии
+      const path = this.pathfinder.findPath(
+        this.selectedUnit.x, this.selectedUnit.y, 
+        x, y
+      );
+      this.selectedUnit.setPath(path);
     }
   }
 
   selectUnit(unit) {
-    if (this.selectedUnit) {
-      this.selectedUnit.isSelected = false;
-    }
+    // ... (без изменений)
+    if (this.selectedUnit) this.selectedUnit.isSelected = false;
     this.selectedUnit = unit;
-    if (this.selectedUnit) {
-      this.selectedUnit.isSelected = true;
-    }
-    
-    // Оповещаем мир о смене выделения (пригодится для UI)
+    if (this.selectedUnit) this.selectedUnit.isSelected = true;
     EventBus.emit('unit:selected', this.selectedUnit);
   }
 }
