@@ -1,4 +1,7 @@
 // js/entities/Unit.js
+import { Weapon } from './Weapon.js';
+import { WEAPONS } from '../data/weapons.js';
+import { UNIT_TYPES } from '../data/units.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', type = 'infantry') {
@@ -6,28 +9,38 @@ export class Unit {
     this.y = y;
     
     this.faction = faction; 
-    this.type = type; 
     
-    this.baseRadius = 0.5; 
-    this.hitRadius = 2.0; 
+    // Загружаем конфигурацию из data
+    const config = UNIT_TYPES[type] || UNIT_TYPES['infantry'];
+    this.type = config.id;
+    this.name = config.name;
     
-    this.stance = 'stand'; 
-    this.speed = 0;
-    this._updateSpeed();
+    this.baseRadius = config.baseRadius; 
+    this.hitRadius = config.hitRadius; 
     
-    this.maxHp = 100;
+    this.maxHp = config.maxHp;
     this.hp = this.maxHp;
+    this.isDead = false;
     
-    // --- СИСТЕМА ВЫНОСЛИВОСТИ ---
-    this.maxStamina = 100;          // Общая выносливость (макс запас)
-    this.stamina = 100;             // Текущая стамина
-    this.speedEndurance = 1.0;      // Скоростная выносливость (чем выше, тем быстрее тратится)
-    this.recoveryRate = 10;         // Восстановление стамины в секунду (стоя на месте)
+    // Выносливость
+    this.maxStamina = config.maxStamina;
+    this.stamina = this.maxStamina;
+    this.speedEndurance = config.speedEndurance;
+    this.recoveryRate = config.recoveryRate;
+    this.staminaCooldown = 0;
     
-    this.staminaCooldown = 0;       // Задержка перед началом восстановления после бега
+    // Позы и скорость
+    this.stance = 'stand'; 
+    this.speeds = config.speeds;
+    this.speed = this.speeds[this.stance];
+    
+    // Оружие
+    const weaponConfig = WEAPONS[config.defaultWeapon];
+    this.weapon = new Weapon(weaponConfig);
+    
+    this.target = null;
     
     this.isSelected = false;
-    
     this.path = [];        
     this.pathIndex = 0;    
     this.isMoving = false;
@@ -40,24 +53,11 @@ export class Unit {
     this.lastTarget = null;
   }
 
-  _updateSpeed() {
-    switch (this.stance) {
-      case 'run': this.speed = 4.5; break;
-      case 'stand': this.speed = 1.4; break;
-      case 'crouch': this.speed = 0.8; break;
-      case 'prone': this.speed = 0.4; break;
-      default: this.speed = 1.4;
-    }
-  }
-
   setStance(newStance) {
     if (this.stance === newStance) return;
-    
-    // Если пытаемся бежать, но нет сил — не даем
     if (newStance === 'run' && this.stamina < 10) return;
-
     this.stance = newStance;
-    this._updateSpeed();
+    this.speed = this.speeds[this.stance];
   }
 
   setPath(path) {
@@ -72,9 +72,26 @@ export class Unit {
     this.needsRepath = false;
   }
 
-  update(dt, allUnits) {
-    // 1. Обновление логики пути
-    if (this.isMoving && this.path.length > 0) {
+  takeDamage(amount) {
+    if (this.isDead) return;
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.isDead = true;
+      this.isMoving = false;
+      this.path = [];
+      this.isSelected = false;
+      this.stance = 'prone';
+    }
+  }
+
+  update(dt, allUnits, currentTime) {
+    if (this.isDead) return;
+
+    this._updateCombat(dt, allUnits, currentTime);
+    this.weapon.update(dt);
+
+    if (!this.target && !this.weapon.isReloading && this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) {
         this.isMoving = false;
         this.path = [];
@@ -101,7 +118,6 @@ export class Unit {
             this.x = nextX;
             this.y = nextY;
           } else {
-            // Скольжение вдоль стены
             let slid = false;
             if (this._isPositionFree(nextX, this.y)) {
               this.x = nextX;
@@ -121,38 +137,92 @@ export class Unit {
       }
     }
 
-    // 2. Логика выносливости
     this._updateStamina(dt);
 
-    // 3. Поворот
     let angleDiff = this.targetAngle - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1);
 
-    // 4. Расталкивание
     if (allUnits && this.stance !== 'prone') {
       this._separate(allUnits, dt);
     }
   }
 
+  _updateCombat(dt, allUnits, currentTime) {
+    let closestEnemy = null;
+    let minDist = this.weapon.effectiveRange;
+
+    for (const other of allUnits) {
+      if (other.faction === this.faction || other.isDead) continue;
+      const dist = Math.hypot(other.x - this.x, other.y - this.y);
+      
+      if (dist < minDist && this._hasLineOfSight(other)) {
+        minDist = dist;
+        closestEnemy = other;
+      }
+    }
+
+    this.target = closestEnemy;
+
+    if (this.target) {
+      this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
+      this.weapon.updateFireMode(minDist);
+
+      if (this.weapon.canFire(currentTime)) {
+        if (this.weapon.currentMode === 'single' || (this.weapon.currentMode === 'auto' && Math.random() < 0.7)) {
+          this._shoot(currentTime);
+        }
+      }
+    }
+  }
+
+  _shoot(currentTime) {
+    if (this.weapon.fire(currentTime)) {
+      const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
+      const spread = this.weapon.spreadBase * (dist / 100); 
+      const hitChance = Math.max(0.3, 1 - spread / 10); 
+      
+      if (Math.random() < hitChance) {
+        this.target.takeDamage(this.weapon.damage);
+        if (this.onShoot) this.onShoot(this.target);
+      }
+    }
+  }
+
+  _hasLineOfSight(other) {
+    if (!this.pathfinder) return true;
+    for (const obs of this.pathfinder.obstacles) {
+      if (this._lineIntersectsRect(this.x, this.y, other.x, other.y, obs)) return false;
+    }
+    return true;
+  }
+
+  _lineIntersectsRect(x1, y1, x2, y2, rect) {
+    const steps = 10;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const px = x1 + (x2 - x1) * t;
+      const py = y1 + (y2 - y1) * t;
+      if (px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h) return true;
+    }
+    return false;
+  }
+
   _updateStamina(dt) {
-    // Расход стамины в зависимости от позы и движения
     if (this.isMoving) {
       let drain = 0;
-      if (this.stance === 'run') drain = 8 * this.speedEndurance;       // Бег тратит много
-      else if (this.stance === 'stand') drain = 0.5 * this.speedEndurance; // Шаг тратит чуть-чуть
+      if (this.stance === 'run') drain = 8 * this.speedEndurance;
+      else if (this.stance === 'stand') drain = 0.5 * this.speedEndurance;
       else if (this.stance === 'crouch') drain = 0.2 * this.speedEndurance;
       else if (this.stance === 'prone') drain = 0.05 * this.speedEndurance;
       
       this.stamina -= drain * dt;
-      this.staminaCooldown = 2.0; // 2 секунды после остановки/смены позы не восстанавливаемся
+      this.staminaCooldown = 2.0; 
     } else {
-      // Восстановление, если стоим
       if (this.staminaCooldown > 0) {
         this.staminaCooldown -= dt;
       } else {
-        // Стоя восстанавливаемся быстрее, чем лежа
         let recoveryMultiplier = 1.0;
         if (this.stance === 'stand') recoveryMultiplier = 1.0;
         else if (this.stance === 'crouch') recoveryMultiplier = 1.2;
@@ -162,10 +232,7 @@ export class Unit {
       }
     }
 
-    // Ограничения
     this.stamina = Math.max(0, Math.min(this.maxStamina, this.stamina));
-
-    // Принудительный переход в шаг, если бежим и стамина кончилась
     if (this.stance === 'run' && this.stamina <= 0) {
       this.setStance('stand');
     }
@@ -173,18 +240,13 @@ export class Unit {
 
   _isPositionFree(x, y) {
     if (!this.pathfinder || !this.pathfinder.obstacles) return true;
-
     for (const obs of this.pathfinder.obstacles) {
       const closestX = Math.max(obs.x, Math.min(x, obs.x + obs.w));
       const closestY = Math.max(obs.y, Math.min(y, obs.y + obs.h));
-      
       const dx = x - closestX;
       const dy = y - closestY;
       const distSq = dx * dx + dy * dy;
-      
-      if (distSq < this.baseRadius * this.baseRadius) {
-        return false; 
-      }
+      if (distSq < this.baseRadius * this.baseRadius) return false; 
     }
     return true;
   }
@@ -195,10 +257,9 @@ export class Unit {
     const minDist = this.baseRadius * 2; 
 
     for (const other of allUnits) {
-      if (other === this || other.stance === 'prone') continue;
+      if (other === this || other.stance === 'prone' || other.isDead) continue;
       const dx = this.x - other.x;
       const dy = this.y - other.y;
-      
       if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
 
       const distSq = dx * dx + dy * dy;
@@ -223,7 +284,7 @@ export class Unit {
 
   draw(ctx, camera) {
     const screenPos = camera.worldToScreen(this.x, this.y);
-    const color = this.faction === 'player' ? '#4285F4' : '#EA4335';
+    const color = this.isDead ? '#444' : (this.faction === 'player' ? '#4285F4' : '#EA4335');
     
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
@@ -259,8 +320,7 @@ export class Unit {
     
     ctx.restore();
 
-    // Выделение
-    if (this.isSelected) {
+    if (this.isSelected && !this.isDead) {
       ctx.beginPath();
       const ringRadius = this.stance === 'prone' ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
       ctx.arc(screenPos.x, screenPos.y, ringRadius + 4, 0, Math.PI * 2);
@@ -282,34 +342,42 @@ export class Unit {
       }
     }
 
-    // --- ОТРИСОВКА HP И СТАМИНЫ ---
-    const isDamaged = this.hp < this.maxHp;
-    const isTired = this.stamina < this.maxStamina;
-    
-    if (isDamaged || isTired) {
-      const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
-      const barH = 3;
-      const barX = screenPos.x - barW / 2;
+    if (!this.isDead) {
+      const isDamaged = this.hp < this.maxHp;
+      const isTired = this.stamina < this.maxStamina;
+      const isReloading = this.weapon.isReloading;
       
-      let currentY = screenPos.y - (this.baseRadius * camera.zoom) - 12;
+      if (isDamaged || isTired || isReloading) {
+        const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
+        const barH = 3;
+        const barX = screenPos.x - barW / 2;
+        
+        let currentY = screenPos.y - (this.baseRadius * camera.zoom) - 12;
 
-      // HP бар
-      if (isDamaged) {
-        ctx.fillStyle = '#333';
-        ctx.fillRect(barX, currentY, barW, barH);
-        ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
-        ctx.fillRect(barX, currentY, barW * (this.hp / this.maxHp), barH);
-        currentY -= (barH + 2); // Сдвигаем вверх для следующего бара
-      }
+        if (isDamaged) {
+          ctx.fillStyle = '#333';
+          ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
+          ctx.fillRect(barX, currentY, barW * (this.hp / this.maxHp), barH);
+          currentY -= (barH + 2);
+        }
 
-      // Бар стамины
-      if (isTired) {
-        ctx.fillStyle = '#333';
-        ctx.fillRect(barX, currentY, barW, barH);
-        // Цвет: желтый если норма, красный если на нуле
-        ctx.fillStyle = this.stamina > 20 ? '#F4B400' : '#EA4335';
-        ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
+        if (isTired) {
+          ctx.fillStyle = '#333';
+          ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = this.stamina > 20 ? '#F4B400' : '#EA4335';
+          ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
+          currentY -= (barH + 2);
+        }
+
+        if (isReloading) {
+          ctx.fillStyle = '#333';
+          ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#5096ff';
+          const reloadProgress = 1 - (this.weapon.reloadTimer / this.weapon.reloadTime);
+          ctx.fillRect(barX, currentY, barW * reloadProgress, barH);
+        }
       }
     }
   }
-}
+  }
