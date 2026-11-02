@@ -9,12 +9,20 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Панель управления (для тестов) -->
-  <div id="hud">
+  <!-- Панель управления размером карты (сверху) -->
+  <div id="hud" class="top-hud">
     <button data-size="100" class="active">100</button>
     <button data-size="500">500</button>
     <button data-size="1000">1000</button>
     <button id="fit">Fit</button>
+  </div>
+
+  <!-- Панель управления позами (снизу) -->
+  <div id="stance-hud" class="bottom-hud">
+    <button id="btn-stand">Стоя</button>
+    <button id="btn-run">Бег</button>
+    <button id="btn-crouch">Присяд</button>
+    <button id="btn-prone">Лёжа</button>
   </div>
 
   <!-- Индикатор координат -->
