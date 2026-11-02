@@ -7,16 +7,13 @@ export class UnitManager {
   constructor() {
     this.units = [];
     this.selectedUnit = null;
-    
-    // Создаем Pathfinder (по умолчанию для карты 100м, клетка 5м)
-    this.pathfinder = new Pathfinder(100, 5); 
+    this.pathfinder = new Pathfinder(100, 5);
+    this._isSearchingPath = false; // Защита от параллельных запросов
 
-    // Подписываемся на клики по карте
     EventBus.on('input:tap', this.handleTap.bind(this));
   }
 
   setWorldSize(size) {
-    // При смене карты пересоздаем сетку A*
     this.pathfinder.setWorldSize(size);
   }
 
@@ -37,14 +34,13 @@ export class UnitManager {
   }
 
   handleTap({ x, y }) {
+    // ЗАЩИТА: не запускать новый поиск, пока идет предыдущий
+    if (this._isSearchingPath) return;
+
     let clickedUnit = null;
-    
-    // Ищем юнита, по которому попали (идем с конца, чтобы брать верхних)
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
       const dist = Math.hypot(u.x - x, u.y - y);
-      
-      // Используем hitRadius (2 метра), чтобы удобно попадать пальцем
       if (dist <= u.hitRadius) {
         clickedUnit = u;
         break;
@@ -52,32 +48,32 @@ export class UnitManager {
     }
 
     if (clickedUnit) {
-      // Если попали по юниту — выделяем его
       this.selectUnit(clickedUnit);
-    } else if (this.selectedUnit) {
-      // Если попали по земле и есть выделенный — ищем путь и даем приказ
+      return;
+    }
+
+    if (this.selectedUnit) {
+      this._isSearchingPath = true;
+      
+      // Поиск пути (можно вынести в setTimeout, чтобы UI не блокировался)
       const path = this.pathfinder.findPath(
         this.selectedUnit.x, this.selectedUnit.y, 
         x, y
       );
+      
       this.selectedUnit.setPath(path);
+      this._isSearchingPath = false;
     }
   }
 
   selectUnit(unit) {
-    // Снимаем выделение со старого
     if (this.selectedUnit) {
       this.selectedUnit.isSelected = false;
     }
-    
-    // Назначаем нового
     this.selectedUnit = unit;
-    
     if (this.selectedUnit) {
       this.selectedUnit.isSelected = true;
     }
-    
-    // Оповещаем систему (пригодится для UI)
     EventBus.emit('unit:selected', this.selectedUnit);
   }
 }
