@@ -5,6 +5,7 @@ export class GameMap {
   constructor(camera) {
     this.camera = camera;
     this.size = 100;
+    this.cellSize = 5; // <-- ДОЛЖНО СОВПАДАТЬ С PATHFINDER
   }
 
   setSize(meters) { this.size = meters; }
@@ -27,20 +28,18 @@ export class GameMap {
     const x0 = Math.max(0, wTL.x), y0 = Math.max(0, wTL.y);
     const x1 = Math.min(this.size, wBR.x), y1 = Math.min(this.size, wBR.y);
 
-    if (CONFIG.GRID_MINOR * cam.zoom >= 6) {
-      this._drawGrid(ctx, x0, y0, x1, y1, CONFIG.GRID_MINOR, c.gridMinor);
+    // Рисуем сетку с шагом cellSize (5 метров)
+    if (this.cellSize * cam.zoom >= 6) {
+      this._drawGrid(ctx, x0, y0, x1, y1, this.cellSize, 'rgba(255,255,255,0.05)');
     }
-    if (CONFIG.GRID_MAJOR * cam.zoom >= 6) {
-      this._drawGrid(ctx, x0, y0, x1, y1, CONFIG.GRID_MAJOR, c.gridMajor);
+    // Крупная сетка для ориентации (каждые 20 метров)
+    if (20 * cam.zoom >= 6) {
+      this._drawGrid(ctx, x0, y0, x1, y1, 20, 'rgba(255,255,255,0.15)');
     }
 
     ctx.strokeStyle = c.border;
     ctx.lineWidth = 2;
     ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '14px sans-serif';
-    ctx.fillText(`Карта: ${this.size}x${this.size} м`, tl.x + 10, tl.y + 20);
   }
 
   _drawGrid(ctx, x0, y0, x1, y1, step, color) {
