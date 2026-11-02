@@ -2,6 +2,8 @@
 import { EventBus } from '../core/EventBus.js';
 import { Unit } from './Unit.js';
 import { Pathfinder } from '../core/Pathfinder.js';
+import { Physics } from '../core/Physics.js';
+import { CONFIG } from '../data/config.js';
 
 export class UnitManager {
   constructor() {
@@ -10,9 +12,16 @@ export class UnitManager {
     this.pathfinder = new Pathfinder(100, 1);
     this.camera = null; 
     this._isSearchingPath = false;
+    this.tracers = []; 
+    this.currentTime = 0;
 
     EventBus.on('input:tap', this.handleTap.bind(this));
     EventBus.on('input:doubleTap', this.handleDoubleTap.bind(this));
+    
+    // Слушаем выстрелы для визуализации
+    EventBus.on('unit:shoot', ({ x1, y1, x2, y2 }) => {
+      this.tracers.push({ x1, y1, x2, y2, life: 0.1 });
+    });
   }
 
   setWorldSize(size) {
@@ -26,70 +35,61 @@ export class UnitManager {
   }
 
   update(dt) {
+    this.currentTime += dt;
+
     for (const unit of this.units) {
-      unit.update(dt, this.units); 
+      unit.update(dt, this.units, this.currentTime); 
       
-      // Обработка перестроения пути (если юнит застрял)
-      if (unit.needsRepath) {
+      if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
-        
         if (unit.lastTarget) {
-          const newPath = this.pathfinder.findPath(
-            unit.x, unit.y, 
-            unit.lastTarget.x, unit.lastTarget.y
-          );
+          const newPath = this.pathfinder.findPath(unit.x, unit.y, unit.lastTarget.x, unit.lastTarget.y);
           unit.setPath(newPath);
         }
       }
     }
+    
     this._resolveCollisions();
+
+    for (let i = this.tracers.length - 1; i >= 0; i--) {
+      this.tracers[i].life -= dt;
+      if (this.tracers[i].life <= 0) this.tracers.splice(i, 1);
+    }
   }
 
   _resolveCollisions() {
-    const minDist = 1.0; 
-    const minDistSq = minDist * minDist;
-    
     for (let i = 0; i < this.units.length; i++) {
       for (let j = i + 1; j < this.units.length; j++) {
         const u1 = this.units[i];
         const u2 = this.units[j];
         
+        if (u1.isDead || u2.isDead) continue;
         if (u1.stance === 'prone' || u2.stance === 'prone') continue;
         
-        const dx = u2.x - u1.x;
-        const dy = u2.y - u1.y;
-        
-        if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
-        
-        const distSq = dx * dx + dy * dy;
-        if (distSq < minDistSq && distSq > 0.0001) {
-          const dist = Math.sqrt(distSq);
-          const overlap = (minDist - dist) / 2;
-          const nx = dx / dist;
-          const ny = dy / dist;
-          
-          const newU1X = u1.x - nx * overlap;
-          const newU1Y = u1.y - ny * overlap;
-          const newU2X = u2.x + nx * overlap;
-          const newU2Y = u2.y + ny * overlap;
-
-          if (u1._isPositionFree(newU1X, newU1Y)) {
-            u1.x = newU1X;
-            u1.y = newU1Y;
-          }
-          if (u2._isPositionFree(newU2X, newU2Y)) {
-            u2.x = newU2X;
-            u2.y = newU2Y;
-          }
-        }
+        const obs = this.pathfinder ? this.pathfinder.obstacles : null;
+        Physics.resolveUnitCollision(u1, u2, obs);
       }
     }
   }
 
   draw(ctx, camera) {
     this._drawObstacles(ctx, camera);
-    for (const unit of this.units) {
+    
+    const sortedUnits = [...this.units].sort((a, b) => a.y - b.y);
+    for (const unit of sortedUnits) {
       unit.draw(ctx, camera);
+    }
+
+    ctx.lineWidth = 1.5;
+    for (const t of this.tracers) {
+      const p1 = camera.worldToScreen(t.x1, t.y1);
+      const p2 = camera.worldToScreen(t.x2, t.y2);
+      
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = `rgba(255, 255, 0, ${t.life * 10})`;
+      ctx.stroke();
     }
   }
 
@@ -97,7 +97,6 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
-    // Тонкие стены (0.5 м) и широкий проход
     const wallW = 0.5; 
     const wallH = mapSize * 0.4;
     const wallX = c - wallW / 2;
@@ -105,10 +104,6 @@ export class UnitManager {
     
     this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.3);
     this.pathfinder.addObstacle(wallX, wallY + wallH * 0.7, wallW, wallH * 0.3);
-    
-    const hWallW = mapSize * 0.3;
-    const hWallH = 0.5; 
-    this.pathfinder.addObstacle(c + 20, c - 20, hWallW, hWallH);
   }
 
   _drawObstacles(ctx, camera) {
@@ -130,7 +125,7 @@ export class UnitManager {
     let clickedUnit = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
-      if (u.faction !== 'player') continue;
+      if (u.faction !== 'player' || u.isDead) continue;
       
       const dist = Math.hypot(u.x - x, u.y - y);
       if (dist <= u.hitRadius) {
@@ -154,7 +149,7 @@ export class UnitManager {
     let clickedUnit = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
-      if (u.faction !== 'player') continue;
+      if (u.faction !== 'player' || u.isDead) continue;
       
       const dist = Math.hypot(u.x - x, u.y - y);
       if (dist <= u.hitRadius) {
@@ -170,7 +165,7 @@ export class UnitManager {
     const faction = clickedUnit.faction;
 
     for (const u of this.units) {
-      if (u.faction !== faction || u.type !== type) continue;
+      if (u.faction !== faction || u.type !== type || u.isDead) continue;
       if (this.camera.isPointVisible(u.x, u.y)) {
         selected.push(u);
       }
@@ -185,9 +180,11 @@ export class UnitManager {
     const freeTarget = this.pathfinder.findNearestFreePoint(tx, ty);
     
     const count = this.selectedUnits.length;
-    const spacing = 2.5;
+    const spacing = CONFIG.FORMATION.SPACING; // Берем из конфига
 
     this.selectedUnits.forEach((unit, index) => {
+      if (unit.isDead) return;
+
       let offsetX = 0;
       let offsetY = 0;
 
@@ -224,10 +221,9 @@ export class UnitManager {
     EventBus.emit('units:selected', this.selectedUnits);
   }
 
-  // Установка позы с проверкой выносливости
   setSelectedStance(stance) {
     for (const unit of this.selectedUnits) {
-      // Если пытаемся бежать, а стамины мало — принудительно шаг
+      if (unit.isDead) continue;
       if (stance === 'run' && unit.stamina < 10) {
         unit.setStance('stand');
       } else {
@@ -235,4 +231,4 @@ export class UnitManager {
       }
     }
   }
-}
+    }
