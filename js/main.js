@@ -17,7 +17,6 @@ const TEAM_INFO = {
   team2:     { id: 'team2',     name: 'Команда 2',  faction: 'enemy',  color: '#EA4335', player: true  },
   spectator: { id: 'spectator', name: 'Наблюдатель',faction: null,     color: '#9aa0a6', player: false },
 };
-
 const MODE_INFO = {
   attack:  { id: 'attack',  name: 'Наступление' },
   defense: { id: 'defense', name: 'Оборона' },
@@ -51,6 +50,9 @@ let lastTime = performance.now();
 let rafId = 0;
 let gameStarted = false;
 
+// ==========================================
+// СТАРТОВЫЙ ЭКРАН
+// ==========================================
 function updateStartButton() {
   if (btnStart) {
     btnStart.disabled = !(selection.team !== null && selection.mode !== null);
@@ -60,7 +62,6 @@ function updateStartButton() {
 function bindOptionGroup(groupId, key) {
   const group = document.getElementById(groupId);
   if (!group) return;
-  
   group.querySelectorAll('.opt-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
@@ -279,6 +280,113 @@ if (debugBtn) {
 }
 EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
+// ==========================================
+// ПАНЕЛЬ ЮНИТА (UI)
+// ==========================================
+const unitPanel = document.getElementById('unit-panel');
+const tabButtons = document.querySelectorAll('.unit-tab');
+const tabContents = document.querySelectorAll('.tab-content');
+
+// Переключение вкладок
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabButtons.forEach(b => b.classList.remove('active'));
+    tabContents.forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    const target = document.getElementById(`tab-${btn.dataset.tab}`);
+    if (target) target.classList.add('active');
+  });
+});
+
+function updateUnitPanel(unit) {
+  if (!unit) return;
+
+  // Био
+  const nameEl = document.getElementById('info-name');
+  if (nameEl) nameEl.textContent = unit.name || 'Безымянный';
+  
+  const roleEl = document.getElementById('info-role');
+  if (roleEl) roleEl.textContent = unit.roleId === 'machinegunner' ? 'Пулеметчик' : 'Стрелок';
+  
+  const weightEl = document.getElementById('info-weight');
+  if (weightEl) weightEl.textContent = `${unit.totalWeight.toFixed(1)} кг`;
+  
+  let statusText = 'Живой';
+  let statusColor = '#0F9D58';
+  if (unit.isDead) { statusText = 'Мертв'; statusColor = '#EA4335'; }
+  else if (unit.isUnconscious) { statusText = 'Без сознания'; statusColor = '#F4B400'; }
+  
+  const statusEl = document.getElementById('info-status');
+  if (statusEl) {
+    statusEl.textContent = statusText;
+    statusEl.style.color = statusColor;
+  }
+
+  // Снаряжение
+  const weaponEl = document.getElementById('info-weapon');
+  if (weaponEl) weaponEl.textContent = unit.weapon.name || 'Нет';
+  
+  const ammoEl = document.getElementById('info-ammo');
+  if (ammoEl) ammoEl.textContent = `${unit.weapon.ammo} / ${unit.weapon.magazineCapacity}`;
+  
+  const armorNames = new Set(Object.values(unit.armor).map(a => a.name));
+  const armorEl = document.getElementById('info-armor');
+  if (armorEl) armorEl.textContent = armorNames.size > 0 ? Array.from(armorNames).join(', ') : 'Нет';
+
+  // Здоровье
+  const hpPercent = Math.max(0, (unit.hp / unit.maxHp) * 100);
+  const stamPercent = Math.max(0, (unit.stamina / unit.maxStamina) * 100);
+  const bloodPercent = Math.max(0, (unit.blood / unit.maxBlood) * 100);
+
+  const hpText = document.getElementById('info-hp-text');
+  if (hpText) hpText.textContent = `${Math.round(unit.hp)} / ${unit.maxHp}`;
+  
+  const hpBar = document.getElementById('info-hp-bar');
+  if (hpBar) {
+    hpBar.style.width = `${hpPercent}%`;
+    hpBar.style.background = hpPercent > 50 ? '#0F9D58' : (hpPercent > 20 ? '#F4B400' : '#EA4335');
+  }
+
+  const stamText = document.getElementById('info-stamina-text');
+  if (stamText) stamText.textContent = `${Math.round(unit.stamina)} / ${unit.maxStamina}`;
+  
+  const stamBar = document.getElementById('info-stamina-bar');
+  if (stamBar) stamBar.style.width = `${stamPercent}%`;
+
+  const bloodText = document.getElementById('info-blood-text');
+  if (bloodText) bloodText.textContent = `${Math.round(unit.blood)} / ${unit.maxBlood}`;
+  
+  const bloodBar = document.getElementById('info-blood-bar');
+  if (bloodBar) bloodBar.style.width = `${bloodPercent}%`;
+
+  const bleedEl = document.getElementById('info-bleeding');
+  if (bleedEl) {
+    if (unit.bleedingRate > 0) bleedEl.classList.remove('hidden');
+    else bleedEl.classList.add('hidden');
+  }
+}
+
+EventBus.on(EVENTS.UNITS_SELECTED, (units) => {
+  if (units.length === 1) {
+    unitPanel.classList.remove('hidden');
+    updateUnitPanel(units[0]);
+  } else {
+    unitPanel.classList.add('hidden');
+  }
+});
+
+function updatePanelLoop() {
+  if (!unitPanel.classList.contains('hidden') && unitManager.selectedUnits.length === 1) {
+    const u = unitManager.selectedUnits[0];
+    if (!u.isDead) updateUnitPanel(u);
+  }
+  requestAnimationFrame(updatePanelLoop);
+}
+updatePanelLoop();
+
+// ==========================================
+// ИГРОВОЙ ЦИКЛ
+// ==========================================
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
