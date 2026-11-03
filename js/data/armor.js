@@ -14,15 +14,16 @@ export const ARMOR_CONFIGS = {
   helmet_6b46: {
     id: 'helmet_6b46',
     name: 'Шлем 6Б46',
-    class: 'BR2', // Каска обычно держит пистолеты и осколки
+    class: 'BR2', 
     weight: 1.15,
     covers: ['head', 'skull', 'leftEar', 'rightEar'],
     durability: 50,
+    durabilityLossMult: 1.0 // Стандартная потеря прочности
   },
   vest_6b45: {
     id: 'vest_6b45',
     name: 'Бронежилет 6Б45 (с плитой)',
-    class: 'BR4', // Плита держит 5.45 (Бр3) с запасом
+    class: 'BR4', 
     weight: 8.0,
     covers: [
       'neck', 
@@ -31,5 +32,6 @@ export const ARMOR_CONFIGS = {
       'heart'
     ],
     durability: 100,
+    durabilityLossMult: 2.5 // Керамическая плита трескается быстрее
   }
 };
