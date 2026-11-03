@@ -15,7 +15,6 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
 const coordsDiv = document.getElementById('coords');
 
-// FIX: валидация данных при старте
 {
   const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)];
   if (errs.length) console.error('[data] validation errors:', errs);
@@ -27,7 +26,6 @@ const input = new Input(canvas, camera);
 const unitManager = new UnitManager();
 unitManager.camera = camera;
 
-// FIX: экспорт для Debug
 window.__TimeManager = TimeManager;
 
 let lastTime = performance.now();
@@ -51,11 +49,9 @@ function setMapSize(meters) {
   unitManager.setWorldSize(meters);
   camera.fit(meters, meters);
   camera.clampTo(meters, meters);
-
   document.querySelectorAll('.hud-top-left button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
   });
-
   spawnInitialUnits(meters);
 }
 
@@ -65,6 +61,7 @@ function spawnInitialUnits(mapSize) {
   unitManager.bullets = [];
   unitManager.tracers = [];
   unitManager.flashes = [];
+  unitManager.decals = [];
   unitManager._spawnTestObstacles(mapSize, true);
 
   const center = mapSize / 2;
@@ -72,7 +69,6 @@ function spawnInitialUnits(mapSize) {
 
   const spawn = (dx, dy, faction, role) => {
     const p = unitManager.getSafeSpawnPoint(center + dx, center + dy);
-    // clamp в границы карты
     const cx = Math.max(0, Math.min(mapSize, p.x));
     const cy = Math.max(0, Math.min(mapSize, p.y));
     unitManager.addUnit(new Unit(cx, cy, faction, role));
@@ -85,7 +81,6 @@ function spawnInitialUnits(mapSize) {
   spawn(offset, offset, 'enemy', 'machinegunner');
 }
 
-// FIX: слух по единой шкале (loudness / sqrt(dist))
 EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => {
   if (!source || !loudness) return;
   for (const unit of unitManager.units) {
@@ -104,7 +99,6 @@ EventBus.on(EVENTS.INPUT_TAP, (data) => {
 
 document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => {
-    // FIX: подтверждение сброса боя
     const meters = Number(btn.dataset.size);
     if (meters !== map.size && unitManager.units.some(u => !u.isDead)) {
       if (!confirm('Сменить карту? Текущий бой будет сброшен.')) return;
@@ -136,7 +130,6 @@ for (const [id, stance] of Object.entries(stanceButtons)) {
 }
 updateStanceUI('stand');
 
-// Пауза и скорости
 const pauseBtn = document.getElementById('btn-pause');
 if (pauseBtn) pauseBtn.addEventListener('click', () => TimeManager.togglePause());
 [1, 2, 4].forEach(s => {
@@ -146,7 +139,6 @@ if (pauseBtn) pauseBtn.addEventListener('click', () => TimeManager.togglePause()
 
 EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused }) => {
   document.querySelectorAll('.time-btn').forEach(btn => {
-    // FIX: не трогаем debug-кнопку
     if (btn.id === 'btn-debug') return;
     btn.classList.remove('active');
   });
@@ -157,7 +149,6 @@ EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused }) => {
   }
 });
 
-// Debug
 const debugBtn = document.getElementById('btn-debug');
 function syncDebugButton() {
   if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled);
@@ -170,7 +161,6 @@ if (debugBtn) {
 }
 EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
-// Игровой цикл
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
@@ -198,7 +188,6 @@ function frame(now) {
   rafId = requestAnimationFrame(frame);
 }
 
-// FIX: destroy при unload
 window.addEventListener('beforeunload', () => {
   cancelAnimationFrame(rafId);
   input.destroy();
@@ -209,7 +198,6 @@ window.addEventListener('beforeunload', () => {
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
-// FIX: пауза при скрытой вкладке
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && !TimeManager.isPaused) TimeManager.togglePause();
 });
@@ -218,5 +206,3 @@ resize();
 setMapSize(100);
 lastTime = performance.now();
 rafId = requestAnimationFrame(frame);
-
-// FIX: убран двойной setTimeout — fit уже вызван внутри setMapSize
