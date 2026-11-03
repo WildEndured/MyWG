@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastTime = performance.now();
   let rafId = 0;
   let gameStarted = false;
-  let lastTapWorld = { x: 0, y: 0 }; // Для гранат
+  let lastTapWorld = { x: 0, y: 0 };
 
   function updateStartButton() { if (btnStart) btnStart.disabled = !(selection.team !== null && selection.mode !== null); }
   function bindOptionGroup(groupId, key) { const group = document.getElementById(groupId); if (!group) return; group.querySelectorAll('.opt-btn').forEach(btn => { btn.addEventListener('click', (e) => { e.preventDefault(); group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); selection[key] = btn.dataset.value; updateStartButton(); }); }); }
@@ -118,7 +118,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (unitManager.selectedUnits.length === 1) {
         const u = unitManager.selectedUnits[0];
         if (u.grenades > 0) {
-          // Кидаем в точку последнего тапа (или в центр, если тапа не было)
           const targetX = lastTapWorld.x || camera.x;
           const targetY = lastTapWorld.y || camera.y;
           u.throwGrenade(targetX, targetY, { unitManager });
@@ -163,7 +162,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const reserveRounds = unit.weapon.getReserveRounds();
     document.getElementById('info-ammo').textContent = `${unit.weapon.ammo} / ${reserveRounds} (маг.: ${unit.weapon.reserveMagazines}) | Гранат: ${unit.grenades}`;
     
-    const armorNames = new Set(Object.values(unit.armor).map(a => a.name)); document.getElementById('info-armor').textContent = armorNames.size > 0 ? Array.from(armorNames).join(', ') : 'Нет';
+    const armorNames = [];
+    for (const [zone, piece] of Object.entries(unit.armor)) {
+      if (!armorNames.find(a => a.name === piece.name)) {
+        armorNames.push({ name: piece.name, level: piece.level, maxLevel: piece.baseLevel, durability: piece.durability, maxDurability: piece.maxDurability, cracked: piece.durability < piece.maxDurability * 0.5 });
+      }
+    }
+    const armorStr = armorNames.map(a => {
+      const status = a.level < a.maxLevel ? (a.level === 0 ? ' (разрушена)' : ` (уровень ${a.level})`) : '';
+      const crack = a.cracked ? ' [треснула]' : '';
+      return `${a.name}${status}${crack}`;
+    }).join(', ');
+    document.getElementById('info-armor').textContent = armorStr || 'Нет';
+
     document.getElementById('info-medical').textContent = `Бинты: ${unit.medical.bandage} | Жгуты: ${unit.medical.tourniquet}`;
     
     const hpPercent = Math.max(0, (unit.hp / unit.maxHp) * 100), stamPercent = Math.max(0, (unit.stamina / unit.maxStamina) * 100), bloodPercent = Math.max(0, (unit.blood / unit.maxBlood) * 100), shockPercent = Math.max(0, unit.shock * 100);
