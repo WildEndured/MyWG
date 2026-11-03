@@ -398,7 +398,7 @@ export class Unit {
           ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
           currentY -= (barH + 2);
         }
-        if (isReloading) {
+                if (isReloading) {
           ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
           ctx.fillStyle = '#5096ff';
           const reloadProgress = 1 - (this.weapon.reloadTimer / this.weapon.reloadTime);
@@ -407,4 +407,4 @@ export class Unit {
       }
     }
   }
-            }
+} // <--- ЭТА СКОБКА ЗАКРЫВАЕТ КЛАСС Unit. БЕЗ НЕЕ БУДЕТ ОШИБКА.
