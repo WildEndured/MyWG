@@ -11,10 +11,12 @@
 <body>
   <canvas id="game" aria-label="Игровое поле"></canvas>
 
+  <!-- ================== СТАРТОВЫЙ ЭКРАН ================== -->
   <div id="start-screen" class="screen-overlay">
     <div class="screen-card">
       <h1 class="screen-title">MyWG</h1>
       <p class="screen-subtitle">Симулятор варгейма</p>
+
       <div class="screen-section">
         <div class="screen-label">Команда</div>
         <div class="screen-options" id="opt-team">
@@ -23,6 +25,7 @@
           <button class="opt-btn" data-value="spectator">Наблюдатель</button>
         </div>
       </div>
+
       <div class="screen-section">
         <div class="screen-label">Режим</div>
         <div class="screen-options" id="opt-mode">
@@ -30,11 +33,14 @@
           <button class="opt-btn" data-value="defense">Оборона</button>
         </div>
       </div>
+
       <button class="start-btn" id="btn-start" disabled>Начать бой</button>
     </div>
   </div>
 
+  <!-- ================== HUD ================== -->
   <div id="hud" class="hidden">
+    <!-- Верхняя левая панель: Размеры карты -->
     <div class="hud-panel hud-top-left" role="toolbar" aria-label="Размер карты">
       <button class="hud-btn" data-size="100" title="Карта 100 м">100</button>
       <button class="hud-btn" data-size="500" title="Карта 500 м">500</button>
@@ -43,6 +49,7 @@
       <button class="hud-btn" id="fit" title="Показать всю карту">Fit</button>
     </div>
 
+    <!-- Верхняя правая панель: Время и Отладка -->
     <div class="hud-panel hud-top-right" role="toolbar" aria-label="Время">
       <button class="hud-btn time-btn" id="btn-pause" title="Пауза" aria-label="Пауза">II</button>
       <button class="hud-btn time-btn active" id="btn-speed-1" title="Скорость 1x">1x</button>
@@ -52,11 +59,13 @@
       <button class="hud-btn" id="btn-debug" title="Отладка" style="border-color: #F4B400;">DBG</button>
     </div>
 
+    <!-- Инфо о бое -->
     <div id="battle-info" class="hud-panel hud-top-center">
       <span id="battle-team">—</span>
       <span id="battle-mode">—</span>
     </div>
 
+    <!-- ПАНЕЛЬ ВЫБРАННОГО ЮНИТА -->
     <div id="unit-panel" class="unit-panel hidden">
       <div class="unit-panel-tabs">
         <button class="unit-tab active" data-tab="bio">Био</button>
@@ -65,6 +74,7 @@
       </div>
       
       <div class="unit-panel-content">
+        <!-- Вкладка: Био -->
         <div id="tab-bio" class="tab-content active">
           <div class="info-row"><span class="info-label">Позывной:</span> <span id="info-name">-</span></div>
           <div class="info-row"><span class="info-label">Роль:</span> <span id="info-role">-</span></div>
@@ -72,6 +82,7 @@
           <div class="info-row"><span class="info-label">Статус:</span> <span id="info-status">-</span></div>
         </div>
 
+        <!-- Вкладка: Снаряжение -->
         <div id="tab-gear" class="tab-content">
           <div class="info-row"><span class="info-label">Оружие:</span> <span id="info-weapon">-</span></div>
           <div class="info-row"><span class="info-label">Боекомплект:</span> <span id="info-ammo">-</span></div>
@@ -79,28 +90,45 @@
           <div class="info-row"><span class="info-label">Медицина:</span> <span id="info-medical">-</span></div>
         </div>
 
+        <!-- Вкладка: Здоровье -->
         <div id="tab-health" class="tab-content">
-          <div class="stat-bar-container"><div class="stat-label">Здоровье: <span id="info-hp-text">-</span></div><div class="stat-bar-bg"><div id="info-hp-bar" class="stat-bar-fill hp"></div></div></div>
-          <div class="stat-bar-container"><div class="stat-label">Выносливость: <span id="info-stamina-text">-</span></div><div class="stat-bar-bg"><div id="info-stamina-bar" class="stat-bar-fill stamina"></div></div></div>
-          <div class="stat-bar-container"><div class="stat-label">Кровь: <span id="info-blood-text">-</span></div><div class="stat-bar-bg"><div id="info-blood-bar" class="stat-bar-fill blood"></div></div></div>
-          <div class="stat-bar-container"><div class="stat-label">Шок: <span id="info-shock-text">-</span></div><div class="stat-bar-bg"><div id="info-shock-bar" class="stat-bar-fill" style="background:#FF00FF"></div></div></div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Здоровье: <span id="info-hp-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-hp-bar" class="stat-bar-fill hp"></div></div>
+          </div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Выносливость: <span id="info-stamina-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-stamina-bar" class="stat-bar-fill stamina"></div></div>
+          </div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Кровь: <span id="info-blood-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-blood-bar" class="stat-bar-fill blood"></div></div>
+          </div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Шок: <span id="info-shock-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-shock-bar" class="stat-bar-fill" style="background:#FF00FF"></div></div>
+          </div>
           <div id="info-bleeding" class="warning-text hidden">Внимание: Кровотечение!</div>
           <div id="info-med-progress" class="warning-text hidden" style="color:#5096ff">Оказание помощи...</div>
         </div>
       </div>
     </div>
 
+    <!-- Нижняя панель: Позы и Действия -->
     <div class="hud-panel hud-bottom" role="toolbar" aria-label="Действия">
       <button class="hud-btn stance-btn active" id="btn-stand">Стоя</button>
       <button class="hud-btn stance-btn" id="btn-run">Бег</button>
       <button class="hud-btn stance-btn" id="btn-crouch">Присяд</button>
       <button class="hud-btn stance-btn" id="btn-prone">Лёжа</button>
       
+      <!-- Медицина и Взрывчатка -->
       <button class="hud-btn" id="btn-bandage" style="margin-left: 10px; border-color: #0F9D58;">Бинт</button>
       <button class="hud-btn" id="btn-tourniquet" style="border-color: #EA4335;">Жгут</button>
+      <button class="hud-btn" id="btn-grenade" style="border-color: #F4B400;">Граната</button>
       <button class="hud-btn" id="btn-clear-malfunction" style="border-color: #FF5500;">Устранить</button>
     </div>
 
+    <!-- Индикатор координат -->
     <div id="coords">X: 0, Y: 0</div>
   </div>
 
