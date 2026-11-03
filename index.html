@@ -71,6 +71,7 @@
       </div>
       
       <div class="unit-panel-content">
+        <!-- Био -->
         <div id="tab-bio" class="tab-content active">
           <div class="info-row"><span class="info-label">Позывной:</span> <span id="info-name">-</span></div>
           <div class="info-row"><span class="info-label">Роль:</span> <span id="info-role">-</span></div>
@@ -78,12 +79,15 @@
           <div class="info-row"><span class="info-label">Статус:</span> <span id="info-status">-</span></div>
         </div>
 
+        <!-- Снаряжение -->
         <div id="tab-gear" class="tab-content">
           <div class="info-row"><span class="info-label">Оружие:</span> <span id="info-weapon">-</span></div>
           <div class="info-row"><span class="info-label">Патроны:</span> <span id="info-ammo">-</span></div>
           <div class="info-row"><span class="info-label">Броня:</span> <span id="info-armor">-</span></div>
+          <div class="info-row"><span class="info-label">Медицина:</span> <span id="info-medical">-</span></div>
         </div>
 
+        <!-- Здоровье -->
         <div id="tab-health" class="tab-content">
           <div class="stat-bar-container">
             <div class="stat-label">Здоровье: <span id="info-hp-text">-</span></div>
@@ -97,16 +101,26 @@
             <div class="stat-label">Кровь: <span id="info-blood-text">-</span></div>
             <div class="stat-bar-bg"><div id="info-blood-bar" class="stat-bar-fill blood"></div></div>
           </div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Шок: <span id="info-shock-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-shock-bar" class="stat-bar-fill" style="background:#FF00FF"></div></div>
+          </div>
           <div id="info-bleeding" class="warning-text hidden">Внимание: Кровотечение!</div>
+          <div id="info-med-progress" class="warning-text hidden" style="color:#5096ff">Оказание помощи...</div>
         </div>
       </div>
     </div>
 
+    <!-- НИЖНЯЯ ПАНЕЛЬ (ПОЗЫ + МЕДИЦИНА) -->
     <div class="hud-panel hud-bottom" role="toolbar" aria-label="Позы">
       <button class="hud-btn stance-btn active" id="btn-stand">Стоя</button>
       <button class="hud-btn stance-btn" id="btn-run">Бег</button>
       <button class="hud-btn stance-btn" id="btn-crouch">Присяд</button>
       <button class="hud-btn stance-btn" id="btn-prone">Лёжа</button>
+      
+      <!-- Кнопки медицины -->
+      <button class="hud-btn" id="btn-bandage" style="margin-left: 10px; border-color: #0F9D58;">Бинт</button>
+      <button class="hud-btn" id="btn-tourniquet" style="border-color: #EA4335;">Жгут</button>
     </div>
 
     <div id="coords">X: 0, Y: 0</div>
