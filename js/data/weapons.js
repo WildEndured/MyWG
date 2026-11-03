@@ -1,12 +1,11 @@
 // js/data/weapons.js
-
 export const WEAPONS = {
   ak74: {
     id: 'ak74',
     name: 'АК-74',
     caliber: '5.45×39',
     weightEmpty: 3.3,
-    weightLoaded: 3.6, // Вес с полным магазином
+    weightLoaded: 3.6,
     rpm: 650,
     bulletSpeed: 900,
     effectiveRange: 440,
@@ -17,13 +16,12 @@ export const WEAPONS = {
     spreadBase: 0.3,
     reloadTime: 2.5
   },
-  
   pkm: {
     id: 'pkm',
     name: 'ПКМ',
     caliber: '7.62×54R',
     weightEmpty: 9.0,
-    weightLoaded: 12.5, // С коробом на 100 патронов
+    weightLoaded: 12.5,
     rpm: 650,
     bulletSpeed: 825,
     effectiveRange: 1000,
