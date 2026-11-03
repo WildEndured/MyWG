@@ -17,10 +17,9 @@ export class UnitManager {
     this.decals = [];
     this.currentTime = 0;
 
-    // FIX: выбор команды/режима
-    this.playerFaction = 'player';   // 'player' | 'enemy' | null (наблюдатель)
+    this.playerFaction = 'player';
     this.playerTeamId = 'team1';
-    this.gameMode = 'attack';        // 'attack' | 'defense'
+    this.gameMode = 'attack';
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)),
@@ -34,9 +33,7 @@ export class UnitManager {
           this.decals.push({
             x: data.x, y: data.y,
             r: 0.3 + Math.min(0.6, (data.amount || 10) / 100),
-            alpha: 0.7,
-            ttl: 12.0,
-            age: 0,
+            alpha: 0.7, ttl: 12.0, age: 0,
           });
         }
       }),
@@ -74,10 +71,9 @@ export class UnitManager {
     return this.pathfinder.findNearestFreePoint(desiredX, desiredY);
   }
 
-  // FIX: можно ли управлять этим юнитом
   isPlayerControllable(unit) {
     if (!unit || unit.isDead) return false;
-    if (this.playerFaction === null) return false; // наблюдатель
+    if (this.playerFaction === null) return false;
     return unit.faction === this.playerFaction;
   }
 
@@ -119,7 +115,6 @@ export class UnitManager {
       this.flashes[i].life -= dt;
       if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
     }
-
     for (let i = this.decals.length - 1; i >= 0; i--) {
       const d = this.decals[i];
       d.age += dt;
@@ -206,7 +201,6 @@ export class UnitManager {
 
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
-    // FIX: наблюдатель не может выделять
     if (this.playerFaction === null) return;
 
     let clicked = null;
@@ -272,7 +266,6 @@ export class UnitManager {
 
   selectUnits(units) {
     const set = Array.isArray(units) ? units : [];
-    // FIX: нельзя выделять чужих
     for (const u of this.units) u.isSelected = false;
     this.selectedUnits = set.filter(u => this.isPlayerControllable(u) || this.playerFaction === null);
     for (const u of this.selectedUnits) u.isSelected = true;
@@ -285,4 +278,4 @@ export class UnitManager {
       u.setStance(stance);
     }
   }
-}
+ }
