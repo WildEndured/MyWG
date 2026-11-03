@@ -4,12 +4,13 @@ export const CALIBERS = {
     name: '5.45×39 мм',
     baseDamage: 25,
     bulletSpeed: 900,
-    // FIX: damageFalloff = доля потери на maxFalloffDist (0..1)
     damageFalloff: 0.3,
     maxFalloffDist: 1000,
     penetration: 3,
-    // FIX: единая шкала громкости — «базовая слышимость» в метрах
     loudness: 400,
+    // FIX: баллистика (Волна 1)
+    drag: 0.00030,               // 1/м — сопротивление воздуха
+    fragmentation: 0.35,         // шанс фрагментации при попадании в мягкие ткани
   },
   '7.62x54R': {
     id: '7.62x54R',
@@ -20,5 +21,7 @@ export const CALIBERS = {
     maxFalloffDist: 1500,
     penetration: 5,
     loudness: 800,
+    drag: 0.00022,
+    fragmentation: 0.2,
   }
 };
