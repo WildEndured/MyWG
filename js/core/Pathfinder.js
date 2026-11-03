@@ -37,14 +37,6 @@ export class Pathfinder {
     }
   }
 
-  removeObstacle(obs) {
-    const idx = this.obstacles.indexOf(obs);
-    if (idx < 0) return;
-    this.obstacles.splice(idx, 1);
-    this.clearObstacles();
-    for (const o of this.obstacles) this.addObstacle(o.x, o.y, o.w, o.h, o.materialId);
-  }
-
   clearObstacles() {
     this.grid.fill(0);
     this.obstacles = [];
@@ -89,22 +81,6 @@ export class Pathfinder {
       const cy = y1 + (y2 - y1) * t;
       const g = this.worldToGrid(cx, cy);
       if (this.grid[g.y * this.cols + g.x] === 1) return false;
-      if (radius > 0) {
-        // FIX: проверка радиуса (для юнитов)
-        const r = Math.ceil(radius / this.cellSize);
-        for (let ox = -r; ox <= r; ox++) {
-          for (let oy = -r; oy <= r; oy++) {
-            if (ox === 0 && oy === 0) continue;
-            const nx = g.x + ox, ny = g.y + oy;
-            if (nx < 0 || nx >= this.cols || ny < 0 || ny >= this.rows) continue;
-            if (this.grid[ny * this.cols + nx] === 1) {
-              const d = Math.hypot(cx - (nx * this.cellSize + this.cellSize / 2),
-                                   cy - (ny * this.cellSize + this.cellSize / 2));
-              if (d < radius) return false;
-            }
-          }
-        }
-      }
     }
     return true;
   }
@@ -139,7 +115,6 @@ export class Pathfinder {
     const start = this.worldToGrid(startX, startY);
     const end = this.worldToGrid(endX, endY);
 
-    // FIX: старт в стене — перенос и обновление startId
     if (this.grid[start.y * this.cols + start.x] === 1) {
       const freeStart = this.findNearestFreePoint(startX, startY);
       const ns = this.worldToGrid(freeStart.x, freeStart.y);
@@ -161,7 +136,7 @@ export class Pathfinder {
 
     while (openSet.size > 0) {
       iterations++;
-      if (iterations > maxIterations) return [{ x: endX, y: endY }];
+      if (iterations > maxIterations) return []; // FIX: нет пути — возвращаем пустоту
 
       let currentId = null;
       let lowestF = Infinity;
@@ -192,7 +167,7 @@ export class Pathfinder {
         const neighborId = n.y * this.cols + n.x;
         if (this.grid[neighborId] === 1) continue;
 
-        // FIX: corner cutting — диагональ запрещена, если оба соседа-ортогонали в стене
+        // FIX: Запрет срезания углов (диагональ запрещена, если обе ортогонали в стене)
         if (n.x !== cx && n.y !== cy) {
           const a = this.grid[cy * this.cols + n.x];
           const b = this.grid[n.y * this.cols + cx];
@@ -208,7 +183,7 @@ export class Pathfinder {
         }
       }
     }
-    return [{ x: endX, y: endY }];
+    return []; // FIX: Если очередь опустела, а путь не найден — пустота
   }
 
   _heuristic(x1, y1, x2, y2) {
