@@ -16,6 +16,11 @@ export const WEAPONS = {
     heatPerShot: 1.5,
     maxHeat: 100,
     coolingRate: 10,
+    // FIX: отдача (Волна 1)
+    recoilPerShot: 0.8,          // накопление отдачи за выстрел
+    recoilSpreadMult: 0.12,      // множитель разброса от отдачи
+    recoilRecovery: 3.5,         // спад в секунду
+    maxAimTime: 1.5,
   },
   pkm: {
     id: 'pkm',
@@ -34,10 +39,13 @@ export const WEAPONS = {
     heatPerShot: 1.5,
     maxHeat: 100,
     coolingRate: 10,
+    recoilPerShot: 1.6,
+    recoilSpreadMult: 0.16,
+    recoilRecovery: 3.0,
+    maxAimTime: 3.0,
   }
 };
 
-// FIX: валидатор
 export function validateWeapons(calibers) {
   const errors = [];
   for (const [id, w] of Object.entries(WEAPONS)) {
