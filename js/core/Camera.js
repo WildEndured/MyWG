@@ -1,17 +1,18 @@
-// js/core/Camera.js
 import { CONFIG } from '../data/config.js';
 
 export class Camera {
-  constructor(canvas, { x = 500, y = 500, zoom = 2 } = {}) {
+  constructor(canvas, { x = 500, y = 500, zoom = 2, dpr = 1 } = {}) {
     this.canvas = canvas;
     this.x = x;
     this.y = y;
     this.zoom = zoom;
+    this.dpr = dpr; // FIX: dpr — единый источник истины
     this.minZoom = CONFIG.MIN_PX_PER_METER;
     this.maxZoom = CONFIG.MAX_PX_PER_METER;
   }
 
-  // Геттеры для размеров экрана (в CSS-пикселях)
+  setDpr(dpr) { this.dpr = dpr; }
+
   get vw() { return this.canvas.clientWidth; }
   get vh() { return this.canvas.clientHeight; }
 
@@ -30,17 +31,19 @@ export class Camera {
   }
 
   clampTo(worldW, worldH) {
+    if (!(worldW > 0) || !(worldH > 0)) return;
     const halfW = (this.vw / 2) / this.zoom;
     const halfH = (this.vh / 2) / this.zoom;
-    
+
     if (worldW * this.zoom < this.vw) this.x = worldW / 2;
     else this.x = Math.max(halfW, Math.min(worldW - halfW, this.x));
-    
+
     if (worldH * this.zoom < this.vh) this.y = worldH / 2;
     else this.y = Math.max(halfH, Math.min(worldH - halfH, this.y));
   }
 
   zoomAt(sx, sy, factor) {
+    if (!Number.isFinite(factor) || factor <= 0) return;
     const before = this.screenToWorld(sx, sy);
     this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
     const after = this.screenToWorld(sx, sy);
@@ -49,6 +52,7 @@ export class Camera {
   }
 
   fit(worldW, worldH) {
+    if (!(worldW > 0) || !(worldH > 0)) return;
     const zx = this.vw / worldW;
     const zy = this.vh / worldH;
     this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, Math.min(zx, zy)));
@@ -56,7 +60,6 @@ export class Camera {
     this.y = worldH / 2;
   }
 
-  // Проверка, находится ли точка в мировых координатах в пределах экрана
   isPointVisible(wx, wy, marginPx = 50) {
     const screen = this.worldToScreen(wx, wy);
     return screen.x >= -marginPx && screen.x <= this.vw + marginPx &&
