@@ -37,7 +37,6 @@ function setMapSize(meters) {
   unitManager.setWorldSize(meters);
   camera.fit(meters, meters);
   
-  // Обновляем активную кнопку размера карты (используем класс hud-top-left)
   document.querySelectorAll('.hud-top-left button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
   });
@@ -52,12 +51,14 @@ function spawnInitialUnits(mapSize) {
   const center = mapSize / 2;
   const offset = mapSize * 0.1;
 
-  unitManager.addUnit(new Unit(center - offset, center, 'player'));
-  unitManager.addUnit(new Unit(center - offset, center + offset * 0.5, 'player'));
-  unitManager.addUnit(new Unit(center - offset * 0.5, center - offset, 'player'));
+  // Игроки (синие)
+  unitManager.addUnit(new Unit(center - offset, center, 'player', 'infantry'));
+  unitManager.addUnit(new Unit(center - offset, center + offset * 0.5, 'player', 'machinegunner'));
+  unitManager.addUnit(new Unit(center - offset * 0.5, center - offset, 'player', 'infantry'));
   
-  unitManager.addUnit(new Unit(center + offset, center, 'enemy'));
-  unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy'));
+  // Враги (красные)
+  unitManager.addUnit(new Unit(center + offset, center, 'enemy', 'infantry'));
+  unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy', 'machinegunner'));
 
   unitManager._spawnTestObstacles(mapSize);
 }
@@ -66,7 +67,7 @@ EventBus.on('input:tap', (data) => {
   coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
 
-// HUD размеров карты
+// HUD
 document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => {
   btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
 });
@@ -102,9 +103,7 @@ function updateStanceUI(activeStance) {
   }
 }
 
-// Начальное состояние
 updateStanceUI('stand');
-
 
 // --- УПРАВЛЕНИЕ ВРЕМЕНЕМ ---
 document.getElementById('btn-pause').addEventListener('click', () => {
@@ -116,7 +115,6 @@ document.getElementById('btn-speed-2').addEventListener('click', () => TimeManag
 document.getElementById('btn-speed-4').addEventListener('click', () => TimeManager.setTimeScale(4.0));
 
 EventBus.on('time:changed', ({ scale, isPaused }) => {
-  // Снимаем выделение со всех кнопок времени (используем класс time-btn)
   document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
   
   if (isPaused) {
@@ -138,7 +136,6 @@ function frame(now) {
     unitManager.update(dt);
   }
 
-  // Отрисовка (всегда)
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
@@ -146,16 +143,14 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// --- ОКНО И ЗАПУСК ---
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
 resize();
-setMapSize(100); // Стартовая карта
+setMapSize(100);
 lastTime = performance.now();
 requestAnimationFrame(frame);
 
-// Хак для мобилок
 setTimeout(() => {
   resize();
   camera.fit(map.size, map.size);
