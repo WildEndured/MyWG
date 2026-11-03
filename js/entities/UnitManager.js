@@ -14,13 +14,18 @@ export class UnitManager {
     this.camera = null; 
     this._isSearchingPath = false;
     this.tracers = []; 
+    this.flashes = []; // Для вспышек выстрелов
     this.currentTime = 0;
 
     EventBus.on('input:tap', this.handleTap.bind(this));
     EventBus.on('input:doubleTap', this.handleDoubleTap.bind(this));
     
-    EventBus.on('unit:shoot', ({ x1, y1, x2, y2 }) => {
-      this.tracers.push({ x1, y1, x2, y2, life: 0.05 });
+    EventBus.on('unit:shoot', (data) => {
+      this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 });
+      
+      if (data.isMuzzleFlash) {
+        this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
+      }
     });
   }
 
@@ -74,6 +79,11 @@ export class UnitManager {
       this.tracers[i].life -= dt;
       if (this.tracers[i].life <= 0) this.tracers.splice(i, 1);
     }
+
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      this.flashes[i].life -= dt;
+      if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
+    }
   }
 
   _resolveCollisions() {
@@ -103,6 +113,7 @@ export class UnitManager {
       b.draw(ctx, camera);
     }
 
+    // Трассеры
     ctx.lineWidth = 1.5;
     for (const t of this.tracers) {
       const p1 = camera.worldToScreen(t.x1, t.y1);
@@ -113,6 +124,17 @@ export class UnitManager {
       ctx.lineTo(p2.x, p2.y);
       ctx.strokeStyle = `rgba(255, 255, 0, ${t.life * 20})`;
       ctx.stroke();
+    }
+
+    // Вспышки
+    for (const f of this.flashes) {
+      const p = camera.worldToScreen(f.x, f.y);
+      const radius = (1.0 - f.life / 0.05) * 20; 
+      
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 200, 0, ${f.life / 0.05})`;
+      ctx.fill();
     }
   }
 
