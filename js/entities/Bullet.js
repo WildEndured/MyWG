@@ -112,4 +112,4 @@ export class Bullet {
     ctx.fillStyle = '#FFFF00'; 
     ctx.fill();
   }
-      }
+}
