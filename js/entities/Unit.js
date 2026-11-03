@@ -1,6 +1,6 @@
 // js/entities/Unit.js
 import { Weapon } from './Weapon.js';
-import { WEAPONS } from '../data/weapons.js'; // <-- ВАЖНО: маленькая w
+import { WEAPONS } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS } from '../data/health.js';
 import { Physics } from '../core/Physics.js';
@@ -407,3 +407,4 @@ export class Unit {
       }
     }
   }
+            }
