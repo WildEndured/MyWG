@@ -13,7 +13,6 @@ export class Weapon {
     this.damageFalloff = caliberData.damageFalloff;
     this.maxFalloffDist = caliberData.maxFalloffDist;
     this.penetration = caliberData.penetration;
-    
     this.noiseLevel = caliberData.noiseLevel * config.noiseMultiplier;
     
     this.rpm = config.rpm;
@@ -30,10 +29,20 @@ export class Weapon {
     this.lastShotTime = 0;
     this.isReloading = false;
     this.reloadTimer = 0;
+    
+    this.misfireChance = 0.01; 
+    this.isMisfired = false;   
+    
+    this.heat = 0;           
+    this.maxHeat = 100;
+    this.heatPerShot = 1.5;  
+    this.coolingRate = 10;   
+    this.isJammed = false;   
   }
 
   canFire(currentTime) {
-    if (this.isReloading || this.ammo <= 0) return false;
+    if (this.isReloading || this.isMisfired || this.isJammed) return false;
+    if (this.ammo <= 0) return false;
     if (currentTime - this.lastShotTime < this.fireInterval) return false;
     return true;
   }
@@ -41,8 +50,20 @@ export class Weapon {
   fire(currentTime) {
     if (!this.canFire(currentTime)) return false;
     
+    // Проверка на осечку
+    if (Math.random() < this.misfireChance) {
+      this.isMisfired = true;
+      return false; 
+    }
+    
     this.lastShotTime = currentTime;
     this.ammo--;
+    
+    this.heat += this.heatPerShot;
+    if (this.heat >= this.maxHeat) {
+      this.heat = this.maxHeat;
+      this.isJammed = true; 
+    }
     
     if (this.ammo === 0) {
       this.startReload();
@@ -62,7 +83,17 @@ export class Weapon {
       if (this.reloadTimer <= 0) {
         this.isReloading = false;
         this.ammo = this.magazineCapacity;
+        this.isMisfired = false; 
       }
+    }
+    
+    if (this.heat > 0) {
+      this.heat -= this.coolingRate * dt;
+      if (this.heat < 0) this.heat = 0;
+    }
+    
+    if (this.isJammed && this.heat < 50) {
+      this.isJammed = false;
     }
   }
 
