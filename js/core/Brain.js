@@ -7,22 +7,12 @@ export class Brain {
     this.playerOverrideTimer = 0;
     this.decisionTimer = Math.random() * 0.5;
     this.currentGoal = 'idle';
-    
-    this.memory = { 
-      lastEnemyPos: null, 
-      lastEnemyTime: 0, 
-      patrolTarget: null,
-      dangerZones: [],
-      coverPoints: [],
-      lastHeardNoise: null
-    };
+    this.memory = { lastEnemyPos: null, lastEnemyTime: 0, dangerZones: [], lastHeardNoise: null };
   }
 
   setPlayerOrder(path, target) {
     this.playerOverrideTimer = 10.0;
-    this.unit.setPath(path);
-    this.unit.lastTarget = target;
-    this.currentGoal = 'move';
+    this.unit.setPath(path); this.unit.lastTarget = target; this.currentGoal = 'move';
   }
 
   registerDamage(fromX, fromY) {
@@ -39,29 +29,53 @@ export class Brain {
     if (this.decisionTimer > 0) return;
     this.decisionTimer = 0.4 + Math.random() * 0.3;
     
-    this._cleanupMemory(world.time);
+    // НОВОЕ: ИИ ошибается (5% шанс)
+    if (Math.random() < CONFIG.AI.MISTAKE_CHANCE) {
+      this._doMistake(world);
+      return;
+    }
+
     this._think(world);
   }
 
-  _cleanupMemory(now) {
-    this.memory.dangerZones = this.memory.dangerZones.filter(z => now - z.time < 30);
-    this.memory.coverPoints = this.memory.coverPoints.filter(z => now - z.time < 30);
+  _doMistake(world) {
+    // ИИ идет не туда или ложится без причины
+    this.currentGoal = 'mistake';
+    if (Math.random() > 0.5) {
+      // Идет в случайную точку
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 5 + Math.random() * 15;
+      const tx = Math.max(5, Math.min(world.mapSize - 5, this.unit.x + Math.cos(angle) * dist));
+      const ty = Math.max(5, Math.min(world.mapSize - 5, this.unit.y + Math.sin(angle) * dist));
+      const path = world.pathfinder.findPath(this.unit.x, this.unit.y, tx, ty);
+      if (path && path.length > 0) this.unit.setPath(path);
+    } else {
+      // Ложится без причины
+      this.unit.setStance('prone');
+    }
   }
 
   _think(world) {
     const unit = this.unit;
 
-    // 0. КРИТИЧЕСКОЕ: Нет патронов (ни в оружии, ни в запасе)
+    // НОВОЕ: Сдача в плен
+    if (unit.hp < unit.maxHp * CONFIG.AI.SURRENDER_HP_THRESHOLD && unit.suppression > CONFIG.AI.SURRENDER_SUPPRESSION && !unit.isSurrendered) {
+      unit.isSurrendered = true;
+      unit.isArmed = false;
+      unit.setStance('prone');
+      unit.setPath([]);
+      return;
+    }
+    if (unit.isSurrendered) return;
+
+    // 0. Нет патронов
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0) {
       if (this.currentGoal !== 'no_ammo') {
         this.currentGoal = 'no_ammo';
         const threatX = unit.target ? unit.target.x : unit.x + Math.cos(unit.angle) * 30;
         const threatY = unit.target ? unit.target.y : unit.y + Math.sin(unit.angle) * 30;
         const cover = this._findBestCover(world, threatX, threatY);
-        if (cover) {
-          const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y);
-          if (path && path.length > 0) unit.setPath(path);
-        }
+        if (cover) { const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y); if (path && path.length > 0) unit.setPath(path); }
         unit.setStance('prone');
       }
       return;
@@ -74,10 +88,7 @@ export class Brain {
         unit._wantsToMove = false; unit.setPath([]);
         if (unit.target && Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y) < 20) {
           const cover = this._findBestCover(world, unit.target.x, unit.target.y);
-          if (cover) {
-            const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y);
-            if (path && path.length > 0) unit.setPath(path);
-          }
+          if (cover) { const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y); if (path && path.length > 0) unit.setPath(path); }
         }
         if (unit.medical.bandage > 0) unit.applyBandage('torso', true);
         else if (unit.medical.tourniquet > 0) unit.applyTourniquet('leftLeg', true);
@@ -85,32 +96,27 @@ export class Brain {
       return;
     }
 
-    // 2. Отступление при низком HP
+    // 2. Отступление
     if (unit.hp < unit.maxHp * 0.3 && unit.target && this.currentGoal !== 'retreat') {
       const distToEnemy = Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y);
       if (distToEnemy > 5) {
         this.currentGoal = 'retreat';
         const cover = this._findBestCover(world, unit.target.x, unit.target.y);
-        if (cover) {
-          const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y);
-          if (path && path.length > 0) unit.setPath(path);
-          unit.setStance('run');
-        }
+        if (cover) { const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y); if (path && path.length > 0) unit.setPath(path); unit.setStance('run'); }
         return;
       }
     }
 
-    // 3. Укрытие при подавлении
+    // 3. Укрытие
     if (unit.suppression > 0.4) {
       if (this.currentGoal !== 'cover') {
         this.currentGoal = 'cover';
         const threatX = unit.target ? unit.target.x : unit.x + Math.cos(unit.angle) * 30;
         const threatY = unit.target ? unit.target.y : unit.y + Math.sin(unit.angle) * 30;
+        
+        // НОВОЕ: ИИ ищет укрытие только по памяти (не видит сквозь стены)
         const cover = this._findBestCover(world, threatX, threatY);
-        if (cover) {
-          const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y);
-          if (path && path.length > 0) unit.setPath(path);
-        }
+        if (cover) { const path = world.pathfinder.findPath(unit.x, unit.y, cover.x, cover.y); if (path && path.length > 0) unit.setPath(path); }
         unit.setStance('prone');
       }
       return;
@@ -118,24 +124,17 @@ export class Brain {
 
     // 4. Бой
     if (unit.target) {
-      if (this.currentGoal !== 'engage') {
-        this.currentGoal = 'engage';
-        unit._wantsToMove = false; unit.setPath([]); unit.setStance('stand');
-      }
-      if (unit.weapon.ammo < unit.weapon.magazineCapacity * 0.5 && unit.weapon.isReloading) unit.setStance('crouch');
+      if (this.currentGoal !== 'engage') { this.currentGoal = 'engage'; unit._wantsToMove = false; unit.setPath([]); unit.setStance('stand'); }
       return;
     }
 
-    // 5. Реакция на шум
+    // 5. Шум
     if (unit.lastHeardNoise) {
       const timeSinceNoise = (performance.now() / 1000) - unit.lastHeardNoise.time / 1000;
       if (timeSinceNoise < 5 && this.currentGoal !== 'investigate') {
         this.currentGoal = 'investigate';
         const path = world.pathfinder.findPath(unit.x, unit.y, unit.lastHeardNoise.x, unit.lastHeardNoise.y);
-        if (path && path.length > 0) unit.setPath(path);
-        unit.setStance('crouch');
-        unit.lastHeardNoise = null;
-        return;
+        if (path && path.length > 0) unit.setPath(path); unit.setStance('crouch'); unit.lastHeardNoise = null; return;
       }
     }
 
@@ -143,47 +142,39 @@ export class Brain {
     if (world.zone && world.zone.owner !== unit.faction) {
       const distToZone = Math.hypot(world.zone.x - unit.x, world.zone.y - unit.y);
       if (distToZone < 80 && distToZone > world.zone.radius - 2) {
-        if (this.currentGoal !== 'capture_zone') {
-          this.currentGoal = 'capture_zone';
-          const path = world.pathfinder.findPath(unit.x, unit.y, world.zone.x, world.zone.y);
-          if (path && path.length > 0) unit.setPath(path);
-          unit.setStance('crouch');
-        }
+        if (this.currentGoal !== 'capture_zone') { this.currentGoal = 'capture_zone'; const path = world.pathfinder.findPath(unit.x, unit.y, world.zone.x, world.zone.y); if (path && path.length > 0) unit.setPath(path); unit.setStance('crouch'); }
         return;
       }
     }
 
-    // 7. Охота по памяти
+    // 7. Охота
     if (this.memory.lastEnemyPos && (world.time - this.memory.lastEnemyTime) < 8.0) {
-      if (this.currentGoal !== 'hunt') {
-        this.currentGoal = 'hunt';
-        const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y);
-        if (path && path.length > 0) unit.setPath(path);
-        unit.setStance('stand');
-      }
+      if (this.currentGoal !== 'hunt') { this.currentGoal = 'hunt'; const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y); if (path && path.length > 0) unit.setPath(path); unit.setStance('stand'); }
       return;
     }
 
-    // 8. Патруль (избегая опасных зон)
+    // 8. Патруль
     if (this.currentGoal !== 'patrol' || (!unit.isMoving && !unit._wantsToMove)) {
       this.currentGoal = 'patrol';
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 10 + Math.random() * 20;
+      const angle = Math.random() * Math.PI * 2; const dist = 10 + Math.random() * 20;
       let tx = Math.max(5, Math.min(world.mapSize - 5, unit.x + Math.cos(angle) * dist));
       let ty = Math.max(5, Math.min(world.mapSize - 5, unit.y + Math.sin(angle) * dist));
-      
-      for (const zone of this.memory.dangerZones) {
-        if (Math.hypot(tx - zone.x, ty - zone.y) < 15) { tx = unit.x; ty = unit.y; break; }
-      }
-      
+      for (const zone of this.memory.dangerZones) { if (Math.hypot(tx - zone.x, ty - zone.y) < 15) { tx = unit.x; ty = unit.y; break; } }
       const path = world.pathfinder.findPath(unit.x, unit.y, tx, ty);
       if (path && path.length > 0) { unit.setPath(path); unit.setStance('crouch'); }
     }
   }
 
+  // НОВОЕ: ИИ не читерит — оценка укрытий только по памяти
   _findBestCover(world, threatX, threatY) {
     const unit = this.unit;
     let bestCover = null, bestScore = -Infinity;
+    
+    // Если враг не виден — ИИ не знает, где он, и не может искать "идеальное" укрытие
+    const enemyVisible = unit.perception.has(unit.target) && unit.perception.get(unit.target).seen > 0.5;
+    const effectiveThreatX = enemyVisible ? threatX : unit.x + Math.cos(unit.angle) * 20;
+    const effectiveThreatY = enemyVisible ? threatY : unit.y + Math.sin(unit.angle) * 20;
+
     for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
       for (let dist = 5; dist <= 15; dist += 5) {
         const cx = unit.x + Math.cos(angle) * dist;
@@ -192,8 +183,10 @@ export class Brain {
         if (!world.pathfinder || !world.pathfinder.grid) continue;
         const g = world.pathfinder.worldToGrid(cx, cy);
         if (world.pathfinder.grid[g.y * world.pathfinder.cols + g.x] === 1) continue;
-        const enemySeesUs = world.pathfinder.hasLineOfSight(threatX, threatY, cx, cy);
-        const weSeeEnemy = world.pathfinder.hasLineOfSight(cx, cy, threatX, threatY);
+        
+        const enemySeesUs = world.pathfinder.hasLineOfSight(effectiveThreatX, effectiveThreatY, cx, cy);
+        const weSeeEnemy = world.pathfinder.hasLineOfSight(cx, cy, effectiveThreatX, effectiveThreatY);
+        
         let score = 0;
         if (!enemySeesUs) score += 100;
         if (weSeeEnemy) score += 50;
