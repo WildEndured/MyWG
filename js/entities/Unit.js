@@ -46,12 +46,11 @@ export class Unit {
       for (const zone of config.covers) { if (!this.armor[zone] || this.armor[zone].level < piece.level) this.armor[zone] = piece; }
     }
 
+    // Вес: пустое оружие + броня + медицина + ВСЕ патроны
     const medWeight = this.medical.bandage * CONFIG.MEDICAL.BANDAGE_WEIGHT + this.medical.tourniquet * CONFIG.MEDICAL.TOURNIQUET_WEIGHT;
+    const ammoWeight = this.weapon.getTotalAmmoWeight();
+    this.totalWeight = this.weapon.weightEmpty + armorWeight + medWeight + ammoWeight;
     
-    // ВЕС: Оружие с патронами + Броня + Медицина
-    this.totalWeight = (this.weapon.weightLoaded || 3.6) + armorWeight + medWeight;
-    
-    // Штраф за вес
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
     this.accel = CONFIG.MOVEMENT.ACCEL_BASE / this.staminaPenalty; this.decel = CONFIG.MOVEMENT.DECEL_BASE / this.staminaPenalty;
@@ -139,7 +138,6 @@ export class Unit {
     if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
     let finalDamage = amount; const part = this.bodyParts[hitZone]; if (!part) return;
 
-    // Память об уроне
     if (this.brain && this.target) this.brain.registerDamage(this.target.x, this.target.y);
 
     let chosenSub = null;
@@ -183,14 +181,9 @@ export class Unit {
   }
 
   _calculateSpeeds(baseSpeeds, weight) {
-    const referenceWeight = 10.0; // Вес стрелка с АК (эталон)
-    const penaltyPerKg = 0.03; 
-    
+    const referenceWeight = 10.0; const penaltyPerKg = 0.03; 
     let mult = 1.0;
-    if (weight > referenceWeight) {
-      mult = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
-    }
-    
+    if (weight > referenceWeight) mult = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
     return { 
       run: (baseSpeeds.run || 5) * mult, 
       stand: (baseSpeeds.stand || 1.6) * mult, 
@@ -237,10 +230,7 @@ export class Unit {
       const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
       mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
       mem.lastX = other.x; mem.lastY = other.y; mem.lastSeen = now; mem.angle = vis.angle; this.perception.set(other, mem);
-      if (this.brain) {
-        this.brain.memory.lastEnemyPos = { x: other.x, y: other.y };
-        this.brain.memory.lastEnemyTime = now;
-      }
+      if (this.brain) { this.brain.memory.lastEnemyPos = { x: other.x, y: other.y }; this.brain.memory.lastEnemyTime = now; }
     }
   }
 
@@ -353,6 +343,9 @@ export class Unit {
 
   _updateCombat(dt, allUnits, currentTime) {
     this.target = this._pickEngageTarget(); if (!this.target) return;
+    // Микротактика: если нет патронов — не стреляем
+    if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0) return;
+
     const mem = this.perception.get(this.target); const targetDist = Math.hypot(this.target.x - this.x, this.target.y - this.y); const stale = mem && (currentTime - mem.lastSeen) > 2.0;
     this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x); this.weapon.updateFireMode(targetDist);
     if (stale || this.medical.isApplying || this.shockTimer > 0) return;
