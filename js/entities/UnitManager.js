@@ -30,11 +30,7 @@ export class UnitManager {
       }),
       EventBus.on(EVENTS.BULLET_IMPACT, (data) => {
         if (data.type === 'blood') {
-          this.decals.push({
-            x: data.x, y: data.y,
-            r: 0.3 + Math.min(0.6, (data.amount || 10) / 100),
-            alpha: 0.7, ttl: 12.0, age: 0,
-          });
+          this.decals.push({ x: data.x, y: data.y, r: 0.3 + Math.min(0.6, (data.amount || 10) / 100), alpha: 0.7, ttl: 12.0, age: 0 });
         }
       }),
     ];
@@ -99,16 +95,10 @@ export class UnitManager {
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
         const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
-        
         if (target) {
           const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
-          if (newPath && newPath.length > 0) {
-            unit.setPath(newPath);
-          } else {
-            unit._wantsToMove = false;
-            unit.isMoving = false;
-            unit.lastTarget = null;
-          }
+          if (newPath && newPath.length > 0) unit.setPath(newPath);
+          else { unit._wantsToMove = false; unit.isMoving = false; unit.lastTarget = null; }
         } else {
           unit._wantsToMove = false;
           unit.isMoving = false;
@@ -148,8 +138,7 @@ export class UnitManager {
       for (let j = i + 1; j < this.units.length; j++) {
         const u1 = this.units[i], u2 = this.units[j];
         if (u1.isDead || u2.isDead) continue;
-        const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-        Physics.resolveUnitCollision(u1, u2, obs);
+        Physics.resolveUnitCollision(u1, u2, this.pathfinder.obstacles);
       }
     }
   }
@@ -157,7 +146,6 @@ export class UnitManager {
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
     if (this.playerFaction === null) return;
-
     let clicked = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
@@ -172,7 +160,6 @@ export class UnitManager {
   handleDoubleTap({ x, y }) {
     if (this._isSearchingPath) return;
     if (this.playerFaction === null) return;
-
     let clicked = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
@@ -181,7 +168,6 @@ export class UnitManager {
     }
     if (!clicked) return;
     if (!this.camera) return;
-
     const roleId = clicked.roleId;
     const faction = clicked.faction;
     const selected = [];
@@ -212,7 +198,6 @@ export class UnitManager {
         }
         const target = this.pathfinder.findNearestFreePoint(freeTarget.x + ox, freeTarget.y + oy);
         const path = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
-        
         if (path && path.length > 0) {
           unit.lastTarget = target;
           unit.setPath(path);
