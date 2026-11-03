@@ -9,7 +9,7 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { AudioManager } from '../core/AudioManager.js';
 import { Bullet } from './Bullet.js';
 import { CONFIG } from '../data/config.js';
-import { Brain } from '../core/Brain.js'; // ИМПОРТ МОЗГА
+import { Brain } from '../core/Brain.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
@@ -63,7 +63,7 @@ export class Unit {
     this.suppression = 0; this.lastSuppressionTime = 0; this.standLockTimer = 0;
     this.perception = new Map(); this._lastScanTime = 0; this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
 
-    // ИНИЦИАЛИЗАЦИЯ МОЗГА
+    // Инициализация мозга
     this.brain = new Brain(this);
   }
 
@@ -136,6 +136,11 @@ export class Unit {
     if (this.isDead) return;
     if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
     let finalDamage = amount; const part = this.bodyParts[hitZone]; if (!part) return;
+
+    // Память об уроне (откуда стреляли)
+    if (this.brain && this.target) {
+      this.brain.registerDamage(this.target.x, this.target.y);
+    }
 
     let chosenSub = null;
     if (forcedSubPartId && part.subParts) chosenSub = part.subParts.find(s => s.id === forcedSubPartId) || null;
@@ -221,7 +226,6 @@ export class Unit {
       const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
       mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
       mem.lastX = other.x; mem.lastY = other.y; mem.lastSeen = now; mem.angle = vis.angle; this.perception.set(other, mem);
-      // Запоминаем для мозга
       if (this.brain) {
         this.brain.memory.lastEnemyPos = { x: other.x, y: other.y };
         this.brain.memory.lastEnemyTime = now;
@@ -273,10 +277,7 @@ export class Unit {
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
     this._updatePerception(dt, allUnits, obs, currentTime);
     
-    // МОЗГ ДУМАЕТ
-    if (this.brain && worldState) {
-      this.brain.update(dt, worldState);
-    }
+    if (this.brain && worldState) this.brain.update(dt, worldState);
 
     this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
