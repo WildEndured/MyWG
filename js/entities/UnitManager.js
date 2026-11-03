@@ -4,6 +4,7 @@ import { Pathfinder } from '../core/Pathfinder.js';
 import { Physics } from '../core/Physics.js';
 import { CONFIG } from '../data/config.js';
 import { CaptureZone } from './CaptureZone.js';
+import { Explosion } from './Explosion.js';
 
 export class UnitManager {
   constructor() {
@@ -12,15 +13,14 @@ export class UnitManager {
     this.playerFaction = 'player'; this.playerTeamId = 'team1'; this.gameMode = 'attack'; this.mapSize = 100;
     
     this.captureZone = null;
-    this.shells = []; // НОВОЕ: Гильзы
+    this.shells = [];
+    this.explosions = []; // НОВОЕ
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
       EventBus.on(EVENTS.UNIT_SHOOT, (data) => { 
         this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 }); 
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
-        
-        // НОВОЕ: Гильза вылетает при выстреле
         this.shells.push({ x: data.x1 + (Math.random()-0.5)*0.5, y: data.y1 + (Math.random()-0.5)*0.5, life: 30.0 });
       }),
       EventBus.on(EVENTS.BULLET_IMPACT, (data) => { 
@@ -29,7 +29,7 @@ export class UnitManager {
     ];
   }
 
-  destroy() { for (const unsub of this._unsubs) unsub(); this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; this.tracers = []; this.flashes = []; this.decals = []; this.shells = []; }
+  destroy() { for (const unsub of this._unsubs) unsub(); this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; this.tracers = []; this.flashes = []; this.decals = []; this.shells = []; this.explosions = []; }
   setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
   addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
@@ -45,18 +45,26 @@ export class UnitManager {
     
     if (this.captureZone) this.captureZone.update(dt, this.units);
 
-    const worldState = { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units, zone: this.captureZone };
+    const worldState = { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units, zone: this.captureZone, unitManager: this };
 
     for (const unit of this.units) {
-      const bullets = unit.update(dt, this.units, this.currentTime, worldState);
-      if (bullets) { if (Array.isArray(bullets)) this.bullets.push(...bullets); else this.bullets.push(bullets); }
+      const result = unit.update(dt, this.units, this.currentTime, worldState);
+      if (result) {
+        if (result.bullets) {
+          if (Array.isArray(result.bullets)) this.bullets.push(...result.bullets);
+          else this.bullets.push(result.bullets);
+        }
+        if (result.explosions) {
+          if (Array.isArray(result.explosions)) this.explosions.push(...result.explosions);
+          else this.explosions.push(result.explosions);
+        }
+      }
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false; const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
         if (target) { const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y); if (newPath && newPath.length > 0) unit.setPath(newPath); else { unit._wantsToMove = false; unit.isMoving = false; unit.lastTarget = null; } }
         else { unit._wantsToMove = false; unit.isMoving = false; }
       }
       
-      // НОВОЕ: Лужа крови от раненого
       if (unit.bleedingRate > 0 && Math.random() < 0.05 * dt) {
         this.decals.push({ x: unit.x + (Math.random()-0.5)*1, y: unit.y + (Math.random()-0.5)*1, r: 0.2 + Math.random()*0.3, alpha: 0.8, ttl: 15.0, age: 0 });
       }
@@ -64,11 +72,17 @@ export class UnitManager {
     this._resolveCollisions();
     for (let i = this.units.length - 1; i >= 0; i--) if (this.units[i].isDead) this.removeUnit(this.units[i]);
     for (let i = this.bullets.length - 1; i >= 0; i--) { const b = this.bullets[i]; b.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (b.isDead) this.bullets.splice(i, 1); }
+    
+    // Взрывы
+    for (let i = this.explosions.length - 1; i >= 0; i--) {
+      const ex = this.explosions[i];
+      ex.update(dt, this.units, this.pathfinder.obstacles);
+      if (ex.isDead) this.explosions.splice(i, 1);
+    }
+
     for (let i = this.tracers.length - 1; i >= 0; i--) { this.tracers[i].life -= dt; if (this.tracers[i].life <= 0) this.tracers.splice(i, 1); }
     for (let i = this.flashes.length - 1; i >= 0; i--) { this.flashes[i].life -= dt; if (this.flashes[i].life <= 0) this.flashes.splice(i, 1); }
     for (let i = this.decals.length - 1; i >= 0; i--) { const d = this.decals[i]; d.age += dt; if (d.age >= d.ttl) this.decals.splice(i, 1); }
-    
-    // НОВОЕ: Гильзы
     for (let i = this.shells.length - 1; i >= 0; i--) { this.shells[i].life -= dt; if (this.shells[i].life <= 0) this.shells.splice(i, 1); }
   }
 
