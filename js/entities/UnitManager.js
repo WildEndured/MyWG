@@ -14,8 +14,13 @@ export class UnitManager {
     this._isSearchingPath = false;
     this.tracers = [];
     this.flashes = [];
-    this.decals = [];       // FIX: кровь-декали (Волна 1)
+    this.decals = [];
     this.currentTime = 0;
+
+    // FIX: выбор команды/режима
+    this.playerFaction = 'player';   // 'player' | 'enemy' | null (наблюдатель)
+    this.playerTeamId = 'team1';
+    this.gameMode = 'attack';        // 'attack' | 'defense'
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)),
@@ -24,7 +29,6 @@ export class UnitManager {
         this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 });
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
       }),
-      // FIX: кровь-декали (Волна 1)
       EventBus.on(EVENTS.BULLET_IMPACT, (data) => {
         if (data.type === 'blood') {
           this.decals.push({
@@ -70,6 +74,13 @@ export class UnitManager {
     return this.pathfinder.findNearestFreePoint(desiredX, desiredY);
   }
 
+  // FIX: можно ли управлять этим юнитом
+  isPlayerControllable(unit) {
+    if (!unit || unit.isDead) return false;
+    if (this.playerFaction === null) return false; // наблюдатель
+    return unit.faction === this.playerFaction;
+  }
+
   update(dt) {
     this.currentTime += dt;
 
@@ -109,7 +120,6 @@ export class UnitManager {
       if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
     }
 
-    // FIX: старение декалей
     for (let i = this.decals.length - 1; i >= 0; i--) {
       const d = this.decals[i];
       d.age += dt;
@@ -129,7 +139,6 @@ export class UnitManager {
   }
 
   draw(ctx, camera) {
-    // FIX: сначала — кровь (под юнитами), потом препятствия, потом юниты
     this._drawDecals(ctx, camera);
     this._drawObstacles(ctx, camera);
 
@@ -157,18 +166,15 @@ export class UnitManager {
     }
   }
 
-  // FIX: отрисовка крови (Волна 1)
   _drawDecals(ctx, camera) {
     for (const d of this.decals) {
       const p = camera.worldToScreen(d.x, d.y);
       const r = d.r * camera.zoom;
-      // Плавное угасание в конце жизни
       const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3));
       ctx.beginPath();
       ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2);
       ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`;
       ctx.fill();
-      // Второе пятно для неровности
       ctx.beginPath();
       ctx.arc(p.x + r * 0.4, p.y + r * 0.2, Math.max(0.5, r * 0.5), 0, Math.PI * 2);
       ctx.fillStyle = `rgba(90, 5, 5, ${d.alpha * 0.6 * fade})`;
@@ -200,10 +206,13 @@ export class UnitManager {
 
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
+    // FIX: наблюдатель не может выделять
+    if (this.playerFaction === null) return;
+
     let clicked = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
-      if (u.faction !== 'player' || u.isDead) continue;
+      if (!this.isPlayerControllable(u)) continue;
       if (Math.hypot(u.x - x, u.y - y) <= u.hitRadius) { clicked = u; break; }
     }
     if (clicked) this.selectUnits([clicked]);
@@ -213,14 +222,17 @@ export class UnitManager {
 
   handleDoubleTap({ x, y }) {
     if (this._isSearchingPath) return;
+    if (this.playerFaction === null) return;
+
     let clicked = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
-      if (u.faction !== 'player' || u.isDead) continue;
+      if (!this.isPlayerControllable(u)) continue;
       if (Math.hypot(u.x - x, u.y - y) <= u.hitRadius) { clicked = u; break; }
     }
     if (!clicked) return;
     if (!this.camera) return;
+
     const roleId = clicked.roleId;
     const faction = clicked.faction;
     const selected = [];
@@ -260,9 +272,10 @@ export class UnitManager {
 
   selectUnits(units) {
     const set = Array.isArray(units) ? units : [];
+    // FIX: нельзя выделять чужих
     for (const u of this.units) u.isSelected = false;
-    this.selectedUnits = set;
-    for (const u of set) u.isSelected = true;
+    this.selectedUnits = set.filter(u => this.isPlayerControllable(u) || this.playerFaction === null);
+    for (const u of this.selectedUnits) u.isSelected = true;
     EventBus.emit(EVENTS.UNITS_SELECTED, this.selectedUnits);
   }
 
@@ -272,4 +285,4 @@ export class UnitManager {
       u.setStance(stance);
     }
   }
- }
+}
