@@ -6,6 +6,11 @@ export class Renderer {
     Renderer.drawMap(ctx, camera, map);
     Renderer.drawDecals(ctx, camera, unitManager.decals);
     Renderer.drawObstacles(ctx, camera, unitManager.pathfinder.obstacles);
+    
+    if (unitManager.captureZone) {
+      Renderer.drawZone(ctx, camera, unitManager.captureZone);
+    }
+
     Renderer.drawPaths(ctx, camera, unitManager.selectedUnits);
 
     const sortedUnits = [...unitManager.units].sort((a, b) => a.y - b.y);
@@ -13,6 +18,24 @@ export class Renderer {
 
     Renderer.drawBullets(ctx, camera, unitManager.bullets);
     Renderer.drawEffects(ctx, camera, unitManager.tracers, unitManager.flashes);
+  }
+
+  static drawZone(ctx, camera, zone) {
+    const p = camera.worldToScreen(zone.x, zone.y);
+    const r = zone.radius * camera.zoom;
+    
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = zone.owner === 'player' ? 'rgba(66, 133, 244, 0.15)' : 'rgba(234, 67, 53, 0.15)';
+    ctx.fill();
+    
+    ctx.strokeStyle = zone.owner === 'player' ? 'rgba(66, 133, 244, 0.8)' : 'rgba(234, 67, 53, 0.8)';
+    ctx.lineWidth = 2; ctx.setLineDash([10, 5]); ctx.stroke(); ctx.setLineDash([]);
+
+    if (zone.captureProgress > 0) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r + 4, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2) * (zone.captureProgress / 100));
+      ctx.strokeStyle = '#F4B400'; ctx.lineWidth = 4; ctx.stroke();
+    }
   }
 
   static drawMap(ctx, camera, map) {
@@ -82,7 +105,6 @@ export class Renderer {
       ctx.arc(screenPos.x, screenPos.y, ringR + 4, 0, Math.PI * 2); ctx.strokeStyle = '#F4B400'; ctx.lineWidth = 2; ctx.stroke();
     }
 
-    // Полоски (HP, Стамина, Перезарядка, Шок, Медицина)
     if (!unit.isDead) {
       const barW = Math.max(20, unit.baseRadius * camera.zoom * 2); const barH = 3; const barX = screenPos.x - barW / 2; let y = screenPos.y - (unit.baseRadius * camera.zoom) - 12;
 
@@ -90,16 +112,8 @@ export class Renderer {
       if (unit.stamina < unit.maxStamina) { ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH); ctx.fillStyle = unit.stamina > 20 ? '#F4B400' : '#EA4335'; ctx.fillRect(barX, y, barW * (unit.stamina / unit.maxStamina), barH); y -= barH + 2; }
       if (unit.weapon.isReloading) { ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH); ctx.fillStyle = '#5096ff'; const progress = 1 - Math.max(0, Math.min(1, unit.weapon.reloadTimer / unit.weapon.reloadTime)); ctx.fillRect(barX, y, barW * progress, barH); }
       
-      // Шок
-      if (unit.shock > 0.1) {
-        y -= barH + 2; ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH);
-        ctx.fillStyle = '#FF00FF'; ctx.fillRect(barX, y, barW * Math.min(1, unit.shock), barH);
-      }
-      // Медицина
-      if (unit.medical.isApplying) {
-        y -= barH + 2; ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH);
-        ctx.fillStyle = '#FFF'; ctx.fillRect(barX, y, barW * (1 - unit.medical.applyTimer / (unit.medical.applyType === 'bandage' ? CONFIG.MEDICAL.BANDAGE_TIME : CONFIG.MEDICAL.TOURNIQUET_TIME)), barH);
-      }
+      if (unit.shock > 0.1) { y -= barH + 2; ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH); ctx.fillStyle = '#FF00FF'; ctx.fillRect(barX, y, barW * Math.min(1, unit.shock), barH); }
+      if (unit.medical.isApplying) { y -= barH + 2; ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH); ctx.fillStyle = '#FFF'; ctx.fillRect(barX, y, barW * (1 - unit.medical.applyTimer / (unit.medical.applyType === 'bandage' ? CONFIG.MEDICAL.BANDAGE_TIME : CONFIG.MEDICAL.TOURNIQUET_TIME)), barH); }
     }
   }
 
