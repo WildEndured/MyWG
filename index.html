@@ -11,7 +11,6 @@
 <body>
   <canvas id="game" aria-label="Игровое поле"></canvas>
 
-  <!-- ========== СТАРТОВЫЙ ЭКРАН ========== -->
   <div id="start-screen" class="screen-overlay">
     <div class="screen-card">
       <h1 class="screen-title">MyWG</h1>
@@ -38,7 +37,6 @@
     </div>
   </div>
 
-  <!-- ========== HUD (скрыт до старта) ========== -->
   <div id="hud" class="hidden">
     <div class="hud-panel hud-top-left" role="toolbar" aria-label="Размер карты">
       <button class="hud-btn" data-size="100" title="Карта 100 м">100</button>
@@ -53,10 +51,10 @@
       <button class="hud-btn time-btn active" id="btn-speed-1" title="Скорость 1x">1x</button>
       <button class="hud-btn time-btn" id="btn-speed-2" title="Скорость 2x">2x</button>
       <button class="hud-btn time-btn" id="btn-speed-4" title="Скорость 4x">4x</button>
+      <button class="hud-btn time-btn" id="btn-tactical" title="Тактическая пауза (Пробел)" style="border-color: #8ab4f8;">TAC</button>
       <button class="hud-btn" id="btn-debug" title="Отладка" style="border-color: #F4B400;">DBG</button>
     </div>
 
-    <!-- Инфо о бое -->
     <div id="battle-info" class="hud-panel hud-top-center">
       <span id="battle-team">—</span>
       <span id="battle-mode">—</span>
