@@ -1,5 +1,6 @@
 // js/core/Pathfinder.js
 import { CONFIG } from '../data/config.js';
+import { MATERIALS } from '../data/materials.js';
 
 export class Pathfinder {
   constructor(worldSize, cellSize = 1) {
@@ -19,11 +20,16 @@ export class Pathfinder {
     this.obstacles = [];
   }
 
-  addObstacle(x, y, w, h) {
-    this.obstacles.push({ x, y, w, h });
+  addObstacle(x, y, w, h, materialId = 'concrete') {
+    const matData = MATERIALS[materialId] || MATERIALS.concrete;
+    
+    this.obstacles.push({ 
+      x, y, w, h, 
+      materialId: materialId,
+      matData: matData
+    });
     
     const padding = CONFIG.PHYSICS.PATHFINDER_PADDING; 
-    
     const start = this.worldToGrid(x - padding, y - padding);
     const end = this.worldToGrid(x + w + padding, y + h + padding);
 
