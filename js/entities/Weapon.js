@@ -1,20 +1,23 @@
-// js/entities/Weapon.js
 import { CALIBERS } from '../data/calibers.js';
 
 export class Weapon {
   constructor(config) {
     this.id = config.id;
     this.name = config.name;
-    
+
     const caliberData = CALIBERS[config.caliber];
+    if (!caliberData) {
+      throw new Error(`[Weapon] Unknown caliber "${config.caliber}" for weapon "${config.id}"`);
+    }
+    this.caliberId = config.caliber;
     this.caliber = caliberData.name;
     this.baseDamage = caliberData.baseDamage;
     this.bulletSpeed = caliberData.bulletSpeed;
     this.damageFalloff = caliberData.damageFalloff;
     this.maxFalloffDist = caliberData.maxFalloffDist;
     this.penetration = caliberData.penetration;
-    this.noiseLevel = caliberData.noiseLevel * config.noiseMultiplier;
-    
+    this.loudness = caliberData.loudness * (config.noiseMultiplier || 1);
+
     this.rpm = config.rpm;
     this.fireInterval = 60 / this.rpm;
     this.effectiveRange = config.effectiveRange;
@@ -22,57 +25,58 @@ export class Weapon {
     this.fireModes = config.fireModes;
     this.spreadBase = config.spreadBase;
     this.reloadTime = config.reloadTime;
-    
+
+    this.misfireChance = config.misfireChance ?? 0.01;
+    this.heatPerShot = config.heatPerShot ?? 1.5;
+    this.maxHeat = config.maxHeat ?? 100;
+    this.coolingRate = config.coolingRate ?? 10;
+
     this.ammo = this.magazineCapacity;
+    this.reserveAmmo = this.magazineCapacity * 6; // FIX: резерв
     this.currentMode = this.fireModes.includes('auto') ? 'auto' : 'single';
-    
-    this.lastShotTime = 0;
+
+    this.lastShotTime = -Infinity; // FIX: первый выстрел сразу доступен
     this.isReloading = false;
     this.reloadTimer = 0;
-    
-    this.misfireChance = 0.01; 
-    this.isMisfired = false;   
-    
-    this.heat = 0;           
-    this.maxHeat = 100;
-    this.heatPerShot = 1.5;  
-    this.coolingRate = 10;   
-    this.isJammed = false;   
+
+    this.isMisfired = false;
+    this.heat = 0;
+    this.isJammed = false;
   }
 
   canFire(currentTime) {
     if (this.isReloading || this.isMisfired || this.isJammed) return false;
     if (this.ammo <= 0) return false;
-    if (currentTime - this.lastShotTime < this.fireInterval) return false;
-    return true;
+    return (currentTime - this.lastShotTime) >= this.fireInterval;
   }
 
   fire(currentTime) {
     if (!this.canFire(currentTime)) return false;
-    
-    // Проверка на осечку
+
     if (Math.random() < this.misfireChance) {
       this.isMisfired = true;
-      return false; 
+      return false;
     }
-    
+
     this.lastShotTime = currentTime;
     this.ammo--;
-    
-    this.heat += this.heatPerShot;
-    if (this.heat >= this.maxHeat) {
-      this.heat = this.maxHeat;
-      this.isJammed = true; 
-    }
-    
-    if (this.ammo === 0) {
-      this.startReload();
-    }
+    this.heat = Math.min(this.maxHeat, this.heat + this.heatPerShot);
+    if (this.heat >= this.maxHeat) this.isJammed = true;
+
+    if (this.ammo === 0) this.startReload();
     return true;
+  }
+
+  // FIX: ручное устранение осечки/клина
+  clearMalfunction() {
+    if (this.isJammed) { this.isJammed = false; this.heat = this.maxHeat * 0.4; return true; }
+    if (this.isMisfired) { this.isMisfired = false; return true; }
+    return false;
   }
 
   startReload() {
     if (this.isReloading) return;
+    if (this.reserveAmmo <= 0 && this.ammo > 0) return;
     this.isReloading = true;
     this.reloadTimer = this.reloadTime;
   }
@@ -81,34 +85,23 @@ export class Weapon {
     if (this.isReloading) {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) {
+        const need = this.magazineCapacity - this.ammo;
+        const take = Math.min(need, this.reserveAmmo);
+        this.ammo += take;
+        this.reserveAmmo -= take;
         this.isReloading = false;
-        this.ammo = this.magazineCapacity;
-        this.isMisfired = false; 
+        this.isMisfired = false;
       }
     }
-    
     if (this.heat > 0) {
-      this.heat -= this.coolingRate * dt;
-      if (this.heat < 0) this.heat = 0;
+      this.heat = Math.max(0, this.heat - this.coolingRate * dt);
     }
-    
-    if (this.isJammed && this.heat < 50) {
-      this.isJammed = false;
-    }
+    if (this.isJammed && this.heat < 50) this.isJammed = false;
   }
 
   updateFireMode(distanceToTarget) {
-    if (this.fireModes.length === 1) {
-      this.currentMode = this.fireModes[0];
-      return;
-    }
-
-    if (this.ammo <= 10) {
-      this.currentMode = 'single';
-    } else if (distanceToTarget > 300) {
-      this.currentMode = 'single';
-    } else {
-      this.currentMode = 'auto';
-    }
+    if (this.fireModes.length === 1) { this.currentMode = this.fireModes[0]; return; }
+    if (this.ammo <= 10 || distanceToTarget > 300) this.currentMode = 'single';
+    else this.currentMode = 'auto';
   }
 }
