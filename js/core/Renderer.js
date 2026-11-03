@@ -3,8 +3,10 @@ import { CONFIG } from '../data/config.js';
 export class Renderer {
   static draw(ctx, camera, map, unitManager) {
     const dpr = camera.dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
     Renderer.drawMap(ctx, camera, map);
     Renderer.drawDecals(ctx, camera, unitManager.decals);
+    Renderer.drawShells(ctx, camera, unitManager.shells); // Гильзы
     Renderer.drawObstacles(ctx, camera, unitManager.pathfinder.obstacles);
     
     if (unitManager.captureZone) {
@@ -65,6 +67,17 @@ export class Renderer {
     for (const d of decals) { if (!camera.isPointVisible(d.x, d.y, 50)) continue; const p = camera.worldToScreen(d.x, d.y); const r = d.r * camera.zoom; const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3)); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2); ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`; ctx.fill(); }
   }
 
+  // НОВОЕ: Отрисовка гильз
+  static drawShells(ctx, camera, shells) {
+    if (!shells) return;
+    for (const s of shells) {
+      if (!camera.isPointVisible(s.x, s.y, 20)) continue;
+      const p = camera.worldToScreen(s.x, s.y);
+      ctx.fillStyle = '#C2B280'; // Латунь
+      ctx.fillRect(p.x, p.y, Math.max(1, 2 * camera.zoom / 8), Math.max(1, 1 * camera.zoom / 8));
+    }
+  }
+
   static drawObstacles(ctx, camera, obstacles) {
     ctx.lineWidth = 1; const colorMap = { wood: '#8B5A2B', sandbags: '#C2B280', concrete: '#777', steel: '#889', brick: '#a55' };
     for (const obs of obstacles) {
@@ -89,7 +102,12 @@ export class Renderer {
     let visualStance = unit.stance; if (unit.stanceTransition) { const t = unit.stanceTransitionProgress; visualStance = t < 0.5 ? unit.stanceTransition.from : unit.stanceTransition.to; }
 
     ctx.save(); ctx.translate(screenPos.x, screenPos.y); ctx.rotate(unit.angle);
-    if (visualStance === 'prone' || unit.isUnconscious) {
+    
+    // Если сдался — рисуем белый флаг/круг
+    if (unit.isSurrendered) {
+      ctx.beginPath(); ctx.arc(0, 0, Math.max(3, unit.baseRadius * camera.zoom), 0, Math.PI * 2); 
+      ctx.fillStyle = '#FFF'; ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.stroke();
+    } else if (visualStance === 'prone' || unit.isUnconscious) {
       const bodyLength = 1.6 * camera.zoom; const bodyWidth = 0.5 * camera.zoom;
       ctx.beginPath(); ctx.ellipse(0.2 * camera.zoom, 0, Math.max(3, bodyLength / 2), Math.max(2, bodyWidth / 2), 0, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#000'; ctx.stroke();
       const headR = Math.max(2, 0.1 * camera.zoom); ctx.beginPath(); ctx.arc(0.2 * camera.zoom + bodyLength / 2 * 0.7, 0, headR, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.stroke();
