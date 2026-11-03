@@ -12,6 +12,8 @@ export class Bullet {
     this.penetration = penetration; this.drag = opts.drag ?? CONFIG.BALLISTICS.DRAG_COEFF;
     this.fragmentation = opts.fragmentation ?? 0; this.impulse = opts.impulse ?? 0;
     this.woundingMult = opts.woundingMult ?? 1.0; this.overpenetration = opts.overpenetration ?? 0;
+    this.stability = opts.stability ?? 0.9;
+    this.mass = opts.mass ?? 0.005;
     this.isTracer = !!opts.isTracer; this.owner = owner; this.isDead = false;
     this.life = 0; this.maxLife = 3.0; this.hasRicocheted = false;
   }
@@ -22,21 +24,63 @@ export class Bullet {
     this.life += dt;
     if (this.life > this.maxLife) { this.isDead = true; return; }
 
+    // 1. ГРАВИТАЦИЯ
     this.vy += CONFIG.BALLISTICS.GRAVITY * dt;
-    const dragFactor = Math.exp(-this.drag * dt);
+
+    // 2. ВЕТЕР (боковой снос)
+    const env = CONFIG.ENVIRONMENT;
+    if (env.WIND_SPEED > 0) {
+      const windRad = env.WIND_ANGLE * Math.PI / 180;
+      const windVx = Math.cos(windRad) * env.WIND_SPEED;
+      const windVy = Math.sin(windRad) * env.WIND_SPEED;
+      // Пуля увлекается ветром (упрощенно)
+      this.vx += (windVx - this.vx * 0.01) * 0.02 * dt;
+      this.vy += (windVy - this.vy * 0.01) * 0.02 * dt;
+    }
+
+    // 3. ПЛОТНОСТЬ ВОЗДУХА (температура + высота)
+    const tempK = 273.15 + env.TEMPERATURE;
+    const densityRatio = (288.15 / tempK) * (1 - 0.0000226 * env.ALTITUDE);
+    const airDensity = CONFIG.BALLISTICS.AIR_DENSITY_SEA_LEVEL * Math.max(0.1, densityRatio);
+    const dragFactor = Math.exp(-this.drag * airDensity * dt);
     this.vx *= dragFactor; this.vy *= dragFactor;
+
+    // 4. КОРИОЛИС (отклонение на больших дистанциях)
+    const latRad = env.LATITUDE * Math.PI / 180;
+    const coriolisAccel = 2 * CONFIG.BALLISTICS.CORIOLIS_OMEGA * Math.sin(latRad);
+    this.vx += coriolisAccel * this.vy * dt * 0.01;
+
+    // 5. СТАБИЛИЗАЦИЯ ПУЛИ (кувыркание)
+    if (this.stability < 0.9) {
+      const wobble = (1 - this.stability) * 0.5;
+      this.vx += (Math.random() - 0.5) * wobble * dt * 10;
+      this.vy += (Math.random() - 0.5) * wobble * dt * 10;
+    }
     
+    // 6. РИКОШЕТ ОТ ПОЛА (с учетом материала)
     const mapBottom = pathfinder?.worldSize || 1000;
     if (this.vy > 0 && this.y > mapBottom - 1) {
-       this.y = mapBottom - 1;
-       this.vy = -this.vy * 0.3;
-       this.vx *= 0.8;
-       EventBus.emit(EVENTS.BULLET_IMPACT, { x: this.x, y: this.y, type: 'ricochet' });
-       return;
+      const floorMat = env.FLOOR_MATERIAL || 'dirt';
+      let ricochetChance = 0.3; // по умолчанию земля
+      if (floorMat === 'water') ricochetChance = 0.8;
+      else if (floorMat === 'concrete') ricochetChance = 0.4;
+      
+      if (Math.random() < ricochetChance) {
+        this.y = mapBottom - 1;
+        this.vy = -this.vy * 0.3;
+        this.vx *= 0.8;
+        EventBus.emit(EVENTS.BULLET_IMPACT, { x: this.x, y: this.y, type: 'ricochet' });
+        return;
+      } else {
+        this.isDead = true;
+        EventBus.emit(EVENTS.BULLET_IMPACT, { x: this.x, y: this.y, type: 'wall' });
+        return;
+      }
     }
 
     const nextX = this.x + this.vx * dt, nextY = this.y + this.vy * dt;
 
+    // 7. СТЕНЫ
     if (obstacles) {
       for (const obs of obstacles) {
         for (const seg of obs.segments) {
@@ -78,6 +122,7 @@ export class Bullet {
       }
     }
 
+    // 8. ЮНИТЫ
     for (const unit of allUnits) {
       if (!unit || unit.isDead) continue;
       if (this.owner && unit.faction === this.owner.faction) continue;
@@ -91,10 +136,9 @@ export class Bullet {
           unit.vy += (this.vy / speed) * this.impulse;
         }
 
-        // Угол падения пули (0 = прямо, 90 = скользящий)
         const incidenceAngle = Math.abs(Math.atan2(this.vy, this.vx) * 180 / Math.PI);
-
         unit.takeDamage(finalDamage, hit.partId, this.penetration, hit.subPartId, incidenceAngle);
+        
         EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'blood', amount: finalDamage, unit, hitZone: hit.partId });
         EventBus.emit(EVENTS.SHELL_EJECT, { x: this.x, y: this.y });
 
