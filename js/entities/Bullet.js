@@ -1,5 +1,4 @@
 // js/entities/Bullet.js
-import { Physics } from '../core/Physics.js';
 import { EventBus } from '../core/EventBus.js';
 
 export class Bullet {
@@ -43,6 +42,7 @@ export class Bullet {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
           this.isDead = true;
+          EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
           return;
         }
       }
@@ -56,7 +56,6 @@ export class Bullet {
       if (distToUnit <= unit.baseRadius) {
         this.isDead = true;
         
-        // ВЫБОР ЗОНЫ ПРЯМО ЗДЕСЬ, ЧТОБЫ НЕ ВЫЗЫВАТЬ МЕТОД ИЗ UNIT
         const r = Math.random() * 100;
         let hitZone = 'torso';
         if (r < 5) hitZone = 'head';
@@ -69,6 +68,7 @@ export class Bullet {
         else hitZone = 'rightLeg';
         
         unit.takeDamage(this.damage, hitZone);
+        EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'blood' });
         return;
       }
     }
