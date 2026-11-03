@@ -3,7 +3,7 @@ export const BODY_PARTS = {
   head: {
     name: 'Голова', maxHp: 25, fatal: true,
     subParts: [
-      { id: 'skull', name: 'Череп', hp: 25, weight: 45 }, // Уменьшили вес, чтобы освободить место для ушей
+      { id: 'skull', name: 'Череп', hp: 25, weight: 45 },
       { id: 'brain', name: 'Мозг', hp: 10, weight: 20, fatal: true },
       { id: 'jaw', name: 'Челюсть', hp: 20, weight: 15 },
       { id: 'leftEye', name: 'Левый глаз', hp: 10, weight: 5 },
