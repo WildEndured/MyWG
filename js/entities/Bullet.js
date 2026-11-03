@@ -12,11 +12,13 @@ export class Bullet {
     const dy = targetY - y;
     const dist = Math.hypot(dx, dy);
     
+    this.flightDistance = dist; // Запоминаем дистанцию выстрела
+    
     this.dirX = dist > 0 ? dx / dist : 0;
     this.dirY = dist > 0 ? dy / dist : 0;
     
     this.speed = speed; 
-    this.damage = damage;
+    this.baseDamage = damage;
     this.owner = owner; 
     
     this.isDead = false;
@@ -37,7 +39,6 @@ export class Bullet {
     const nextX = this.x + this.dirX * step;
     const nextY = this.y + this.dirY * step;
 
-    // Стены (проверка точки)
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
@@ -47,11 +48,9 @@ export class Bullet {
       }
     }
 
-    // Юниты (ПРОВЕРКА ЛИНИИ)
     for (const unit of allUnits) {
       if (unit.isDead || unit.faction === this.owner.faction) continue;
 
-      // Проверяем, пересекает ли отрезок (this.x, this.y) -> (nextX, nextY) круг юнита
       const hit = this._lineIntersectsCircle(
         this.x, this.y, nextX, nextY, 
         unit.x, unit.y, unit.baseRadius
@@ -71,7 +70,10 @@ export class Bullet {
         else if (r < 90) hitZone = 'leftLeg';
         else hitZone = 'rightLeg';
         
-        unit.takeDamage(this.damage, hitZone);
+        // Считаем итоговый урон
+        const finalDamage = this._calculateDamage();
+        
+        unit.takeDamage(finalDamage, hitZone);
         EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'blood' });
         return;
       }
@@ -81,7 +83,19 @@ export class Bullet {
     this.y = nextY;
   }
 
-  // Математика: пересекает ли отрезок окружность
+  _calculateDamage() {
+    // 1. Базовый разброс (от -20% до +20%)
+    let dmg = this.baseDamage * (0.8 + Math.random() * 0.4);
+    
+    // 2. Падение энергии с дистанцией
+    // На 0 метров - 0% штрафа, на 1000 метров - 30% штрафа
+    const maxRange = 1000; 
+    const distancePenalty = Math.min(0.3, (this.flightDistance / maxRange) * 0.3);
+    dmg *= (1.0 - distancePenalty);
+    
+    return Math.round(dmg);
+  }
+
   _lineIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -105,7 +119,6 @@ export class Bullet {
   draw(ctx, camera) {
     if (this.isDead) return;
     
-    // Рисуем пулю как точку (так как она летит очень быстро)
     const p = camera.worldToScreen(this.x, this.y);
     ctx.beginPath();
     ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
