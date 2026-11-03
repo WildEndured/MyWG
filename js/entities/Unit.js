@@ -10,6 +10,7 @@ import { AudioManager } from '../core/AudioManager.js';
 import { Bullet } from './Bullet.js';
 import { CONFIG } from '../data/config.js';
 import { Brain } from '../core/Brain.js';
+import { Explosion } from './Explosion.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
@@ -28,10 +29,12 @@ export class Unit {
 
     this.maxBlood = 100; this.blood = 100; this.bleedingRate = 0;
     this.shock = 0; this.shockTimer = 0;
-    this.pain = 0; // НОВОЕ: Боль (для стонов)
-    this.isSurrendered = false; // НОВОЕ: Сдался в плен
+    this.pain = 0;
+    this.isSurrendered = false;
 
     this.medical = { bandage: 2, tourniquet: 1, isApplying: false, applyTimer: 0, applyTarget: null };
+    this.grenades = 2; // НОВОЕ: Гранаты
+
     this.maxStamina = BASE_HUMAN.maxStamina; this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate; this.staminaCooldown = 0;
 
@@ -50,7 +53,8 @@ export class Unit {
 
     const medWeight = this.medical.bandage * CONFIG.MEDICAL.BANDAGE_WEIGHT + this.medical.tourniquet * CONFIG.MEDICAL.TOURNIQUET_WEIGHT;
     const ammoWeight = this.weapon.getTotalAmmoWeight();
-    this.totalWeight = this.weapon.weightLoaded + armorWeight + medWeight + ammoWeight; // weightLoaded включает 1 магазин
+    const grenadeWeight = this.grenades * 0.3;
+    this.totalWeight = this.weapon.weightLoaded + armorWeight + medWeight + ammoWeight + grenadeWeight;
     
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
@@ -62,7 +66,7 @@ export class Unit {
     this.isArmed = true; this.isLimping = false; this.aimTime = 0;
     this.target = null; this.isSelected = false; this.path = []; this.pathIndex = 0; this.isMoving = false; this._wantsToMove = false;
     this.angle = 0; this.targetAngle = 0;
-    this.pathfinder = null; this.needsRepath = false; this.lastTarget = null; this.lastHeardNoise = null; this.pendingBullets = [];
+    this.pathfinder = null; this.needsRepath = false; this.lastTarget = null; this.lastHeardNoise = null; this.pendingBullets = []; this.pendingExplosions = [];
     this.suppression = 0; this.lastSuppressionTime = 0; this.standLockTimer = 0;
     this.perception = new Map(); this._lastScanTime = 0; this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
 
@@ -72,6 +76,19 @@ export class Unit {
   getTotalHp() { return calcTotalHp(this.bodyParts); }
   getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
   get isPressed() { return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED; }
+
+  throwGrenade(targetX, targetY, world) {
+    if (this.grenades <= 0 || this.isDead || this.medical.isApplying) return false;
+    const dist = Math.hypot(targetX - this.x, targetY - this.y);
+    if (dist > 30) return false;
+    
+    this.grenades--;
+    const ex = new Explosion(targetX, targetY, 10, 100, 0.8, this);
+    if (world && world.unitManager) {
+      world.unitManager.explosions.push(ex);
+    }
+    return true;
+  }
 
   applySuppression(amount) {
     if (this.isDead) return;
@@ -108,8 +125,6 @@ export class Unit {
     let best = null, bestT = Infinity;
     for (const [partId, part] of Object.entries(this.bodyParts)) {
       if (!part.hitbox || part.hp <= 0) continue;
-      
-      // НОВОЕ: Приседание уменьшает хитбокс
       let scale = part.stanceScale[this.stance] ?? 1;
       if (this.stance === 'crouch') scale *= 0.7;
       
@@ -141,8 +156,6 @@ export class Unit {
   takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
     if (this.isDead) return;
     if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
-    
-    // НОВОЕ: Прерываем перезарядку при уроне
     if (this.weapon.isReloading) this.weapon.abortReload();
 
     let finalDamage = amount; const part = this.bodyParts[hitZone]; if (!part) return;
@@ -157,42 +170,27 @@ export class Unit {
     if (armorPiece && armorPiece.durability > 0) {
       const lossMult = armorPiece.durabilityLossMult || 1.0;
       
-      // НОВОЕ: Керамика трескается
       if (armorPiece.armorMaterial === 'ceramic') {
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_CRACK_THRESHOLD && armorPiece.level > 0) {
-          armorPiece.level = Math.max(0, armorPiece.level - 1);
-        }
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) {
-          armorPiece.level = 0;
-        }
+        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_CRACK_THRESHOLD && armorPiece.level > 0) armorPiece.level = Math.max(0, armorPiece.level - 1);
+        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) armorPiece.level = 0;
       }
 
-      if (penetrationLevel > armorPiece.level) {
-        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.5 * lossMult);
-      } else if (penetrationLevel === armorPiece.level) {
-        finalDamage = amount * 0.7; armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.8 * lossMult);
-      } else {
+      if (penetrationLevel > armorPiece.level) armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.5 * lossMult);
+      else if (penetrationLevel === armorPiece.level) { finalDamage = amount * 0.7; armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.8 * lossMult); }
+      else {
         finalDamage = amount * 0.1; armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.1 * lossMult);
         this.stamina = Math.max(0, this.stamina - amount * 0.5);
         
-        // НОВОЕ: Заброневая травма
-        if (amount > 20 && Math.random() < CONFIG.ARMOR.BLUNT_TRAUMA_CHANCE) {
-          this.shock += 0.3;
-          this.stamina = Math.max(0, this.stamina - 20);
-        }
+        if (amount > 20 && Math.random() < CONFIG.ARMOR.BLUNT_TRAUMA_CHANCE) { this.shock += 0.3; this.stamina = Math.max(0, this.stamina - 20); }
       }
     }
 
-    // НОВОЕ: Боль
     this.pain = Math.min(1, this.pain + finalDamage / 50);
 
     if (hitZone === 'torso' || hitZone === 'pelvis') this.shock += finalDamage / 100;
     if (this.shock >= CONFIG.MEDICAL.SHOCK_THRESHOLD) { this.shockTimer = 3.0; this.shock = 0; if (this.stance !== 'prone') this._startStanceTransition('prone'); }
 
-    // НОВОЕ: Мгновенная смерть при попадании в мозг/сердце
-    if ((hitZone === 'head' && chosenSub?.id === 'brain') || (hitZone === 'torso' && chosenSub?.id === 'heart')) {
-      this._die(); return;
-    }
+    if ((hitZone === 'head' && chosenSub?.id === 'brain') || (hitZone === 'torso' && chosenSub?.id === 'heart')) { this._die(); return; }
 
     let localBleed = part.bleedRate || 0;
     if (chosenSub) {
@@ -223,15 +221,12 @@ export class Unit {
     return { run: (baseSpeeds.run || 5) * mult, stand: (baseSpeeds.stand || 1.6) * mult, crouch: (baseSpeeds.crouch || 0.9) * mult, prone: (baseSpeeds.prone || 0.4) * mult };
   }
 
-  // НОВОЕ: Учет веса и ран при переходе
   _startStanceTransition(to) { 
     const from = this.stance; if (from === to) return; 
     const key = `${from}->${to}`; 
     let duration = CONFIG.STANCE.TRANSITIONS[key] ?? 0.5;
-    
     if (this.totalWeight > 10) duration *= (1 + (this.totalWeight - 10) * CONFIG.STANCE.WEIGHT_PENALTY);
     if (this.isLimping) duration *= CONFIG.STANCE.INJURY_MULT;
-
     this.stanceTransition = { from, to, timer: duration, total: duration }; 
   }
 
@@ -258,9 +253,7 @@ export class Unit {
     if (dist > rangeLimit) return { visible: false, dist, angle: absAngle, central: false };
     if (!Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obstacles)) return { visible: false, dist, angle: absAngle, central: absAngle <= centralHalf };
     
-    // НОВОЕ: Если цель присела — она "невидима" на дальней дистанции (за укрытием)
     if (other.stance === 'crouch' && dist > 30) return { visible: false, dist, angle: absAngle, central: false };
-    
     return { visible: true, dist, angle: absAngle, central: absAngle <= centralHalf };
   }
 
@@ -297,7 +290,6 @@ export class Unit {
           if (this.medical.applyType === 'bandage') { part.bleedRate = 0; this.bleedingRate = 0; }
           else if (this.medical.applyType === 'tourniquet') {
             this.bleedingRate = 0;
-            // НОВОЕ: Турникет калечит навсегда
             if (this.medical.applyPart === 'leftLeg' || this.medical.applyPart === 'rightLeg') this.isLimping = true;
             if (this.medical.applyPart === 'leftArm' || this.medical.applyPart === 'rightArm') this.isArmed = false;
           }
@@ -306,7 +298,6 @@ export class Unit {
     }
 
     if (this.bleedingRate > 0 && this.blood > 0) {
-      // НОВОЕ: Кровопотеря ускоряется при беге
       const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.run));
       const lossMult = 1 + speedRatio;
       this.blood = Math.max(0, this.blood - this.bleedingRate * lossMult * dt);
@@ -318,8 +309,7 @@ export class Unit {
     if (this.isUnconscious) { this.weapon.update(dt); this._integrateVelocity(dt); return null; }
     if (this.tinnitus > 0) this.tinnitus = Math.max(0, this.tinnitus - dt);
 
-    // НОВОЕ: Стоны от боли
-    this.pain = Math.max(0, this.pain - 0.05 * dt); // Медленно спадает
+    this.pain = Math.max(0, this.pain - 0.05 * dt);
     if (this.pain > 0.5 && currentTime - this.lastNoiseTime > 3.0) {
       this.lastNoiseTime = currentTime;
       EventBus.emit(EVENTS.WORLD_NOISE, { x: this.x, y: this.y, loudness: CONFIG.MEDICAL.PAIN_NOISE_RADIUS, source: this, isPain: true });
@@ -336,7 +326,7 @@ export class Unit {
     
     if (this.brain && worldState) this.brain.update(dt, worldState);
 
-    this._updateCombat(dt, allUnits, currentTime);
+    this._updateCombat(dt, allUnits, currentTime, worldState);
     this.weapon.update(dt);
 
     if (this.isMoving || this._wantsToMove) this.aimTime = 0;
@@ -357,7 +347,9 @@ export class Unit {
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2; while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1); if (this.angle > Math.PI) this.angle -= Math.PI * 2; if (this.angle < -Math.PI) this.angle += Math.PI * 2;
 
-    const bullets = this.pendingBullets; this.pendingBullets = []; return bullets.length ? bullets : null;
+    const bullets = this.pendingBullets; this.pendingBullets = []; 
+    const explosions = this.pendingExplosions; this.pendingExplosions = [];
+    return { bullets: bullets.length ? bullets : null, explosions: explosions.length ? explosions : null };
   }
 
   _updateMovement(dt) {
@@ -397,18 +389,24 @@ export class Unit {
     }
   }
 
-  _updateCombat(dt, allUnits, currentTime) {
+  _updateCombat(dt, allUnits, currentTime, worldState) {
     this.target = this._pickEngageTarget(); if (!this.target) return;
+    
+    // Граната, если нет патронов
+    if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0 && this.grenades > 0) {
+      const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
+      if (dist < 30) this.throwGrenade(this.target.x, this.target.y, worldState);
+      return;
+    }
+
     if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0) return;
-    if (this.isSurrendered) return; // Сдался — не стреляет
+    if (this.isSurrendered) return;
 
     const mem = this.perception.get(this.target); const targetDist = Math.hypot(this.target.x - this.x, this.target.y - this.y); const stale = mem && (currentTime - mem.lastSeen) > 2.0;
     this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x); this.weapon.updateFireMode(targetDist);
     if (stale || this.medical.isApplying || this.shockTimer > 0) return;
     if (this.isPressed && this.stance !== 'prone' && this.stance !== 'crouch') return;
     if (this.stanceTransition && CONFIG.STANCE.FIRE_BLOCKED) return;
-    
-    // Клины/осечки требуют действия, ИИ не стреляет, пока не устранит
     if (this.weapon.isJammed || this.weapon.isMisfired) return;
 
     if (this.weapon.canFire(currentTime)) { const b = this._shoot(currentTime); if (b) this.pendingBullets.push(b); }
