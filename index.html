@@ -11,6 +11,7 @@
 <body>
   <canvas id="game" aria-label="Игровое поле"></canvas>
 
+  <!-- ================== СТАРТОВЫЙ ЭКРАН ================== -->
   <div id="start-screen" class="screen-overlay">
     <div class="screen-card">
       <h1 class="screen-title">MyWG</h1>
@@ -37,6 +38,7 @@
     </div>
   </div>
 
+  <!-- ================== HUD ================== -->
   <div id="hud" class="hidden">
     <div class="hud-panel hud-top-left" role="toolbar" aria-label="Размер карты">
       <button class="hud-btn" data-size="100" title="Карта 100 м">100</button>
@@ -58,6 +60,46 @@
     <div id="battle-info" class="hud-panel hud-top-center">
       <span id="battle-team">—</span>
       <span id="battle-mode">—</span>
+    </div>
+
+    <!-- ПАНЕЛЬ ВЫБРАННОГО ЮНИТА -->
+    <div id="unit-panel" class="unit-panel hidden">
+      <div class="unit-panel-tabs">
+        <button class="unit-tab active" data-tab="bio">Био</button>
+        <button class="unit-tab" data-tab="gear">Снаряжение</button>
+        <button class="unit-tab" data-tab="health">Здоровье</button>
+      </div>
+      
+      <div class="unit-panel-content">
+        <div id="tab-bio" class="tab-content active">
+          <div class="info-row"><span class="info-label">Позывной:</span> <span id="info-name">-</span></div>
+          <div class="info-row"><span class="info-label">Роль:</span> <span id="info-role">-</span></div>
+          <div class="info-row"><span class="info-label">Вес:</span> <span id="info-weight">-</span></div>
+          <div class="info-row"><span class="info-label">Статус:</span> <span id="info-status">-</span></div>
+        </div>
+
+        <div id="tab-gear" class="tab-content">
+          <div class="info-row"><span class="info-label">Оружие:</span> <span id="info-weapon">-</span></div>
+          <div class="info-row"><span class="info-label">Патроны:</span> <span id="info-ammo">-</span></div>
+          <div class="info-row"><span class="info-label">Броня:</span> <span id="info-armor">-</span></div>
+        </div>
+
+        <div id="tab-health" class="tab-content">
+          <div class="stat-bar-container">
+            <div class="stat-label">Здоровье: <span id="info-hp-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-hp-bar" class="stat-bar-fill hp"></div></div>
+          </div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Выносливость: <span id="info-stamina-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-stamina-bar" class="stat-bar-fill stamina"></div></div>
+          </div>
+          <div class="stat-bar-container">
+            <div class="stat-label">Кровь: <span id="info-blood-text">-</span></div>
+            <div class="stat-bar-bg"><div id="info-blood-bar" class="stat-bar-fill blood"></div></div>
+          </div>
+          <div id="info-bleeding" class="warning-text hidden">Внимание: Кровотечение!</div>
+        </div>
+      </div>
     </div>
 
     <div class="hud-panel hud-bottom" role="toolbar" aria-label="Позы">
