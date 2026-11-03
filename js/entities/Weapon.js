@@ -1,17 +1,22 @@
 // js/entities/Weapon.js
+import { CALIBERS } from '../data/calibers.js';
 
 export class Weapon {
   constructor(config) {
     this.id = config.id;
     this.name = config.name;
-    this.caliber = config.caliber;
+    
+    const caliberData = CALIBERS[config.caliber];
+    this.caliber = caliberData.name;
+    this.baseDamage = caliberData.baseDamage;
+    this.bulletSpeed = caliberData.bulletSpeed;
+    this.damageFalloff = caliberData.damageFalloff;
+    this.maxFalloffDist = caliberData.maxFalloffDist;
+    
     this.rpm = config.rpm;
     this.fireInterval = 60 / this.rpm;
-    this.bulletSpeed = config.bulletSpeed;
     this.effectiveRange = config.effectiveRange;
-    this.maxRange = config.maxRange;
     this.magazineCapacity = config.magazineCapacity;
-    this.damage = config.damage;
     this.fireModes = config.fireModes;
     this.spreadBase = config.spreadBase;
     this.reloadTime = config.reloadTime;
