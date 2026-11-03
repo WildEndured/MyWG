@@ -218,7 +218,6 @@ for (const [id, stance] of Object.entries(stanceButtons)) {
 }
 updateStanceUI('stand');
 
-// FIX: тактическая пауза (Волна 2)
 const tacticalBtn = document.getElementById('btn-tactical');
 if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
 
@@ -281,13 +280,18 @@ function frame(now) {
     Debug.update(realDt);
 
     const dpr = camera.dpr;
+    // ЖЕСТКИЙ СБРОС ТРАНСФОРМАЦИИ ПЕРЕД КАЖДЫМ СЛОЕМ РЕНДЕРА
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
     try {
       map.draw(ctx);
+      
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       unitManager.draw(ctx, camera);
+      
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
 
-      // FIX: индикатор тактической паузы (Волна 2)
       if (TimeManager.isTacticalPause) {
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
