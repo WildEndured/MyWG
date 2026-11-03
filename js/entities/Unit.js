@@ -1,6 +1,6 @@
 // js/entities/Unit.js
 import { Weapon } from './Weapon.js';
-import { WEAPONS } from '../data/weapons.js';
+import { WEAPONS } from '../data/weapons.js'; // <-- ВАЖНО: маленькая w
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS } from '../data/health.js';
 import { Physics } from '../core/Physics.js';
@@ -17,7 +17,6 @@ export class Unit {
     this.hitRadius = BASE_HUMAN.hitRadius; 
     this.isDead = false;
     
-    // --- ЗОНАЛЬНОЕ ЗДОРОВЬЕ ---
     this.bodyParts = {};
     for (const [partId, partData] of Object.entries(BODY_PARTS)) {
       this.bodyParts[partId] = {
@@ -31,13 +30,11 @@ export class Unit {
     this.maxHp = this.getMaxTotalHp();
     this.hp = this.getTotalHp();
 
-    // --- СТАМИНА ---
     this.maxStamina = BASE_HUMAN.maxStamina;
     this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
     this.staminaCooldown = 0;
     
-    // --- РОЛЬ И ОРУЖИЕ ---
     const role = ROLES[roleId] || ROLES['infantry'];
     this.roleId = role.id;
     this.name = role.name;
@@ -53,11 +50,8 @@ export class Unit {
     this.stance = 'stand'; 
     this.speed = this.speeds[this.stance];
     
-    // --- БОЕВЫЕ СОСТОЯНИЯ ---
     this.isArmed = true; 
     this.isLimping = false;
-    
-    // --- ПРИЦЕЛИВАНИЕ ---
     this.aimTime = 0; 
     this.maxAimTime = 2.0; 
     
@@ -89,10 +83,8 @@ export class Unit {
 
   takeDamage(amount, hitZone = 'torso') {
     if (this.isDead) return;
-
     let finalZone = hitZone;
     let isSubPartHit = false;
-
     const part = this.bodyParts[hitZone];
     if (!part) return;
 
@@ -105,12 +97,10 @@ export class Unit {
           finalZone = sub.id;
           isSubPartHit = true;
           sub.hp -= amount;
-          
           if (sub.hp <= 0) {
             sub.hp = 0;
             if (sub.fatal || sub.id === 'brain' || sub.id === 'heart' || sub.id === 'spine' || sub.id === 'liver') {
-              this._die();
-              return;
+              this._die(); return;
             }
           }
           break;
@@ -118,16 +108,10 @@ export class Unit {
       }
     }
 
-    if (!isSubPartHit) {
-      part.hp -= amount;
-    }
-    
+    if (!isSubPartHit) part.hp -= amount;
     if (part.hp <= 0) {
       part.hp = 0;
-      if (part.fatal) {
-        this._die();
-        return;
-      }
+      if (part.fatal) { this._die(); return; }
     }
 
     if (hitZone === 'leftLeg' || hitZone === 'rightLeg') this.isLimping = true;
@@ -153,12 +137,10 @@ export class Unit {
   _calculateSpeeds(baseSpeeds, weight) {
     const referenceWeight = 3.6; 
     const penaltyPerKg = 0.04; 
-    
     let speedMultiplier = 1.0;
     if (weight > referenceWeight) {
       speedMultiplier = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
     }
-
     return {
       run: baseSpeeds.run * speedMultiplier,
       stand: baseSpeeds.stand * speedMultiplier,
@@ -176,14 +158,9 @@ export class Unit {
 
   setPath(path) {
     if (!path || path.length === 0) {
-      this.isMoving = false;
-      this.path = [];
-      return;
+      this.isMoving = false; this.path = []; return;
     }
-    this.path = path;
-    this.pathIndex = 0;
-    this.isMoving = true;
-    this.needsRepath = false;
+    this.path = path; this.pathIndex = 0; this.isMoving = true; this.needsRepath = false;
   }
 
   update(dt, allUnits, currentTime) {
@@ -192,7 +169,6 @@ export class Unit {
     const bullet = this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
-    // Логика прицеливания
     if (this.isMoving) {
       this.aimTime = 0; 
     } else if (this.target) {
@@ -203,8 +179,7 @@ export class Unit {
 
     if (!this.target && !this.weapon.isReloading && this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) {
-        this.isMoving = false;
-        this.path = [];
+        this.isMoving = false; this.path = [];
       } else {
         const target = this.path[this.pathIndex];
         const dx = target.x - this.x;
@@ -213,40 +188,23 @@ export class Unit {
 
         if (dist < 0.5) {
           this.pathIndex++;
-          if (this.pathIndex >= this.path.length) {
-            this.isMoving = false;
-            this.path = [];
-          }
+          if (this.pathIndex >= this.path.length) { this.isMoving = false; this.path = []; }
         } else {
           this.targetAngle = Math.atan2(dy, dx);
-          
           let currentSpeed = this.speed;
           if (this.isLimping) currentSpeed *= 0.5;
-
           const moveStep = currentSpeed * dt;
           const nextX = this.x + (dx / dist) * moveStep;
           const nextY = this.y + (dy / dist) * moveStep;
-
           const obs = this.pathfinder ? this.pathfinder.obstacles : null;
 
           if (this.stance === 'prone' || Physics.isPositionFree(nextX, nextY, this.baseRadius, obs)) {
-            this.x = nextX;
-            this.y = nextY;
+            this.x = nextX; this.y = nextY;
           } else {
             let slid = false;
-            if (Physics.isPositionFree(nextX, this.y, this.baseRadius, obs)) {
-              this.x = nextX;
-              slid = true;
-            } else if (Physics.isPositionFree(this.x, nextY, this.baseRadius, obs)) {
-              this.y = nextY;
-              slid = true;
-            }
-
-            if (!slid) {
-              this.isMoving = false;
-              this.path = [];
-              this.needsRepath = true; 
-            }
+            if (Physics.isPositionFree(nextX, this.y, this.baseRadius, obs)) { this.x = nextX; slid = true; }
+            else if (Physics.isPositionFree(this.x, nextY, this.baseRadius, obs)) { this.y = nextY; slid = true; }
+            if (!slid) { this.isMoving = false; this.path = []; this.needsRepath = true; }
           }
         }
       }
@@ -269,12 +227,10 @@ export class Unit {
     for (const other of allUnits) {
       if (other.faction === this.faction || other.isDead) continue;
       const dist = Math.hypot(other.x - this.x, other.y - this.y);
-      
       if (dist < minDist) {
         const obs = this.pathfinder ? this.pathfinder.obstacles : null;
         if (Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obs)) {
-          minDist = dist;
-          closestEnemy = other;
+          minDist = dist; closestEnemy = other;
         }
       }
     }
@@ -284,7 +240,6 @@ export class Unit {
     if (this.target) {
       this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
       this.weapon.updateFireMode(minDist);
-
       if (this.weapon.canFire(currentTime)) {
         if (this.weapon.currentMode === 'single' || (this.weapon.currentMode === 'auto' && Math.random() < 0.7)) {
           return this._shoot(currentTime);
@@ -299,7 +254,6 @@ export class Unit {
 
     if (this.weapon.fire(currentTime)) {
       const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-      
       let spread = this.weapon.spreadBase * (dist / 100); 
 
       if (this.isLimping) spread *= 2.0;
@@ -314,10 +268,7 @@ export class Unit {
 
       const hitChance = Math.max(0.1, 1 - (spread / 10));
 
-      EventBus.emit('unit:shoot', {
-        x1: this.x, y1: this.y,
-        x2: this.target.x, y2: this.target.y
-      });
+      EventBus.emit('unit:shoot', { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y });
 
       let targetX = this.target.x;
       let targetY = this.target.y;
@@ -325,18 +276,11 @@ export class Unit {
       if (Math.random() >= hitChance) {
         const missAngle = Math.atan2(targetY - this.y, targetX - this.x);
         const missDist = dist + (Math.random() - 0.5) * 50;
-        
         targetX = this.x + Math.cos(missAngle) * missDist;
         targetY = this.y + Math.sin(missAngle) * missDist;
       }
 
-      return new Bullet(
-        this.x, this.y, 
-        targetX, targetY, 
-        this.weapon.bulletSpeed, 
-        this.weapon.damage, 
-        this
-      );
+      return new Bullet(this.x, this.y, targetX, targetY, this.weapon.bulletSpeed, this.weapon.damage, this);
     }
     return null;
   }
@@ -350,7 +294,6 @@ export class Unit {
       else if (this.stance === 'prone') drain = 0.05;
       
       drain *= this.staminaPenalty;
-      
       this.stamina -= drain * dt;
       this.staminaCooldown = 2.0; 
     } else {
@@ -408,7 +351,6 @@ export class Unit {
         ctx.fill();
       }
     }
-    
     ctx.restore();
 
     if (this.isSelected && !this.isDead) {
@@ -442,28 +384,22 @@ export class Unit {
         const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
         const barH = 3;
         const barX = screenPos.x - barW / 2;
-        
         let currentY = screenPos.y - (this.baseRadius * camera.zoom) - 12;
 
         if (isDamaged) {
-          ctx.fillStyle = '#333';
-          ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
           ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
           ctx.fillRect(barX, currentY, barW * (this.hp / this.maxHp), barH);
           currentY -= (barH + 2);
         }
-
         if (isTired) {
-          ctx.fillStyle = '#333';
-          ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
           ctx.fillStyle = this.stamina > 20 ? '#F4B400' : '#EA4335';
           ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
           currentY -= (barH + 2);
         }
-
         if (isReloading) {
-          ctx.fillStyle = '#333';
-          ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
           ctx.fillStyle = '#5096ff';
           const reloadProgress = 1 - (this.weapon.reloadTimer / this.weapon.reloadTime);
           ctx.fillRect(barX, currentY, barW * reloadProgress, barH);
@@ -471,4 +407,4 @@ export class Unit {
       }
     }
   }
-          }
+  }
