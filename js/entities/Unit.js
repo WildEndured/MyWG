@@ -490,7 +490,6 @@ export class Unit {
     else if (this.target) this.aimTime += dt;
     else this.aimTime = 0;
 
-    // FIX: только один блок движения — с инерцией
     this._updateMovement(dt);
 
     if (this.isMoving) {
@@ -516,14 +515,12 @@ export class Unit {
     return bullets.length ? bullets : null;
   }
 
-  // FIX: движение с инерцией — единственный источник изменения x/y
   _updateMovement(dt) {
     let targetSpeedX = 0, targetSpeedY = 0;
     let wantMove = false;
 
     if (this._wantsToMove) {
       if (this.path.length === 0) {
-        // Путь пуст, но намерение есть — запросить репас
         if (this.lastTarget) this.needsRepath = true;
         else this._wantsToMove = false;
       } else if (this.pathIndex >= this.path.length) {
@@ -586,7 +583,6 @@ export class Unit {
       else if (Physics.isPositionFree(this.x, ny, this.baseRadius, obs)) { this.y = ny; slid = true; this.vx *= 0.3; }
       if (!slid) {
         this.vx = 0; this.vy = 0;
-        // FIX: не сбрасываем _wantsToMove — путь будет перестроен
         this.isMoving = false;
         this.needsRepath = true;
       }
@@ -705,6 +701,9 @@ export class Unit {
       visualStance = t < 0.5 ? this.stanceTransition.from : this.stanceTransition.to;
     }
 
+    // =========================================================
+    // 1. ОТРИСОВКА ТЕЛА (в локальных координатах)
+    // =========================================================
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
     ctx.rotate(this.angle);
@@ -748,8 +747,13 @@ export class Unit {
         ctx.fill();
       }
     }
-    ctx.restore();
+    ctx.restore(); // <--- ОБЯЗАТЕЛЬНО ЗАВЕРШАЕМ ТРАНСФОРМАЦИИ ЗДЕСЬ
 
+    // =========================================================
+    // 2. ОТРИСОВКА UI (в глобальных экранных координатах)
+    // =========================================================
+
+    // Индикатор подавления
     if (this.suppression > 0.1 && !this.isDead) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y - 20, 8, 0, Math.PI * 2 * this.suppression);
@@ -758,6 +762,7 @@ export class Unit {
       ctx.stroke();
     }
 
+    // Индикатор перехода поз
     if (this.stanceTransition) {
       const w = 24, h = 3;
       const x = screenPos.x - w / 2;
@@ -768,6 +773,7 @@ export class Unit {
       ctx.fillRect(x, y, w * this.stanceTransitionProgress, h);
     }
 
+    // Кольцо выделения и линия пути
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
       const ringR = (this.stance === 'prone' || this.isUnconscious)
@@ -778,6 +784,7 @@ export class Unit {
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      // ВАЖНО: moveTo и lineTo теперь в экранных координатах!
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
         ctx.moveTo(screenPos.x, screenPos.y);
@@ -791,6 +798,7 @@ export class Unit {
       }
     }
 
+    // Полоски здоровья, стамины, перезарядки
     if (!this.isDead) {
       const isDamaged = this.hp < this.maxHp;
       const isTired = this.stamina < this.maxStamina;
