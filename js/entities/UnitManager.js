@@ -5,6 +5,8 @@ import { Physics } from '../core/Physics.js';
 import { CONFIG } from '../data/config.js';
 import { CaptureZone } from './CaptureZone.js';
 import { Explosion } from './Explosion.js';
+import { Debris } from './Debris.js';
+import { DustCloud } from './DustCloud.js';
 
 export class UnitManager {
   constructor() {
@@ -14,7 +16,9 @@ export class UnitManager {
     
     this.captureZone = null;
     this.shells = [];
-    this.explosions = []; // НОВОЕ
+    this.explosions = [];
+    this.debris = []; // НОВОЕ
+    this.dust = []; // НОВОЕ
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -26,17 +30,48 @@ export class UnitManager {
       EventBus.on(EVENTS.BULLET_IMPACT, (data) => { 
         if (data.type === 'blood') this.decals.push({ x: data.x, y: data.y, r: 0.3 + Math.min(0.6, (data.amount || 10) / 100), alpha: 0.7, ttl: 12.0, age: 0 }); 
       }),
+      // Спавн обломков
+      EventBus.on('debris:spawn', (data) => {
+        for (let i = 0; i < data.count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 5 + Math.random() * 10;
+          this.debris.push(new Debris(
+            data.x, data.y,
+            Math.cos(angle) * speed, Math.sin(angle) * speed - 5, // Вверх
+            0.1 + Math.random() * 0.2, // Size
+            0.5 + Math.random() * 1.0, // Mass
+            data.owner, data.material
+          ));
+        }
+      }),
+      // Спавн пыли
+      EventBus.on('dust:spawn', (data) => {
+        this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration));
+      })
     ];
   }
 
-  destroy() { for (const unsub of this._unsubs) unsub(); this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; this.tracers = []; this.flashes = []; this.decals = []; this.shells = []; this.explosions = []; }
+  destroy() { 
+    for (const unsub of this._unsubs) unsub(); 
+    this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; 
+    this.tracers = []; this.flashes = []; this.decals = []; this.shells = []; 
+    this.explosions = []; this.debris = []; this.dust = []; 
+  }
+  
   setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
   addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
 
   getSafeSpawnPoint(desiredX, desiredY) { const obs = this.pathfinder.obstacles; if (Physics.isPositionFree(desiredX, desiredY, 1.0, obs)) return { x: desiredX, y: desiredY }; return this.pathfinder.findNearestFreePoint(desiredX, desiredY); }
 
-  _spawnTestObstacles(mapSize, enabled = true) { this.pathfinder.clearObstacles(); if (!enabled) return; const c = mapSize / 2; this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood'); this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete'); this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); }
+  _spawnTestObstacles(mapSize, enabled = true) { 
+    this.pathfinder.clearObstacles(); if (!enabled) return; 
+    const c = mapSize / 2; 
+    this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood'); 
+    this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete'); 
+    this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); 
+    this.pathfinder.addObstacle(c - 5, c + 10, 10, 1, 'brick'); // Добавим кирпич для теста
+  }
 
   isPlayerControllable(unit) { if (!unit || unit.isDead) return false; if (this.playerFaction === null) return false; return unit.faction === this.playerFaction; }
 
@@ -71,13 +106,28 @@ export class UnitManager {
     }
     this._resolveCollisions();
     for (let i = this.units.length - 1; i >= 0; i--) if (this.units[i].isDead) this.removeUnit(this.units[i]);
+    
     for (let i = this.bullets.length - 1; i >= 0; i--) { const b = this.bullets[i]; b.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (b.isDead) this.bullets.splice(i, 1); }
     
     // Взрывы
     for (let i = this.explosions.length - 1; i >= 0; i--) {
       const ex = this.explosions[i];
-      ex.update(dt, this.units, this.pathfinder.obstacles);
+      ex.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
       if (ex.isDead) this.explosions.splice(i, 1);
+    }
+
+    // Обломки
+    for (let i = this.debris.length - 1; i >= 0; i--) {
+      const d = this.debris[i];
+      d.update(dt, this.units, this.pathfinder.obstacles);
+      if (d.isDead) this.debris.splice(i, 1);
+    }
+
+    // Пыль
+    for (let i = this.dust.length - 1; i >= 0; i--) {
+      const d = this.dust[i];
+      d.update(dt);
+      if (d.isDead) this.dust.splice(i, 1);
     }
 
     for (let i = this.tracers.length - 1; i >= 0; i--) { this.tracers[i].life -= dt; if (this.tracers[i].life <= 0) this.tracers.splice(i, 1); }
@@ -123,4 +173,4 @@ export class UnitManager {
 
   selectUnits(units) { const set = Array.isArray(units) ? units : []; for (const u of this.units) u.isSelected = false; this.selectedUnits = set.filter(u => this.isPlayerControllable(u) || this.playerFaction === null); for (const u of this.selectedUnits) u.isSelected = true; EventBus.emit(EVENTS.UNITS_SELECTED, this.selectedUnits); }
   setSelectedStance(stance) { for (const u of this.selectedUnits) { if (u.isDead) continue; u.setStance(stance); } }
-}
+  }
