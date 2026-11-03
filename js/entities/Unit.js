@@ -46,8 +46,18 @@ export class Unit {
       const config = ARMOR_CONFIGS[armorId]; if (!config) continue;
       const armorClass = ARMOR_CLASSES[config.class]; if (!armorClass) continue;
       armorWeight += config.weight || 0;
-      const piece = { name: config.name, level: armorClass.level, baseLevel: armorClass.level, durability: config.durability, maxDurability: config.maxDurability ?? config.durability,
-        durabilityLossMult: config.durabilityLossMult || 1.0, coveredSubParts: config.coveredSubParts || [], zones: config.zones || null, armorMaterial: config.armorMaterial || 'steel' };
+      const piece = { 
+        name: config.name, 
+        level: armorClass.level, 
+        baseLevel: armorClass.level, 
+        durability: config.durability, 
+        maxDurability: config.maxDurability ?? config.durability,
+        durabilityLossMult: config.durabilityLossMult || 1.0, 
+        coveredSubParts: config.coveredSubParts || [], 
+        zones: config.zones || null, 
+        armorMaterial: config.armorMaterial || 'steel',
+        ricochetAngle: config.ricochetAngle || 45
+      };
       for (const zone of config.covers) { if (!this.armor[zone] || this.armor[zone].level < piece.level) this.armor[zone] = piece; }
     }
 
@@ -155,7 +165,7 @@ export class Unit {
     if (t1 >= 0 && t1 <= 1) return t1; if (t2 >= 0 && t2 <= 1) return t2; return null;
   }
 
-  takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
+  takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null, incidenceAngle = 0) {
     if (this.isDead) return;
     if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
     if (this.weapon.isReloading) this.weapon.abortReload();
@@ -172,18 +182,57 @@ export class Unit {
     if (armorPiece && armorPiece.durability > 0) {
       const lossMult = armorPiece.durabilityLossMult || 1.0;
       
-      if (armorPiece.armorMaterial === 'ceramic') {
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_CRACK_THRESHOLD && armorPiece.level > 0) armorPiece.level = Math.max(0, armorPiece.level - 1);
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) armorPiece.level = 0;
+      // 1. РИКОШЕТ ОТ БРОНИ
+      if (incidenceAngle > armorPiece.ricochetAngle) {
+        EventBus.emit(EVENTS.BULLET_IMPACT, { x: this.x, y: this.y, type: 'ricochet' });
+        return; // Пуля срикошетила
       }
 
-      if (penetrationLevel > armorPiece.level) armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.5 * lossMult);
-      else if (penetrationLevel === armorPiece.level) { finalDamage = amount * 0.7; armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.8 * lossMult); }
-      else {
-        finalDamage = amount * 0.1; armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.1 * lossMult);
+      // 2. ЗОНАЛЬНАЯ БРОНЯ
+      let zoneMult = 1.0;
+      let zoneLevelBonus = 0;
+      if (armorPiece.zones) {
+        const zone = armorPiece.zones[chosenSub?.id] || armorPiece.zones['default'];
+        if (zone) {
+          zoneMult = zone.damageMult || 1.0;
+          zoneLevelBonus = zone.levelBonus || 0;
+        }
+      }
+
+      const effectiveLevel = armorPiece.level + zoneLevelBonus;
+      
+      // 3. КЕРАМИКА ТРЕСКАЕТСЯ
+      if (armorPiece.armorMaterial === 'ceramic') {
+        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_CRACK_THRESHOLD && armorPiece.level > 0) {
+          armorPiece.level = Math.max(0, armorPiece.level - 1);
+        }
+        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) {
+          armorPiece.level = 0;
+        }
+      }
+
+      // 4. ПРОБИТИЕ
+      if (penetrationLevel > effectiveLevel) {
+        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.5 * lossMult);
+        finalDamage = amount * zoneMult;
+      } else if (penetrationLevel === effectiveLevel) {
+        finalDamage = amount * 0.7 * zoneMult;
+        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.8 * lossMult);
+      } else {
+        finalDamage = amount * 0.1 * zoneMult;
+        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.1 * lossMult);
+        
         this.stamina = Math.max(0, this.stamina - amount * 0.5);
         
-        if (amount > 20 && Math.random() < CONFIG.ARMOR.BLUNT_TRAUMA_CHANCE) { this.shock += 0.3; this.stamina = Math.max(0, this.stamina - 20); }
+        // Заброневая травма
+        if (amount > 20 && Math.random() < CONFIG.ARMOR.BLUNT_TRAUMA_CHANCE) {
+          this.shock += 0.3;
+          this.stamina = Math.max(0, this.stamina - 20);
+          if (hitZone === 'torso' && chosenSub?.id === 'chest') {
+            const chestPart = this.bodyParts.torso.subParts.find(s => s.id === 'chest');
+            if (chestPart) chestPart.hp -= 5;
+          }
+        }
       }
     }
 
