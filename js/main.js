@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastTime = performance.now();
   let rafId = 0;
   let gameStarted = false;
+  let lastTapWorld = { x: 0, y: 0 }; // Для гранат
 
   function updateStartButton() { if (btnStart) btnStart.disabled = !(selection.team !== null && selection.mode !== null); }
   function bindOptionGroup(groupId, key) { const group = document.getElementById(groupId); if (!group) return; group.querySelectorAll('.opt-btn').forEach(btn => { btn.addEventListener('click', (e) => { e.preventDefault(); group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); selection[key] = btn.dataset.value; updateStartButton(); }); }); }
@@ -74,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function spawnInitialUnits(mapSize) {
-    unitManager.units = []; unitManager.selectedUnits = []; unitManager.bullets = []; unitManager.tracers = []; unitManager.flashes = []; unitManager.decals = []; unitManager.shells = []; unitManager.explosions = [];
+    unitManager.units = []; unitManager.selectedUnits = []; unitManager.bullets = []; unitManager.tracers = []; unitManager.flashes = []; unitManager.decals = []; unitManager.shells = []; unitManager.explosions = []; unitManager.grenades = [];
     if (typeof unitManager._spawnTestObstacles === 'function') unitManager._spawnTestObstacles(mapSize, true);
 
     const center = mapSize / 2, offset = mapSize * 0.1, mode = unitManager.gameMode || 'attack', playerTeam = unitManager.playerTeamId || 'team1';
@@ -91,7 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => { if (!source || !loudness) return; for (const unit of unitManager.units) { if (unit.isDead || unit.faction === source.faction) continue; const dist = Math.max(0.5, Math.hypot(unit.x - x, unit.y - y)); if (loudness / Math.sqrt(dist) * unit.hearingMultiplier >= 10) unit.lastHeardNoise = { x, y, loudness, time: performance.now() }; } });
-  EventBus.on(EVENTS.INPUT_TAP, (data) => { if (coordsDiv) coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`; });
+  
+  EventBus.on(EVENTS.INPUT_TAP, (data) => { 
+    if (coordsDiv) coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`; 
+    lastTapWorld.x = data.x;
+    lastTapWorld.y = data.y;
+  });
 
   document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => { btn.addEventListener('click', () => { if (!gameStarted) return; const meters = Number(btn.dataset.size); if (meters !== map.size && unitManager.units.some(u => !u.isDead) && !confirm('Сменить карту? Текущий бой будет сброшен.')) return; setMapSize(meters); }); });
   const fitBtn = document.getElementById('fit'); if (fitBtn) fitBtn.addEventListener('click', () => { camera.fit(map.size, map.size); camera.clampTo(map.size, map.size); });
@@ -111,7 +117,12 @@ document.addEventListener('DOMContentLoaded', () => {
     btnGrenade.addEventListener('click', () => {
       if (unitManager.selectedUnits.length === 1) {
         const u = unitManager.selectedUnits[0];
-        if (u.grenades > 0) u.throwGrenade(camera.x, camera.y, { unitManager });
+        if (u.grenades > 0) {
+          // Кидаем в точку последнего тапа (или в центр, если тапа не было)
+          const targetX = lastTapWorld.x || camera.x;
+          const targetY = lastTapWorld.y || camera.y;
+          u.throwGrenade(targetX, targetY, { unitManager });
+        }
       }
     });
   }
