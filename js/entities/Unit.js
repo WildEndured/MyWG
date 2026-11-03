@@ -1,179 +1,166 @@
-// js/entities/Unit.js
 import { Weapon } from './Weapon.js';
 import { WEAPONS } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
-import { BODY_PARTS } from '../data/health.js';
-import { ARMOR_CONFIGS, ARMOR_CLASSES } from '../data/armor.js';
+import { BODY_PARTS, calcTotalHp, calcMaxTotalHp } from '../data/health.js';
+import { ARMOR_CONFIGS, ARMOR_CLASSES, findArmorForHit } from '../data/armor.js';
 import { VISION_CONFIG, AUDIO_CONFIG } from '../data/vision.js';
 import { Physics } from '../core/Physics.js';
-import { EventBus } from '../core/EventBus.js';
+import { EventBus, EVENTS } from '../core/EventBus.js';
 import { Bullet } from './Bullet.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
-    this.x = x;
-    this.y = y;
-    this.faction = faction; 
-    
-    this.baseRadius = BASE_HUMAN.baseRadius; 
-    this.hitRadius = BASE_HUMAN.hitRadius; 
+    this.x = x; this.y = y;
+    this.faction = faction;
+
+    this.baseRadius = BASE_HUMAN.baseRadius;
+    this.hitRadius = BASE_HUMAN.hitRadius;
     this.isDead = false;
     this.isUnconscious = false;
-    
+
+    // FIX: клонируем полностью, включая maxHp для подчастей
     this.bodyParts = {};
     for (const [partId, partData] of Object.entries(BODY_PARTS)) {
       this.bodyParts[partId] = {
         hp: partData.maxHp,
         maxHp: partData.maxHp,
-        fatal: partData.fatal,
+        fatal: !!partData.fatal,
         bleedRate: partData.bleedRate || 0,
-        subParts: partData.subParts ? JSON.parse(JSON.stringify(partData.subParts)) : null
+        subParts: partData.subParts
+          ? partData.subParts.map(s => ({ ...s, maxHp: s.hp }))
+          : null,
       };
     }
-    
-    this.maxHp = this.getMaxTotalHp();
-    this.hp = this.getTotalHp();
+
+    this.maxHp = calcMaxTotalHp(this.bodyParts); // FIX: учитываем подчасти
+    this.hp = this.maxHp;
 
     this.maxBlood = 100;
-    this.blood = 100; 
+    this.blood = 100;
     this.bleedingRate = 0;
 
     this.maxStamina = BASE_HUMAN.maxStamina;
     this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
     this.staminaCooldown = 0;
-    
+
     const role = ROLES[roleId] || ROLES['infantry'];
     this.roleId = role.id;
     this.name = role.name;
-    
+
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
-    
+
     this.armor = {};
     let armorWeight = 0;
     for (const armorId of BASE_HUMAN.defaultArmor) {
       const config = ARMOR_CONFIGS[armorId];
+      if (!config) continue;
       const armorClass = ARMOR_CLASSES[config.class];
       armorWeight += config.weight;
-      
+      // FIX: единый объект-броня для всех покрытых зон с покрытием подчастей
+      const piece = {
+        name: config.name,
+        level: armorClass.level,
+        durability: config.durability,
+        maxDurability: config.maxDurability ?? config.durability,
+        durabilityLossMult: config.durabilityLossMult || 1.0,
+        coveredSubParts: config.coveredSubParts || [],
+      };
       for (const zone of config.covers) {
-        this.armor[zone] = {
-          name: config.name,
-          level: armorClass.level,
-          durability: config.durability,
-          maxDurability: config.durability,
-          durabilityLossMult: config.durabilityLossMult || 1.0
-        };
+        // Не перезаписываем более прочную броню
+        if (!this.armor[zone] || this.armor[zone].level < piece.level) {
+          this.armor[zone] = piece;
+        }
       }
     }
-    
+
     this.totalWeight = this.weapon.weightLoaded + armorWeight;
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
-    
-    this.stance = 'stand'; 
+
+    this.stance = 'stand';
     this.speed = this.speeds[this.stance];
-    
+
     this.fovAngle = VISION_CONFIG.fovAngle * (Math.PI / 180);
     this.detectRange = VISION_CONFIG.detectRange;
     this.identifyRange = VISION_CONFIG.identifyRange;
-    
+
     this.tinnitus = 0;
     this.hearingMultiplier = 1.0;
     this.lastNoiseTime = 0;
 
-    this.isArmed = true; 
+    this.isArmed = true;
     this.isLimping = false;
-    this.aimTime = 0; 
-    this.maxAimTime = 2.0; 
-    
+    this.aimTime = 0;
+    this.maxAimTime = 2.0;
+
     this.target = null;
     this.isSelected = false;
-    this.path = [];        
-    this.pathIndex = 0;    
+    this.path = [];
+    this.pathIndex = 0;
     this.isMoving = false;
-    
-    this.angle = 0;        
+
+    this.angle = 0;
     this.targetAngle = 0;
-    
-    this.pathfinder = null; 
+
+    this.pathfinder = null;
     this.needsRepath = false;
     this.lastTarget = null;
+    this.lastHeardNoise = null;
+    this.pendingBullets = []; // FIX: несколько выстрелов за кадр
   }
 
-  getTotalHp() {
-    let total = 0;
-    for (const part of Object.values(this.bodyParts)) total += part.hp;
-    return total;
-  }
-
-  getMaxTotalHp() {
-    let total = 0;
-    for (const part of Object.values(this.bodyParts)) total += part.maxHp;
-    return total;
-  }
+  getTotalHp() { return calcTotalHp(this.bodyParts); }
+  getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
 
   takeDamage(amount, hitZone = 'torso', penetrationLevel = 0) {
     if (this.isDead) return;
-    
     let finalDamage = amount;
-    const armorPiece = this.armor[hitZone];
-    
-    if (armorPiece && armorPiece.durability > 0) {
-      const lossMult = armorPiece.durabilityLossMult || 1.0;
 
-      if (penetrationLevel > armorPiece.level) {
-        armorPiece.durability -= amount * 0.5 * lossMult;
-      } else if (penetrationLevel === armorPiece.level) {
-        finalDamage = amount * 0.7;
-        armorPiece.durability -= amount * 0.8 * lossMult;
-      } else {
-        finalDamage = amount * 0.1; 
-        armorPiece.durability -= amount * 0.1 * lossMult;
-        
-        this.stamina -= amount * 0.5;
-        if (this.stamina < 0) this.stamina = 0;
-        
-        if (hitZone === 'chest' && Math.random() < 0.1) {
-          const chest = this.bodyParts.torso.subParts.find(p => p.id === 'chest');
-          if (chest) chest.hp -= 5;
-        }
-      }
-
-      if (armorPiece.durability < 0) armorPiece.durability = 0;
-    }
-
-    let isSubPartHit = false;
+    // FIX: сначала выбираем подчасть, потом ищем броню по hitZone + subPartId
+    let chosenSub = null;
     const part = this.bodyParts[hitZone];
     if (!part) return;
-
-    let localBleed = part.bleedRate || 0;
 
     if (part.subParts && part.subParts.length > 0) {
       const r = Math.random() * 100;
       let acc = 0;
       for (const sub of part.subParts) {
         acc += sub.weight;
-        if (r <= acc) {
-          isSubPartHit = true;
-          sub.hp -= finalDamage;
-          
-          if (sub.bleedRate > localBleed) localBleed = sub.bleedRate;
-
-          if (sub.hp <= 0) {
-            sub.hp = 0;
-            if (sub.fatal || sub.id === 'brain' || sub.id === 'heart' || sub.id === 'spine' || sub.id === 'liver') {
-              this._die(); return;
-            }
-          }
-          break;
-        }
+        if (r <= acc) { chosenSub = sub; break; }
       }
     }
 
-    if (!isSubPartHit) part.hp -= finalDamage;
-    
+    const armorPiece = findArmorForHit(this.armor, hitZone, chosenSub?.id);
+
+    if (armorPiece && armorPiece.durability > 0) {
+      const lossMult = armorPiece.durabilityLossMult || 1.0;
+      if (penetrationLevel > armorPiece.level) {
+        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.5 * lossMult);
+      } else if (penetrationLevel === armorPiece.level) {
+        finalDamage = amount * 0.7;
+        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.8 * lossMult);
+      } else {
+        finalDamage = amount * 0.1;
+        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.1 * lossMult);
+        this.stamina = Math.max(0, this.stamina - amount * 0.5);
+      }
+    }
+
+    let localBleed = part.bleedRate || 0;
+
+    if (chosenSub) {
+      chosenSub.hp -= finalDamage;
+      if (chosenSub.bleedRate > localBleed) localBleed = chosenSub.bleedRate;
+      if (chosenSub.hp <= 0) {
+        chosenSub.hp = 0;
+        if (chosenSub.fatal) { this._die(); return; }
+      }
+    } else {
+      part.hp -= finalDamage;
+    }
+
     if (part.hp <= 0) {
       part.hp = 0;
       if (part.fatal) { this._die(); return; }
@@ -189,6 +176,7 @@ export class Unit {
       this.weapon.isReloading = false;
     }
 
+    // FIX: пересчитываем hp из подчастей
     this.hp = this.getTotalHp();
     if (this.hp <= 0) this._die();
   }
@@ -200,167 +188,141 @@ export class Unit {
     this.path = [];
     this.isSelected = false;
     this.stance = 'prone';
-    EventBus.emit('unit:death', this);
+    this.target = null;
+    this.weapon.isReloading = false;
+    this.pendingBullets.length = 0;
+    EventBus.emit(EVENTS.UNIT_DEATH, this);
   }
 
   _calculateSpeeds(baseSpeeds, weight) {
-    const referenceWeight = 10.0; 
-    const penaltyPerKg = 0.03; 
-    
-    let speedMultiplier = 1.0;
-    if (weight > referenceWeight) {
-      speedMultiplier = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
-    }
-    
+    const referenceWeight = 10.0;
+    const penaltyPerKg = 0.03;
+    let mult = 1.0;
+    if (weight > referenceWeight) mult = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
     return {
-      run: baseSpeeds.run * speedMultiplier,
-      stand: baseSpeeds.stand * speedMultiplier,
-      crouch: baseSpeeds.crouch * speedMultiplier,
-      prone: baseSpeeds.prone
+      run: baseSpeeds.run * mult,
+      stand: baseSpeeds.stand * mult,
+      crouch: baseSpeeds.crouch * mult,
+      prone: baseSpeeds.prone * mult, // FIX: prone тоже учитывает вес
     };
   }
 
   setStance(newStance) {
-    if (this.stance === newStance) return;
+    if (this.isDead || this.stance === newStance) return;
     if (newStance === 'run' && (this.stamina < 10 || this.isLimping || this.isUnconscious)) return;
     this.stance = newStance;
     this.speed = this.speeds[this.stance];
   }
 
   setPath(path) {
-    if (!path || path.length === 0) {
-      this.isMoving = false; this.path = []; return;
-    }
-    this.path = path; this.pathIndex = 0; this.isMoving = true; this.needsRepath = false;
+    if (!path || path.length === 0) { this.isMoving = false; this.path = []; return; }
+    this.path = path;
+    this.pathIndex = 0;
+    this.isMoving = true;
+    this.needsRepath = false;
   }
 
   canSee(target, obstacles) {
-    const dx = target.x - this.x;
-    const dy = target.y - this.y;
+    const dx = target.x - this.x, dy = target.y - this.y;
     const dist = Math.hypot(dx, dy);
-    
     if (dist > this.detectRange) return false;
-    
+
     const angleToTarget = Math.atan2(dy, dx);
     let angleDiff = angleToTarget - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    
     const absAngle = Math.abs(angleDiff);
-    const centralAngleRad = (VISION_CONFIG.centralAngle * Math.PI / 180) / 2;
 
-    if (absAngle <= centralAngleRad) {
-      return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
-    }
-
+    const centralHalf = (VISION_CONFIG.centralAngle * Math.PI / 180) / 2;
+    if (absAngle <= centralHalf) return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
     if (absAngle <= this.fovAngle / 2) {
       if (dist > VISION_CONFIG.peripheralRange) return false;
       return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
     }
-    
     return false;
   }
 
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
+    // Кровотечение
     if (this.bleedingRate > 0 && this.blood > 0) {
-      this.blood -= this.bleedingRate * dt;
-      
-      if (this.blood <= 0) {
-        this.blood = 0;
-        this._die();
-        return null;
-      }
-
+      this.blood = Math.max(0, this.blood - this.bleedingRate * dt);
+      if (this.blood <= 0) { this._die(); return null; }
       if (this.blood < 15 && !this.isUnconscious) {
         this.isUnconscious = true;
         this.stance = 'prone';
         this.isMoving = false;
         this.path = [];
-        EventBus.emit('unit:unconscious', this);
+        EventBus.emit(EVENTS.UNIT_UNCONSCIOUS, this);
       } else if (this.blood >= 15 && this.isUnconscious) {
         this.isUnconscious = false;
       }
     }
 
-    if (this.isUnconscious) {
-      this.weapon.update(dt);
-      return null;
+    if (this.isUnconscious) { this.weapon.update(dt); return null; }
+
+    if (this.tinnitus > 0) this.tinnitus = Math.max(0, this.tinnitus - dt);
+
+    // Слух
+    let hearingMult = 1.0;
+    const headPart = this.bodyParts.head;
+    if (headPart?.subParts) {
+      const l = headPart.subParts.find(p => p.id === 'leftEar');
+      const r = headPart.subParts.find(p => p.id === 'rightEar');
+      if (l && l.hp <= 0) hearingMult -= 0.3;
+      if (r && r.hp <= 0) hearingMult -= 0.3;
     }
+    if (this.armor['head']) hearingMult -= 0.2;
+    if (this.tinnitus > 0) hearingMult -= 0.5;
+    this.hearingMultiplier = Math.max(0, hearingMult);
 
-    if (this.tinnitus > 0) {
-      this.tinnitus -= dt;
-      if (this.tinnitus < 0) this.tinnitus = 0;
-    }
-
-    let hearingMultiplier = 1.0;
-    const leftEar = this.bodyParts.head.subParts.find(p => p.id === 'leftEar');
-    const rightEar = this.bodyParts.head.subParts.find(p => p.id === 'rightEar');
-    if (leftEar && leftEar.hp <= 0) hearingMultiplier -= 0.3;
-    if (rightEar && rightEar.hp <= 0) hearingMultiplier -= 0.3;
-    
-    const helmet = this.armor['head'];
-    if (helmet) hearingMultiplier -= 0.2;
-    
-    if (this.tinnitus > 0) hearingMultiplier -= 0.5;
-    this.hearingMultiplier = Math.max(0, hearingMultiplier);
-
-    const bullet = this._updateCombat(dt, allUnits, currentTime);
+    // FIX: перезарядка не блокирует движение — только стрельбу
+    this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
-    if (this.isMoving) {
-      this.aimTime = 0; 
-    } else if (this.target) {
-      this.aimTime += dt;
-    } else {
-      this.aimTime = 0;
-    }
+    if (this.isMoving) this.aimTime = 0;
+    else if (this.target) this.aimTime += dt;
+    else this.aimTime = 0;
 
-    if (!this.target && !this.weapon.isReloading && this.isMoving && this.path.length > 0) {
-      if (this.pathIndex >= this.path.length) {
-        this.isMoving = false; this.path = [];
-      } else {
-        const target = this.path[this.pathIndex];
-        const dx = target.x - this.x;
-        const dy = target.y - this.y;
+    // Движение
+    if (!this.target && this.isMoving && this.path.length > 0) {
+      if (this.pathIndex >= this.path.length) { this.isMoving = false; this.path = []; }
+      else {
+        const t = this.path[this.pathIndex];
+        const dx = t.x - this.x, dy = t.y - this.y;
         const dist = Math.hypot(dx, dy);
-
         if (dist < 0.5) {
           this.pathIndex++;
           if (this.pathIndex >= this.path.length) { this.isMoving = false; this.path = []; }
         } else {
           this.targetAngle = Math.atan2(dy, dx);
-          let currentSpeed = this.speed;
-          if (this.isLimping) currentSpeed *= 0.5;
-          const moveStep = currentSpeed * dt;
-          const nextX = this.x + (dx / dist) * moveStep;
-          const nextY = this.y + (dy / dist) * moveStep;
+          let sp = this.speed;
+          if (this.isLimping) sp *= 0.5;
+          const stepLen = sp * dt;
+          const nx = this.x + (dx / dist) * stepLen;
+          const ny = this.y + (dy / dist) * stepLen;
           const obs = this.pathfinder ? this.pathfinder.obstacles : null;
 
-          if (this.stance === 'prone' || Physics.isPositionFree(nextX, nextY, this.baseRadius, obs)) {
-            this.x = nextX; this.y = nextY;
-          } else {
+          // FIX: убрано исключение для prone — лежачий тоже сталкивается
+          if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) { this.x = nx; this.y = ny; }
+          else {
             let slid = false;
-            if (Physics.isPositionFree(nextX, this.y, this.baseRadius, obs)) { this.x = nextX; slid = true; }
-            else if (Physics.isPositionFree(this.x, nextY, this.baseRadius, obs)) { this.y = nextY; slid = true; }
+            if (Physics.isPositionFree(nx, this.y, this.baseRadius, obs)) { this.x = nx; slid = true; }
+            else if (Physics.isPositionFree(this.x, ny, this.baseRadius, obs)) { this.y = ny; slid = true; }
             if (!slid) { this.isMoving = false; this.path = []; this.needsRepath = true; }
           }
         }
       }
     }
 
+    // Шум шагов
     if (this.isMoving) {
-      let noiseLevel = AUDIO_CONFIG.stepNoise[this.stance] || 0.5;
-      noiseLevel += this.totalWeight * AUDIO_CONFIG.weightNoiseMultiplier;
-      
+      const base = AUDIO_CONFIG.stepLoudness[this.stance] || 60;
+      const loudness = base + this.totalWeight * AUDIO_CONFIG.weightLoudnessPerKg;
       if (currentTime - this.lastNoiseTime > 1.0) {
         this.lastNoiseTime = currentTime;
-        EventBus.emit('world:noise', {
-          x: this.x, y: this.y,
-          radius: noiseLevel * 50,
-          source: this
-        });
+        EventBus.emit(EVENTS.WORLD_NOISE, { x: this.x, y: this.y, loudness, source: this });
       }
     }
 
@@ -370,8 +332,14 @@ export class Unit {
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1);
+    // FIX: нормализация
+    if (this.angle > Math.PI) this.angle -= Math.PI * 2;
+    if (this.angle < -Math.PI) this.angle += Math.PI * 2;
 
-    return bullet;
+    // FIX: возвращаем все выпущенные пули за кадр
+    const bullets = this.pendingBullets;
+    this.pendingBullets = [];
+    return bullets.length ? bullets : null;
   }
 
   _updateCombat(dt, allUnits, currentTime) {
@@ -383,92 +351,72 @@ export class Unit {
       const dist = Math.hypot(other.x - this.x, other.y - this.y);
       if (dist < minDist) {
         const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-        if (this.canSee(other, obs)) {
-          minDist = dist; closestEnemy = other;
-        }
+        if (this.canSee(other, obs)) { minDist = dist; closestEnemy = other; }
       }
     }
 
     this.target = closestEnemy;
+    if (!this.target) return;
 
-    if (this.target) {
-      this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
-      this.weapon.updateFireMode(minDist);
-      
-      if (this.weapon.isJammed || this.weapon.isMisfired) {
-         return null;
-      }
+    this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
+    this.weapon.updateFireMode(minDist);
 
-      if (this.weapon.canFire(currentTime)) {
-        if (this.weapon.currentMode === 'single' || (this.weapon.currentMode === 'auto' && Math.random() < 0.7)) {
-          return this._shoot(currentTime);
-        }
-      }
+    // FIX: убрано Math.random() < 0.7 — темп задаёт только fireInterval
+    if (this.weapon.canFire(currentTime)) {
+      const b = this._shoot(currentTime);
+      if (b) this.pendingBullets.push(b);
     }
-    return null;
   }
 
   _shoot(currentTime) {
     if (!this.isArmed || this.isUnconscious) return null;
+    if (!this.weapon.fire(currentTime)) return null;
 
-    if (this.weapon.fire(currentTime)) {
-      const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-      let spread = this.weapon.spreadBase * (dist / 100); 
+    const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
+    let spread = this.weapon.spreadBase * (dist / 100);
 
-      if (this.isLimping) spread *= 2.0;
-      if (this.isMoving) spread *= 3.0;
-      if (this.stamina < 20) spread *= 1.5;
-      
-      if (this.blood < 70) spread *= 1.2;
-      if (this.blood < 40) spread *= 1.5;
+    if (this.isLimping) spread *= 2.0;
+    if (this.isMoving) spread *= 3.0;
+    if (this.stamina < 20) spread *= 1.5;
+    if (this.blood < 70) spread *= 1.2;
+    if (this.blood < 40) spread *= 1.5;
+    if (this.target.isMoving) spread *= 1.5;
+    if (this.target.stance === 'prone') spread *= 1.2;
+    else if (this.target.stance === 'crouch') spread *= 1.1;
 
-      if (this.target.isMoving) spread *= 1.5;
-      if (this.target.stance === 'prone') spread *= 1.2;
-      else if (this.target.stance === 'crouch') spread *= 1.1;
+    const aimBonus = Math.min(this.aimTime / this.maxAimTime, 1.0);
+    spread *= (1.0 - aimBonus * 0.7);
+    spread = Math.max(0.01, Math.min(spread, 20));
 
-      const aimBonus = Math.min(this.aimTime / this.maxAimTime, 1.0); 
-      spread *= (1.0 - aimBonus * 0.7); 
+    const hitChance = Math.max(0.1, 1 - (spread / 10));
 
-      const hitChance = Math.max(0.1, 1 - (spread / 10));
+    EventBus.emit(EVENTS.UNIT_SHOOT, {
+      x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y, isMuzzleFlash: true,
+    });
 
-      // ВСПЫШКА ВЫСТРЕЛА
-      EventBus.emit('unit:shoot', { 
-        x1: this.x, y1: this.y, 
-        x2: this.target.x, y2: this.target.y,
-        isMuzzleFlash: true 
-      });
-      
-      EventBus.emit('world:noise', {
-        x: this.x, y: this.y,
-        radius: this.weapon.noiseLevel,
-        source: this,
-        isGunshot: true
-      });
-      
-      this.tinnitus = 1.0;
+    EventBus.emit(EVENTS.WORLD_NOISE, {
+      x: this.x, y: this.y,
+      loudness: this.weapon.loudness,
+      source: this, isGunshot: true,
+    });
 
-      let targetX = this.target.x;
-      let targetY = this.target.y;
+    this.tinnitus = 1.0;
 
-      if (Math.random() >= hitChance) {
-        const missAngle = Math.atan2(targetY - this.y, targetX - this.x);
-        const missDist = dist + (Math.random() - 0.5) * 50;
-        targetX = this.x + Math.cos(missAngle) * missDist;
-        targetY = this.y + Math.sin(missAngle) * missDist;
-      }
-
-      return new Bullet(
-        this.x, this.y, 
-        targetX, targetY, 
-        this.weapon.bulletSpeed, 
-        this.weapon.baseDamage, 
-        this.weapon.damageFalloff,
-        this.weapon.maxFalloffDist,
-        this.weapon.penetration,
-        this
-      );
+    let tx = this.target.x, ty = this.target.y;
+    if (Math.random() >= hitChance) {
+      // FIX: боковое смещение, а не только вдоль линии
+      const ang = Math.atan2(ty - this.y, tx - this.x) + (Math.random() - 0.5) * 0.6;
+      const missDist = dist + (Math.random() - 0.5) * 60;
+      tx = this.x + Math.cos(ang) * missDist;
+      ty = this.y + Math.sin(ang) * missDist;
     }
-    return null;
+
+    return new Bullet(
+      this.x, this.y, tx, ty,
+      this.weapon.bulletSpeed, this.weapon.baseDamage,
+      this.weapon.damageFalloff, this.weapon.maxFalloffDist,
+      this.weapon.penetration, this
+    );
   }
 
   _updateStamina(dt) {
@@ -478,65 +426,55 @@ export class Unit {
       else if (this.stance === 'stand') drain = 0.5;
       else if (this.stance === 'crouch') drain = 0.2;
       else if (this.stance === 'prone') drain = 0.05;
-      
       drain *= this.staminaPenalty;
-      this.stamina -= drain * dt;
-      this.staminaCooldown = 2.0; 
+      this.stamina = Math.max(0, this.stamina - drain * dt);
+      this.staminaCooldown = 2.0;
     } else {
-      if (this.staminaCooldown > 0) {
-        this.staminaCooldown -= dt;
-      } else {
-        let recoveryMult = 1.0;
-        if (this.blood < 70) recoveryMult = 0.7;
-        if (this.blood < 40) recoveryMult = 0.4;
-        if (this.blood < 15) recoveryMult = 0.1;
-
-        let baseRec = this.baseRecoveryRate;
-        if (this.stance === 'crouch') baseRec *= 1.2;
-        else if (this.stance === 'prone') baseRec *= 1.5;
-        
-        const recovery = (baseRec * recoveryMult) / this.staminaPenalty;
-        this.stamina += recovery * dt;
+      if (this.staminaCooldown > 0) this.staminaCooldown -= dt;
+      else {
+        let mult = 1.0;
+        if (this.blood < 70) mult = 0.7;
+        if (this.blood < 40) mult = 0.4;
+        if (this.blood < 15) mult = 0.1;
+        let base = this.baseRecoveryRate;
+        if (this.stance === 'crouch') base *= 1.2;
+        else if (this.stance === 'prone') base *= 1.5;
+        this.stamina += (base * mult) / this.staminaPenalty * dt;
       }
     }
-
     this.stamina = Math.max(0, Math.min(this.maxStamina, this.stamina));
-    if (this.stance === 'run' && this.stamina <= 0) {
-      this.setStance('stand');
-    }
+    if (this.stance === 'run' && this.stamina <= 0) this.setStance('stand');
   }
 
   draw(ctx, camera) {
     const screenPos = camera.worldToScreen(this.x, this.y);
     const color = this.isDead ? '#444' : (this.faction === 'player' ? '#4285F4' : '#EA4335');
-    
+
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
     ctx.rotate(this.angle);
-    
+
     if (this.stance === 'prone' || this.isUnconscious) {
-      const w = 0.8 * camera.zoom;
-      const h = 1.6 * camera.zoom;
+      const w = 0.8 * camera.zoom, h = 1.6 * camera.zoom;
       ctx.beginPath();
-      ctx.ellipse(0, 0, Math.max(3, h/2), Math.max(2, w/2), 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, Math.max(3, w / 2), Math.max(2, h / 2), 0, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#000';
       ctx.stroke();
     } else {
-      const drawRadius = Math.max(3, this.baseRadius * camera.zoom);
+      const r = Math.max(3, this.baseRadius * camera.zoom);
       ctx.beginPath();
-      ctx.arc(0, 0, drawRadius, 0, Math.PI * 2);
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#000';
       ctx.stroke();
-      
-      if (drawRadius > 5 && this.stance !== 'crouch') {
+      if (r > 5 && this.stance !== 'crouch') {
         ctx.beginPath();
-        ctx.arc(drawRadius * 0.6, 0, drawRadius * 0.3, 0, Math.PI * 2);
+        ctx.arc(r * 0.6, 0, r * 0.3, 0, Math.PI * 2);
         ctx.fillStyle = '#fff';
         ctx.fill();
       }
@@ -545,12 +483,13 @@ export class Unit {
 
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
-      const ringRadius = (this.stance === 'prone' || this.isUnconscious) ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
-      ctx.arc(screenPos.x, screenPos.y, ringRadius + 4, 0, Math.PI * 2);
+      const ringR = (this.stance === 'prone' || this.isUnconscious)
+        ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
+      ctx.arc(screenPos.x, screenPos.y, ringR + 4, 0, Math.PI * 2);
       ctx.strokeStyle = '#F4B400';
       ctx.lineWidth = 2;
       ctx.stroke();
-      
+
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
         const start = camera.worldToScreen(this.x, this.y);
@@ -570,40 +509,37 @@ export class Unit {
       const isTired = this.stamina < this.maxStamina;
       const isReloading = this.weapon.isReloading;
       const isOverheated = this.weapon.heat > 10;
-      
+
       if (isDamaged || isTired || isReloading || this.bleedingRate > 0 || isOverheated) {
         const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
         const barH = 3;
         const barX = screenPos.x - barW / 2;
-        let currentY = screenPos.y - (this.baseRadius * camera.zoom) - 12;
+        let y = screenPos.y - (this.baseRadius * camera.zoom) - 12;
 
         if (isDamaged) {
-          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
-          ctx.fillStyle = this.hp > 50 ? '#0F9D58' : '#EA4335';
-          ctx.fillRect(barX, currentY, barW * (this.hp / this.maxHp), barH);
-          currentY -= (barH + 2);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH);
+          ctx.fillStyle = this.hp > this.maxHp * 0.5 ? '#0F9D58' : '#EA4335';
+          ctx.fillRect(barX, y, barW * (this.hp / this.maxHp), barH);
+          y -= barH + 2;
         }
         if (isTired) {
-          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH);
           ctx.fillStyle = this.stamina > 20 ? '#F4B400' : '#EA4335';
-          ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
-          currentY -= (barH + 2);
+          ctx.fillRect(barX, y, barW * (this.stamina / this.maxStamina), barH);
+          y -= barH + 2;
         }
         if (isReloading) {
-          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH);
           ctx.fillStyle = '#5096ff';
-          const reloadProgress = 1 - (this.weapon.reloadTimer / this.weapon.reloadTime);
-          ctx.fillRect(barX, currentY, barW * reloadProgress, barH);
-          currentY -= (barH + 2);
+          const progress = 1 - Math.max(0, Math.min(1, this.weapon.reloadTimer / this.weapon.reloadTime));
+          ctx.fillRect(barX, y, barW * progress, barH);
+          y -= barH + 2;
         }
-
         if (isOverheated) {
-          ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
+          ctx.fillStyle = '#333'; ctx.fillRect(barX, y, barW, barH);
           ctx.fillStyle = this.weapon.isJammed ? '#FF0000' : '#FF8C00';
-          const heatW = barW * (this.weapon.heat / this.weapon.maxHeat);
-          ctx.fillRect(barX, currentY, heatW, barH);
+          ctx.fillRect(barX, y, barW * (this.weapon.heat / this.weapon.maxHeat), barH);
         }
-
         if (this.bleedingRate > 0) {
           ctx.fillStyle = '#EA4335';
           const pulse = Math.sin(performance.now() / 200) * 0.5 + 0.5;
