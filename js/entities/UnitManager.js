@@ -87,19 +87,15 @@ export class UnitManager {
         else this.bullets.push(bullets);
       }
 
-      // FIX: Репас и защита от бесконечного цикла
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
         const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
         
         if (target) {
           const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
-          
-          // Если путь найден и он не пустой — идём
           if (newPath && newPath.length > 0) {
             unit.setPath(newPath);
           } else {
-            // Пути нет (стена/препятствие) — сбрасываем намерение
             unit._wantsToMove = false;
             unit.isMoving = false;
             unit.lastTarget = null;
@@ -150,6 +146,9 @@ export class UnitManager {
   }
 
   draw(ctx, camera) {
+    // СТРАХОВКА: сохраняем контекст на входе
+    ctx.save(); 
+    
     this._drawDecals(ctx, camera);
     this._drawObstacles(ctx, camera);
 
@@ -175,6 +174,9 @@ export class UnitManager {
       ctx.fillStyle = `rgba(255, 200, 0, ${Math.max(0, f.life / 0.05)})`;
       ctx.fill();
     }
+
+    // СТРАХОВКА: восстанавливаем контекст на выходе
+    ctx.restore(); 
   }
 
   _drawDecals(ctx, camera) {
@@ -274,12 +276,10 @@ export class UnitManager {
         const target = this.pathfinder.findNearestFreePoint(freeTarget.x + ox, freeTarget.y + oy);
         const path = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
         
-        // FIX: Если путь не найден — не отдаём приказ!
         if (path && path.length > 0) {
           unit.lastTarget = target;
           unit.setPath(path);
         } else {
-          // Опционально: можно показать "Х" над юнитом, что пути нет
           console.warn("No path found for unit", unit.roleId);
         }
       });
