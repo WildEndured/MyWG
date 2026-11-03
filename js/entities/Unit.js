@@ -701,9 +701,7 @@ export class Unit {
       visualStance = t < 0.5 ? this.stanceTransition.from : this.stanceTransition.to;
     }
 
-    // =========================================================
-    // 1. ОТРИСОВКА ТЕЛА (в локальных координатах)
-    // =========================================================
+    // 1. ТЕЛО (в локальных координатах)
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
     ctx.rotate(this.angle);
@@ -747,13 +745,9 @@ export class Unit {
         ctx.fill();
       }
     }
-    ctx.restore(); // <--- ОБЯЗАТЕЛЬНО ЗАВЕРШАЕМ ТРАНСФОРМАЦИИ ЗДЕСЬ
+    ctx.restore(); // ОБЯЗАТЕЛЬНО ЗАВЕРШАЕМ ТРАНСФОРМАЦИИ
 
-    // =========================================================
-    // 2. ОТРИСОВКА UI (в глобальных экранных координатах)
-    // =========================================================
-
-    // Индикатор подавления
+    // 2. UI (в экранных координатах)
     if (this.suppression > 0.1 && !this.isDead) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y - 20, 8, 0, Math.PI * 2 * this.suppression);
@@ -762,7 +756,6 @@ export class Unit {
       ctx.stroke();
     }
 
-    // Индикатор перехода поз
     if (this.stanceTransition) {
       const w = 24, h = 3;
       const x = screenPos.x - w / 2;
@@ -773,7 +766,6 @@ export class Unit {
       ctx.fillRect(x, y, w * this.stanceTransitionProgress, h);
     }
 
-    // Кольцо выделения и линия пути
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
       const ringR = (this.stance === 'prone' || this.isUnconscious)
@@ -784,7 +776,6 @@ export class Unit {
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // ВАЖНО: moveTo и lineTo теперь в экранных координатах!
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
         ctx.moveTo(screenPos.x, screenPos.y);
@@ -798,7 +789,6 @@ export class Unit {
       }
     }
 
-    // Полоски здоровья, стамины, перезарядки
     if (!this.isDead) {
       const isDamaged = this.hp < this.maxHp;
       const isTired = this.stamina < this.maxStamina;
