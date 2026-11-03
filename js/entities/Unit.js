@@ -47,8 +47,11 @@ export class Unit {
     }
 
     const medWeight = this.medical.bandage * CONFIG.MEDICAL.BANDAGE_WEIGHT + this.medical.tourniquet * CONFIG.MEDICAL.TOURNIQUET_WEIGHT;
+    
+    // ВЕС: Оружие с патронами + Броня + Медицина
     this.totalWeight = (this.weapon.weightLoaded || 3.6) + armorWeight + medWeight;
     
+    // Штраф за вес
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
     this.accel = CONFIG.MOVEMENT.ACCEL_BASE / this.staminaPenalty; this.decel = CONFIG.MOVEMENT.DECEL_BASE / this.staminaPenalty;
@@ -63,7 +66,6 @@ export class Unit {
     this.suppression = 0; this.lastSuppressionTime = 0; this.standLockTimer = 0;
     this.perception = new Map(); this._lastScanTime = 0; this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
 
-    // Инициализация мозга
     this.brain = new Brain(this);
   }
 
@@ -137,10 +139,8 @@ export class Unit {
     if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
     let finalDamage = amount; const part = this.bodyParts[hitZone]; if (!part) return;
 
-    // Память об уроне (откуда стреляли)
-    if (this.brain && this.target) {
-      this.brain.registerDamage(this.target.x, this.target.y);
-    }
+    // Память об уроне
+    if (this.brain && this.target) this.brain.registerDamage(this.target.x, this.target.y);
 
     let chosenSub = null;
     if (forcedSubPartId && part.subParts) chosenSub = part.subParts.find(s => s.id === forcedSubPartId) || null;
@@ -183,9 +183,20 @@ export class Unit {
   }
 
   _calculateSpeeds(baseSpeeds, weight) {
-    const referenceWeight = 10.0, penaltyPerKg = 0.03; let mult = 1.0;
-    if (weight > referenceWeight) mult = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
-    return { run: (baseSpeeds.run || 5) * mult, stand: (baseSpeeds.stand || 1.6) * mult, crouch: (baseSpeeds.crouch || 0.9) * mult, prone: (baseSpeeds.prone || 0.4) * mult };
+    const referenceWeight = 10.0; // Вес стрелка с АК (эталон)
+    const penaltyPerKg = 0.03; 
+    
+    let mult = 1.0;
+    if (weight > referenceWeight) {
+      mult = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
+    }
+    
+    return { 
+      run: (baseSpeeds.run || 5) * mult, 
+      stand: (baseSpeeds.stand || 1.6) * mult, 
+      crouch: (baseSpeeds.crouch || 0.9) * mult, 
+      prone: (baseSpeeds.prone || 0.4) * mult 
+    };
   }
 
   _startStanceTransition(to) { const from = this.stance; if (from === to) return; const key = `${from}->${to}`; const duration = CONFIG.STANCE.TRANSITIONS[key] ?? 0.5; this.stanceTransition = { from, to, timer: duration, total: duration }; }
