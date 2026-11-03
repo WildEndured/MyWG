@@ -12,6 +12,8 @@ export class Weapon {
     this.damageFalloff = caliberData.damageFalloff; this.maxFalloffDist = caliberData.maxFalloffDist;
     this.penetration = caliberData.penetration; this.drag = caliberData.drag ?? 0.00025;
     this.fragmentation = caliberData.fragmentation ?? 0; this.impulse = caliberData.impulse ?? 0;
+    this.woundingMult = caliberData.woundingMult ?? 1.0; // НОВОЕ
+    this.overpenetration = caliberData.overpenetration ?? 0; // НОВОЕ
     this.loudness = caliberData.loudness * (config.noiseMultiplier || 1);
 
     this.rpm = config.rpm; this.fireInterval = 60 / this.rpm;
@@ -20,27 +22,21 @@ export class Weapon {
     this.recoilPerShot = config.recoilPerShot ?? 1.0; this.recoilSpreadMult = config.recoilSpreadMult ?? 0.12; this.recoilRecovery = config.recoilRecovery ?? 3.5; this.recoil = 0;
     this.misfireChance = config.misfireChance ?? 0.01; this.heatPerShot = config.heatPerShot ?? 1.5; this.maxHeat = config.maxHeat ?? 100; this.coolingRate = config.coolingRate ?? 10;
 
-    // Запас патронов
-    this.ammo = this.magazineCapacity;
-    this.reserveMagazines = config.reserveMagazines || 0;
-    this.weightEmpty = config.weightEmpty;
-    this.weightLoaded = config.weightLoaded;
+    this.ammo = this.magazineCapacity; this.reserveMagazines = config.reserveMagazines || 0;
+    this.weightEmpty = config.weightEmpty; this.weightLoaded = config.weightLoaded; // Вес с одним магазином
 
     this.currentMode = this.fireModes.includes('auto') ? 'auto' : 'single';
     this.lastShotTime = -Infinity; this.isReloading = false; this.reloadTimer = 0;
     this.isMisfired = false; this.heat = 0; this.isJammed = false; this.shotsFired = 0;
   }
 
-  // Суммарный вес всех патронов (в оружии + в запасе)
   getTotalAmmoWeight() {
     const totalRounds = this.ammo + (this.reserveMagazines * this.magazineCapacity);
     const weightPerRound = this.caliberId === '5.45x39' ? CONFIG.AMMO.WEIGHT_PER_ROUND_545 : CONFIG.AMMO.WEIGHT_PER_ROUND_762;
     return totalRounds * weightPerRound;
   }
 
-  getReserveRounds() {
-    return this.reserveMagazines * this.magazineCapacity;
-  }
+  getReserveRounds() { return this.reserveMagazines * this.magazineCapacity; }
 
   canFire(currentTime) {
     if (this.isReloading || this.isMisfired || this.isJammed) return false;
@@ -62,25 +58,35 @@ export class Weapon {
 
   startReload() {
     if (this.isReloading) return;
-    if (this.reserveMagazines <= 0) return; // Нет запаса — нельзя перезарядиться
-    this.isReloading = true; 
-    this.reloadTimer = this.reloadTime;
+    if (this.reserveMagazines <= 0) return;
+    this.isReloading = true; this.reloadTimer = this.reloadTime;
+  }
+
+  // НОВОЕ: Прерывание перезарядки
+  abortReload() {
+    if (this.isReloading) {
+      this.isReloading = false;
+      this.reloadTimer = 0;
+    }
+  }
+
+  // НОВОЕ: Устранение клина/осечки (действие)
+  clearMalfunction() {
+    if (this.isJammed) { this.isJammed = false; this.heat = this.maxHeat * 0.4; return true; }
+    if (this.isMisfired) { this.isMisfired = false; return true; }
+    return false;
   }
 
   update(dt) {
     if (this.isReloading) {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) {
-        if (this.reserveMagazines > 0) {
-          this.reserveMagazines--; // Тратим запасной магазин
-          this.ammo = this.magazineCapacity;
-        }
-        this.isReloading = false; 
-        this.isMisfired = false;
+        if (this.reserveMagazines > 0) { this.reserveMagazines--; this.ammo = this.magazineCapacity; }
+        this.isReloading = false; this.isMisfired = false;
       }
     }
     if (this.heat > 0) this.heat = Math.max(0, this.heat - this.coolingRate * dt);
-    if (this.isJammed && this.heat < 50) this.isJammed = false;
+    if (this.isJammed && this.heat < 50) this.isJammed = false; // Остывание снимает клин
     if (this.recoil > 0) this.recoil = Math.max(0, this.recoil - this.recoilRecovery * dt);
   }
 
