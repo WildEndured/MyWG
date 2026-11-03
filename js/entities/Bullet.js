@@ -27,6 +27,7 @@ export class Bullet {
     this.isDead = false;
     this.life = 0;
     this.maxLife = 3.0; 
+    this.hasRicocheted = false;
   }
 
   update(dt, allUnits, obstacles) {
@@ -42,13 +43,13 @@ export class Bullet {
     const nextX = this.x + this.dirX * step;
     const nextY = this.y + this.dirY * step;
 
-    // ПРОВЕРКА СТЕН С ПРОБИТИЕМ
+    // ПРОВЕРКА СТЕН (С РИКОШЕТОМ)
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
           
-          const wallThickness = Math.min(obs.w, obs.h); // Упрощение: берем меньшую сторону
-          let requiredBr = 6; // Максимальный класс (непробиваемое)
+          const wallThickness = Math.min(obs.w, obs.h);
+          let requiredBr = 6;
           
           if (obs.matData && obs.matData.thicknessData) {
             for (const data of obs.matData.thicknessData) {
@@ -60,21 +61,35 @@ export class Bullet {
           }
 
           if (this.penetration >= requiredBr) {
-            // Пробили стену! Летим дальше, но с потерей урона (30%)
             this.baseDamage *= 0.7; 
             EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
-            // Не убиваем пулю, она продолжает полет
           } else {
-            // Не пробили — пуля застревает
-            this.isDead = true;
-            EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
-            return;
+            if (!this.hasRicocheted && (obs.materialId === 'steel' || obs.materialId === 'concrete')) {
+              this.dirX = -this.dirX; 
+              this.dirY = -this.dirY;
+              
+              this.dirX += (Math.random() - 0.5) * 0.2;
+              this.dirY += (Math.random() - 0.5) * 0.2;
+              
+              const len = Math.hypot(this.dirX, this.dirY);
+              this.dirX /= len;
+              this.dirY /= len;
+
+              this.hasRicocheted = true;
+              this.baseDamage *= 0.5; 
+              
+              EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'ricochet' });
+            } else {
+              this.isDead = true;
+              EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
+              return;
+            }
           }
         }
       }
     }
 
-    // Проверка юнитов
+    // ПРОВЕРКА ЮНИТОВ
     for (const unit of allUnits) {
       if (!unit || unit.isDead) continue;
       if (this.owner && unit.faction === this.owner.faction) continue;
@@ -142,7 +157,7 @@ export class Bullet {
     const p = camera.worldToScreen(this.x, this.y);
     ctx.beginPath();
     ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFFF00'; 
+    ctx.fillStyle = this.hasRicocheted ? '#FF00FF' : '#FFFF00'; 
     ctx.fill();
   }
 }
