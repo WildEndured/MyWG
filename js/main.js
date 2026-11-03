@@ -12,9 +12,6 @@ import { validateArmorData } from './data/armor.js';
 import { validateWeapons } from './data/weapons.js';
 import { CALIBERS } from './data/calibers.js';
 
-// ==========================================
-// 1. КОНСТАНТЫ И КОНФИГУРАЦИЯ
-// ==========================================
 const TEAM_INFO = {
   team1:     { id: 'team1',     name: 'Команда 1',  faction: 'player', color: '#4285F4', player: true  },
   team2:     { id: 'team2',     name: 'Команда 2',  faction: 'enemy',  color: '#EA4335', player: true  },
@@ -28,9 +25,6 @@ const MODE_INFO = {
 
 const selection = { team: null, mode: null };
 
-// ==========================================
-// 2. DOM ЭЛЕМЕНТЫ
-// ==========================================
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
 const coordsDiv = document.getElementById('coords');
@@ -40,17 +34,11 @@ const btnStart = document.getElementById('btn-start');
 const battleTeamEl = document.getElementById('battle-team');
 const battleModeEl = document.getElementById('battle-mode');
 
-// ==========================================
-// 3. ВАЛИДАЦИЯ ДАННЫХ
-// ==========================================
 {
   const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)];
   if (errs.length) console.error('[data] validation errors:', errs);
 }
 
-// ==========================================
-// 4. ИНИЦИАЛИЗАЦИЯ ДВИЖКА
-// ==========================================
 const camera = new Camera(canvas);
 const map = new GameMap(camera);
 const input = new Input(canvas, camera);
@@ -63,9 +51,6 @@ let lastTime = performance.now();
 let rafId = 0;
 let gameStarted = false;
 
-// ==========================================
-// 5. ЛОГИКА СТАРТОВОГО ЭКРАНА
-// ==========================================
 function updateStartButton() {
   if (btnStart) {
     btnStart.disabled = !(selection.team !== null && selection.mode !== null);
@@ -119,9 +104,6 @@ function startBattle(teamId, modeId) {
   lastTime = performance.now();
 }
 
-// ==========================================
-// 6. РЕСАЙЗ И РАЗМЕР КАРТЫ
-// ==========================================
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = window.innerWidth;
@@ -197,9 +179,6 @@ function spawnInitialUnits(mapSize) {
   }
 }
 
-// ==========================================
-// 7. ОБРАБОТКА СОБЫТИЙ
-// ==========================================
 EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => {
   if (!source || !loudness) return;
   for (const unit of unitManager.units) {
@@ -233,9 +212,6 @@ if (fitBtn) fitBtn.addEventListener('click', () => {
   camera.clampTo(map.size, map.size);
 });
 
-// ==========================================
-// 8. ПАНЕЛЬ ПОЗ
-// ==========================================
 const stanceButtons = {
   'btn-stand': 'stand', 'btn-run': 'run', 'btn-crouch': 'crouch', 'btn-prone': 'prone',
 };
@@ -256,9 +232,6 @@ for (const [id, stance] of Object.entries(stanceButtons)) {
 }
 updateStanceUI('stand');
 
-// ==========================================
-// 9. ВРЕМЯ, ПАУЗА, СКОРОСТЬ
-// ==========================================
 const tacticalBtn = document.getElementById('btn-tactical');
 if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
 
@@ -294,9 +267,6 @@ EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused, isTacticalPause }) => {
   }
 });
 
-// ==========================================
-// 10. DEBUG
-// ==========================================
 const debugBtn = document.getElementById('btn-debug');
 function syncDebugButton() {
   if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled);
@@ -309,9 +279,6 @@ if (debugBtn) {
 }
 EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
-// ==========================================
-// 11. ИГРОВОЙ ЦИКЛ (RENDER LOOP)
-// ==========================================
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
@@ -325,7 +292,6 @@ function frame(now) {
       catch (err) { console.error('[Game] update error:', err); }
     }
 
-    // ЗАЩИТА КАМЕРЫ: если зум или координаты сломались (NaN) — сбрасываем
     if (!Number.isFinite(camera.zoom) || !Number.isFinite(camera.x) || !Number.isFinite(camera.y)) {
       camera.fit(map.size, map.size);
     }
@@ -336,10 +302,8 @@ function frame(now) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     
     try {
-      // Вся отрисовка игры теперь здесь
       Renderer.draw(ctx, camera, map, unitManager);
       
-      // Отрисовка дебага поверх
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
 
@@ -362,9 +326,6 @@ function frame(now) {
   rafId = requestAnimationFrame(frame);
 }
 
-// ==========================================
-// 12. ОЧИСТКА И СТАРТ
-// ==========================================
 window.addEventListener('beforeunload', () => {
   cancelAnimationFrame(rafId);
   input.destroy();
