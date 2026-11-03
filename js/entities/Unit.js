@@ -20,7 +20,6 @@ export class Unit {
     this.isDead = false;
     this.isUnconscious = false;
     
-    // Здоровье
     this.bodyParts = {};
     for (const [partId, partData] of Object.entries(BODY_PARTS)) {
       this.bodyParts[partId] = {
@@ -35,18 +34,15 @@ export class Unit {
     this.maxHp = this.getMaxTotalHp();
     this.hp = this.getTotalHp();
 
-    // КРОВЬ
     this.maxBlood = 100;
     this.blood = 100; 
     this.bleedingRate = 0;
 
-    // СТАМИНА
     this.maxStamina = BASE_HUMAN.maxStamina;
     this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
     this.staminaCooldown = 0;
     
-    // РОЛЬ И ОРУЖИЕ
     const role = ROLES[roleId] || ROLES['infantry'];
     this.roleId = role.id;
     this.name = role.name;
@@ -54,7 +50,6 @@ export class Unit {
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
     
-    // БРОНЯ
     this.armor = {};
     let armorWeight = 0;
     for (const armorId of BASE_HUMAN.defaultArmor) {
@@ -72,7 +67,6 @@ export class Unit {
       }
     }
     
-    // ВЕС И СКОРОСТЬ
     this.totalWeight = this.weapon.weightLoaded + armorWeight;
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
@@ -80,7 +74,6 @@ export class Unit {
     this.stance = 'stand'; 
     this.speed = this.speeds[this.stance];
     
-    // ЗРЕНИЕ И СЛУХ
     this.fovAngle = VISION_CONFIG.fovAngle * (Math.PI / 180);
     this.detectRange = VISION_CONFIG.detectRange;
     this.identifyRange = VISION_CONFIG.identifyRange;
@@ -90,7 +83,6 @@ export class Unit {
     this.hearingMultiplier = 1.0;
     this.lastNoiseTime = 0;
 
-    // СОСТОЯНИЯ
     this.isArmed = true; 
     this.isLimping = false;
     this.aimTime = 0; 
@@ -128,7 +120,6 @@ export class Unit {
     let finalDamage = amount;
     const armorPiece = this.armor[hitZone];
     
-    // Логика брони
     if (armorPiece && armorPiece.durability > 0) {
       if (penetrationLevel > armorPiece.level) {
         armorPiece.durability -= amount * 0.5;
@@ -142,7 +133,6 @@ export class Unit {
       if (armorPiece.durability < 0) armorPiece.durability = 0;
     }
 
-    // Применение урона
     let isSubPartHit = false;
     const part = this.bodyParts[hitZone];
     if (!part) return;
@@ -178,7 +168,6 @@ export class Unit {
       if (part.fatal) { this._die(); return; }
     }
 
-    // Активация кровотечения
     if (finalDamage > 5 && localBleed > 0) {
       this.bleedingRate = Math.max(this.bleedingRate, localBleed);
     }
@@ -256,7 +245,6 @@ export class Unit {
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
-    // Обновление крови
     if (this.bleedingRate > 0 && this.blood > 0) {
       this.blood -= this.bleedingRate * dt;
       
@@ -282,7 +270,6 @@ export class Unit {
       return null;
     }
 
-    // Слух
     if (this.tinnitus > 0) {
       this.tinnitus -= dt;
       if (this.tinnitus < 0) this.tinnitus = 0;
@@ -344,7 +331,6 @@ export class Unit {
       }
     }
 
-    // Генерация шума
     if (this.isMoving) {
       let noiseLevel = AUDIO_CONFIG.stepNoise[this.stance] || 0.5;
       noiseLevel += this.totalWeight * AUDIO_CONFIG.weightNoiseMultiplier;
@@ -378,7 +364,6 @@ export class Unit {
       const dist = Math.hypot(other.x - this.x, other.y - this.y);
       if (dist < minDist) {
         const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-        // Теперь проверяем не только линию видимости, но и конус обзора
         if (this.canSee(other, obs)) {
           minDist = dist; closestEnemy = other;
         }
@@ -424,10 +409,9 @@ export class Unit {
 
       EventBus.emit('unit:shoot', { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y });
       
-      // Шум от выстрела
       EventBus.emit('world:noise', {
         x: this.x, y: this.y,
-        radius: AUDIO_CONFIG.gunshotNoise * 10,
+        radius: this.weapon.noiseLevel,
         source: this,
         isGunshot: true
       });
