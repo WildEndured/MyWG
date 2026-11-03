@@ -14,6 +14,7 @@ export class UnitManager {
     this._isSearchingPath = false;
     this.tracers = [];
     this.flashes = [];
+    this.decals = [];       // FIX: кровь-декали (Волна 1)
     this.currentTime = 0;
 
     this._unsubs = [
@@ -22,6 +23,18 @@ export class UnitManager {
       EventBus.on(EVENTS.UNIT_SHOOT, (data) => {
         this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 });
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
+      }),
+      // FIX: кровь-декали (Волна 1)
+      EventBus.on(EVENTS.BULLET_IMPACT, (data) => {
+        if (data.type === 'blood') {
+          this.decals.push({
+            x: data.x, y: data.y,
+            r: 0.3 + Math.min(0.6, (data.amount || 10) / 100),
+            alpha: 0.7,
+            ttl: 12.0,
+            age: 0,
+          });
+        }
       }),
     ];
   }
@@ -34,11 +47,10 @@ export class UnitManager {
     this.bullets = [];
     this.tracers = [];
     this.flashes = [];
+    this.decals = [];
   }
 
-  setWorldSize(size) {
-    this.pathfinder.setWorldSize(size);
-  }
+  setWorldSize(size) { this.pathfinder.setWorldSize(size); }
 
   addUnit(unit) {
     unit.pathfinder = this.pathfinder;
@@ -78,7 +90,6 @@ export class UnitManager {
 
     this._resolveCollisions();
 
-    // FIX: чистим мёртвых
     for (let i = this.units.length - 1; i >= 0; i--) {
       if (this.units[i].isDead) this.removeUnit(this.units[i]);
     }
@@ -97,6 +108,13 @@ export class UnitManager {
       this.flashes[i].life -= dt;
       if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
     }
+
+    // FIX: старение декалей
+    for (let i = this.decals.length - 1; i >= 0; i--) {
+      const d = this.decals[i];
+      d.age += dt;
+      if (d.age >= d.ttl) this.decals.splice(i, 1);
+    }
   }
 
   _resolveCollisions() {
@@ -111,7 +129,10 @@ export class UnitManager {
   }
 
   draw(ctx, camera) {
+    // FIX: сначала — кровь (под юнитами), потом препятствия, потом юниты
+    this._drawDecals(ctx, camera);
     this._drawObstacles(ctx, camera);
+
     const sorted = [...this.units].sort((a, b) => a.y - b.y);
     for (const u of sorted) u.draw(ctx, camera);
     for (const b of this.bullets) b.draw(ctx, camera);
@@ -136,7 +157,25 @@ export class UnitManager {
     }
   }
 
-  // FIX: тестовые препятствия — только по флагу
+  // FIX: отрисовка крови (Волна 1)
+  _drawDecals(ctx, camera) {
+    for (const d of this.decals) {
+      const p = camera.worldToScreen(d.x, d.y);
+      const r = d.r * camera.zoom;
+      // Плавное угасание в конце жизни
+      const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3));
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`;
+      ctx.fill();
+      // Второе пятно для неровности
+      ctx.beginPath();
+      ctx.arc(p.x + r * 0.4, p.y + r * 0.2, Math.max(0.5, r * 0.5), 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(90, 5, 5, ${d.alpha * 0.6 * fade})`;
+      ctx.fill();
+    }
+  }
+
   _spawnTestObstacles(mapSize, enabled = true) {
     this.pathfinder.clearObstacles();
     if (!enabled) return;
@@ -182,8 +221,6 @@ export class UnitManager {
     }
     if (!clicked) return;
     if (!this.camera) return;
-
-    // FIX: используем roleId (а не несуществующий type)
     const roleId = clicked.roleId;
     const faction = clicked.faction;
     const selected = [];
@@ -202,7 +239,6 @@ export class UnitManager {
       const spacing = CONFIG.FORMATION.SPACING;
       const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
       const rows = Math.max(1, Math.ceil(count / cols));
-
       this.selectedUnits.forEach((unit, index) => {
         if (unit.isDead) return;
         let ox = 0, oy = 0;
@@ -236,4 +272,4 @@ export class UnitManager {
       u.setStance(stance);
     }
   }
-}
+ }
