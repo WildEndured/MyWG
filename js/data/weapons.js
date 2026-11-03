@@ -11,7 +11,8 @@ export const WEAPONS = {
     magazineCapacity: 30,
     fireModes: ['single', 'auto'],
     spreadBase: 0.3,
-    reloadTime: 2.5
+    reloadTime: 2.5,
+    noiseMultiplier: 1.0 // Стандартный ствол
   },
   pkm: {
     id: 'pkm',
@@ -24,6 +25,7 @@ export const WEAPONS = {
     magazineCapacity: 100,
     fireModes: ['auto'],
     spreadBase: 0.5,
-    reloadTime: 6.0
+    reloadTime: 6.0,
+    noiseMultiplier: 1.2 // Длинный ствол + мощный патрон (громче)
   }
 };
