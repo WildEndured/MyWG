@@ -7,7 +7,7 @@ import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
 import { CONFIG } from './data/config.js';
 import { Debug } from './core/Debug.js';
-import { Renderer } from './core/Renderer.js'; // <-- ДОБАВЛЕН ИМПОРТ РЕНДЕРА
+import { Renderer } from './core/Renderer.js';
 import { validateArmorData } from './data/armor.js';
 import { validateWeapons } from './data/weapons.js';
 import { CALIBERS } from './data/calibers.js';
@@ -50,28 +50,41 @@ let lastTime = performance.now();
 let rafId = 0;
 let gameStarted = false;
 
+// --- ЛОГИКА СТАРТОВОГО ЭКРАНА ---
 function updateStartButton() {
-  btnStart.disabled = !(selection.team !== null && selection.mode !== null);
+  if (btnStart) {
+    btnStart.disabled = !(selection.team !== null && selection.mode !== null);
+  }
 }
+
 function bindOptionGroup(groupId, key) {
   const group = document.getElementById(groupId);
   if (!group) return;
+  
   group.querySelectorAll('.opt-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Убираем выделение со всех кнопок в этой группе
       group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
+      // Выделяем нажатую
       btn.classList.add('selected');
+      // Записываем выбор
       selection[key] = btn.dataset.value;
+      // Проверяем, можно ли активировать кнопку "Начать"
       updateStartButton();
     });
   });
 }
+
+// Привязываем кнопки
 bindOptionGroup('opt-team', 'team');
 bindOptionGroup('opt-mode', 'mode');
 
-btnStart.addEventListener('click', () => {
-  if (btnStart.disabled) return;
-  startBattle(selection.team, selection.mode);
-});
+if (btnStart) {
+  btnStart.addEventListener('click', () => {
+    if (btnStart.disabled) return;
+    startBattle(selection.team, selection.mode);
+  });
+}
 
 function startBattle(teamId, modeId) {
   const team = TEAM_INFO[teamId];
@@ -79,8 +92,8 @@ function startBattle(teamId, modeId) {
   if (!team || !mode) return;
 
   gameStarted = true;
-  startScreen.classList.add('hidden');
-  hud.classList.remove('hidden');
+  if (startScreen) startScreen.classList.add('hidden');
+  if (hud) hud.classList.remove('hidden');
 
   unitManager.playerFaction = team.player ? team.faction : null;
   unitManager.playerTeamId = team.id;
@@ -96,6 +109,7 @@ function startBattle(teamId, modeId) {
   lastTime = performance.now();
 }
 
+// --- РЕСАЙЗ И РАЗМЕР КАРТЫ ---
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = window.innerWidth;
@@ -168,6 +182,7 @@ function spawnInitialUnits(mapSize) {
   }
 }
 
+// --- СОБЫТИЯ ---
 EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => {
   if (!source || !loudness) return;
   for (const unit of unitManager.units) {
@@ -201,6 +216,7 @@ if (fitBtn) fitBtn.addEventListener('click', () => {
   camera.clampTo(map.size, map.size);
 });
 
+// --- ПАНЕЛЬ ПОЗ ---
 const stanceButtons = {
   'btn-stand': 'stand', 'btn-run': 'run', 'btn-crouch': 'crouch', 'btn-prone': 'prone',
 };
@@ -219,6 +235,7 @@ for (const [id, stance] of Object.entries(stanceButtons)) {
 }
 updateStanceUI('stand');
 
+// --- ВРЕМЯ И ПАУЗА ---
 const tacticalBtn = document.getElementById('btn-tactical');
 if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
 
@@ -253,6 +270,7 @@ EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused, isTacticalPause }) => {
   }
 });
 
+// --- DEBUG ---
 const debugBtn = document.getElementById('btn-debug');
 function syncDebugButton() {
   if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled);
@@ -265,6 +283,7 @@ if (debugBtn) {
 }
 EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
+// --- ИГРОВОЙ ЦИКЛ ---
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
@@ -281,14 +300,11 @@ function frame(now) {
     Debug.update(realDt);
 
     const dpr = camera.dpr;
-    // Сбрасываем трансформацию перед рендером
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     
     try {
-      // Вся отрисовка игры теперь в одном месте
       Renderer.draw(ctx, camera, map, unitManager);
       
-      // Отрисовка дебага поверх
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
 
@@ -311,6 +327,7 @@ function frame(now) {
   rafId = requestAnimationFrame(frame);
 }
 
+// --- ОЧИСТКА И СТАРТ ---
 window.addEventListener('beforeunload', () => {
   cancelAnimationFrame(rafId);
   input.destroy();
