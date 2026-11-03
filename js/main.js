@@ -7,6 +7,7 @@ import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
 import { CONFIG } from './data/config.js';
 import { Debug } from './core/Debug.js';
+import { Renderer } from './core/Renderer.js'; // <-- ДОБАВЛЕН ИМПОРТ РЕНДЕРА
 import { validateArmorData } from './data/armor.js';
 import { validateWeapons } from './data/weapons.js';
 import { CALIBERS } from './data/calibers.js';
@@ -280,15 +281,14 @@ function frame(now) {
     Debug.update(realDt);
 
     const dpr = camera.dpr;
-    // ЖЕСТКИЙ СБРОС ТРАНСФОРМАЦИИ ПЕРЕД КАЖДЫМ СЛОЕМ РЕНДЕРА
+    // Сбрасываем трансформацию перед рендером
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     
     try {
-      map.draw(ctx);
+      // Вся отрисовка игры теперь в одном месте
+      Renderer.draw(ctx, camera, map, unitManager);
       
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      unitManager.draw(ctx, camera);
-      
+      // Отрисовка дебага поверх
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
 
