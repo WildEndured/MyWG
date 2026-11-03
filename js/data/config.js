@@ -34,35 +34,74 @@ export const CONFIG = {
     PATHFINDER_PADDING: 0.3,
   },
 
-  FORMATION: {
-    SPACING: 2.5,
-  },
+  FORMATION: { SPACING: 2.5 },
 
   AUDIO: {
     HEARING_BASE: 200,
     FALLOFF_DB_PER_DOUBLE: 6,
   },
 
-  // FIX: баллистика
   BALLISTICS: {
-    GRAVITY: 9.81,               // м/с²
-    DRAG_COEFF: 0.00025,         // коэффициент сопротивления (1/м)
-    MAX_UPDATE_DT: 0.02,         // cap внутри Bullet.update
-    TRACER_EVERY_N: 5,           // каждый N-й патрон — трассер
+    GRAVITY: 9.81,
+    DRAG_COEFF: 0.00025,
+    MAX_UPDATE_DT: 0.02,
+    TRACER_EVERY_N: 5,
   },
 
-  // FIX: подавление
   SUPPRESSION: {
-    RADIUS: 3.5,                 // м — радиус «свиста» пули
-    PER_BULLET: 0.08,            // прирост за пролетевшую рядом пулю
-    DECAY_PER_SEC: 0.35,         // спад в секунду
-    THRESHOLD_PRESSED: 0.4,      // при каком уровне нельзя стрелять стоя
-    THRESHOLD_PANIC: 0.8,        // при каком — падает
+    RADIUS: 3.5,
+    PER_BULLET: 0.08,
+    DECAY_PER_SEC: 0.35,
+    THRESHOLD_PRESSED: 0.4,
+    THRESHOLD_PANIC: 0.8,
+    // FIX: Волна 2 — прижатие
+    AUTO_CROUCH: 0.5,          // автоматически присесть
+    AUTO_PRONE: 0.8,           // автоматически лечь
+    PRESSED_MOVE_MULT: 0.6,    // скорость прижатого
+    STAND_LOCK_TIME: 2.0,      // нельзя встать после паники, сек
+    CLEAR_TIME: 3.0,           // сколько секунд без пуль — снять прижатие
   },
 
-  // FIX: отдача
-  RECOIL: {
-    RECOVERY_PER_SEC: 3.5,       // спад отдачи в секунду
+  RECOIL: { RECOVERY_PER_SEC: 3.5 },
+
+  // FIX: Волна 2 — движение с инерцией
+  MOVEMENT: {
+    ACCEL_BASE: 12.0,          // м/с² — ускорение на «эталонный» вес
+    DECEL_BASE: 18.0,          // м/с² — торможение
+    RUN_ACCEL_MULT: 0.7,       // при беге разгон медленнее
+    STOP_EPS: 0.15,            // порог «остановился»
+    AIM_MOVE_THRESHOLD: 0.5,   // доля maxSpeed, при которой aimTime не растёт
+  },
+
+  // FIX: Волна 2 — переходы поз
+  STANCE: {
+    TRANSITIONS: {
+      'stand->crouch': 0.3,
+      'crouch->stand': 0.4,
+      'crouch->prone': 0.5,
+      'prone->crouch': 0.8,
+      'stand->prone': 1.2,
+      'prone->stand': 1.8,
+    },
+    FIRE_BLOCKED: true,         // нельзя стрелять во время перехода
+    ABORT_ON_DAMAGE: true,      // сбивается при получении урона
+  },
+
+  // FIX: Волна 2 — восприятие
+  PERCEPTION: {
+    CENTRAL_FILL_SEC: 0.2,      // до полного обнаружения в центральном секторе
+    PERIPHERAL_FILL_SEC: 1.5,   // в периферии
+    LOSE_PER_SEC: 0.3,          // забывание вне FOV
+    ENGAGE_THRESHOLD: 0.7,      // при каком seen можно атаковать
+    MEMORY_SEC: 8.0,            // сколько помнит последнюю позицию
+    SCAN_INTERVAL: 0.5,         // пересчёт цели раз в 0.5 с
+  },
+
+  // FIX: Волна 2 — тактическая пауза
+  TACTICAL_PAUSE: {
+    ENABLED: true,
+    ALLOW_ORDERS: true,         // можно отдавать приказы в паузе
+    KEY: ' ',                   // пробел
   },
 
   DEBUG: { ENABLED_BY_DEFAULT: false },
