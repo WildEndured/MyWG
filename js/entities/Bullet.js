@@ -16,13 +16,13 @@ export class Bullet {
     this.dirX = dist > 0 ? dx / dist : 0;
     this.dirY = dist > 0 ? dy / dist : 0;
     
-    this.speed = speed; // м/с (например, 900)
+    this.speed = speed; 
     this.damage = damage;
-    this.owner = owner; // Кто выстрелил (чтобы не убить своих)
+    this.owner = owner; 
     
     this.isDead = false;
     this.life = 0;
-    this.maxLife = 3.0; // Пуля исчезает через 3 секунды
+    this.maxLife = 3.0; 
   }
 
   update(dt, allUnits, obstacles) {
@@ -34,37 +34,41 @@ export class Bullet {
       return;
     }
 
-    // Двигаем пулю
     const step = this.speed * dt;
     const nextX = this.x + this.dirX * step;
     const nextY = this.y + this.dirY * step;
 
-    // 1. Проверка на попадание в стену
+    // Стены
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
           this.isDead = true;
-          EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
           return;
         }
       }
     }
 
-    // 2. Проверка на попадание в юнита
+    // Юниты
     for (const unit of allUnits) {
       if (unit.isDead || unit.faction === this.owner.faction) continue;
 
-      // Проверяем расстояние от пули до центра юнита
       const distToUnit = Math.hypot(unit.x - nextX, unit.y - nextY);
       if (distToUnit <= unit.baseRadius) {
-        // Попали!
         this.isDead = true;
         
-        // Определяем зону попадания
-        const hitZone = this.owner._getRandomHitZone();
-        unit.takeDamage(this.damage, hitZone);
+        // ВЫБОР ЗОНЫ ПРЯМО ЗДЕСЬ, ЧТОБЫ НЕ ВЫЗЫВАТЬ МЕТОД ИЗ UNIT
+        const r = Math.random() * 100;
+        let hitZone = 'torso';
+        if (r < 5) hitZone = 'head';
+        else if (r < 10) hitZone = 'neck';
+        else if (r < 50) hitZone = 'torso';
+        else if (r < 60) hitZone = 'pelvis';
+        else if (r < 70) hitZone = 'leftArm';
+        else if (r < 80) hitZone = 'rightArm';
+        else if (r < 90) hitZone = 'leftLeg';
+        else hitZone = 'rightLeg';
         
-        EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'blood' });
+        unit.takeDamage(this.damage, hitZone);
         return;
       }
     }
@@ -76,15 +80,14 @@ export class Bullet {
   draw(ctx, camera) {
     if (this.isDead) return;
     
-    // Рисуем короткую линию (трассер) от предыдущей позиции до текущей
     const p1 = camera.worldToScreen(this.x, this.y);
-    const p2 = camera.worldToScreen(this.x - this.dirX * 2, this.y - this.dirY * 2); // Хвост в 2 метра
+    const p2 = camera.worldToScreen(this.x - this.dirX * 2, this.y - this.dirY * 2);
 
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y);
     ctx.lineTo(p2.x, p2.y);
-    ctx.strokeStyle = '#FFFF00'; // Желтый
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#FFFF00'; 
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 }
