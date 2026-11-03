@@ -4,12 +4,10 @@ import { Input } from './core/Input.js';
 import { EventBus } from './core/EventBus.js';
 import { TimeManager } from './core/TimeManager.js';
 import { GameMap } from './world/map.js';
-import { FogOfWar } from './world/FogOfWar.js';
 import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
 import { MAP_PRESETS } from './data/config.js';
 import { Debug } from './core/Debug.js';
-import { AUDIO_CONFIG } from './data/vision.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -20,7 +18,6 @@ const map = new GameMap(camera);
 const input = new Input(canvas, camera);
 const unitManager = new UnitManager();
 unitManager.camera = camera; 
-const fogOfWar = new FogOfWar(camera);
 
 let dpr = 1;
 let lastTime = performance.now();
@@ -56,6 +53,7 @@ function spawnInitialUnits(mapSize) {
   const center = mapSize / 2;
   const offset = mapSize * 0.1;
 
+  // Игроки (синие)
   let p1 = unitManager.getSafeSpawnPoint(center - offset, center);
   unitManager.addUnit(new Unit(p1.x, p1.y, 'player', 'infantry'));
 
@@ -65,6 +63,7 @@ function spawnInitialUnits(mapSize) {
   let p3 = unitManager.getSafeSpawnPoint(center - offset * 0.5, center - offset);
   unitManager.addUnit(new Unit(p3.x, p3.y, 'player', 'infantry'));
   
+  // Враги (красные)
   let e1 = unitManager.getSafeSpawnPoint(center + offset, center);
   unitManager.addUnit(new Unit(e1.x, e1.y, 'enemy', 'infantry'));
 
@@ -160,7 +159,6 @@ function frame(now) {
 
   if (dt > 0) {
     unitManager.update(dt);
-    fogOfWar.update(dt, unitManager.units);
   }
 
   Debug.update(realDt);
@@ -168,8 +166,6 @@ function frame(now) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
-  
-  fogOfWar.draw(ctx, camera, unitManager.units);
   
   Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
 
