@@ -1,28 +1,20 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy static content to Pages
+name: Deploy with Cache Bust
 
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
@@ -31,13 +23,48 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Build and Cache Bust
+        run: |
+          # 1. Создаем папку для сборки
+          mkdir -p dist
+          
+          # 2. Копируем все файлы в dist
+          rsync -av --exclude='.git' --exclude='.github' --exclude='dist' ./ dist/
+          
+          # 3. Генерируем уникальный хэш
+          HASH=$(date +%s)
+          echo "Version: $HASH"
+          
+          # 4. Переименовываем все JS файлы, добавляя хэш
+          find dist/js -name "*.js" | while read file; do
+            dir=$(dirname "$file")
+            filename=$(basename "$file" .js)
+            mv "$file" "${dir}/${filename}.${HASH}.js"
+          done
+          
+          # 5. Переименовываем CSS
+          if [ -f dist/style.css ]; then
+            mv dist/style.css dist/style.${HASH}.css
+          fi
+          
+          # 6. Обновляем импорты внутри JS файлов
+          find dist/js -name "*.js" | while read file; do
+            sed -i -E "s|from ['\"](\.{1,2}/[^'\"]+)\.js['\"]|from '\1.${HASH}.js'|g" "$file"
+          done
+          
+          # 7. Обновляем index.html
+          sed -i "s|src=\"js/main.js\"|src=\"js/main.${HASH}.js\"|g" dist/index.html
+          sed -i "s|href=\"style.css\"|href=\"style.${HASH}.css\"|g" dist/index.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          path: './dist'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
