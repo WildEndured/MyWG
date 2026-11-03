@@ -3,40 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#121418">
+  <meta name="color-scheme" content="dark">
   <title>MyWG - War Simulator</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <canvas id="game"></canvas>
+  <canvas id="game" aria-label="Игровое поле"></canvas>
 
-  <!-- Верхняя левая панель: Размеры карты -->
-  <div class="hud-panel hud-top-left">
-    <button class="hud-btn" data-size="100">100</button>
-    <button class="hud-btn" data-size="500">500</button>
-    <button class="hud-btn" data-size="1000">1000</button>
-    <button class="hud-btn" data-size="2000">2000</button>
-    <button class="hud-btn" id="fit">Fit</button>
+  <div class="hud-panel hud-top-left" role="toolbar" aria-label="Размер карты">
+    <button class="hud-btn" data-size="100" title="Карта 100 м">100</button>
+    <button class="hud-btn" data-size="500" title="Карта 500 м">500</button>
+    <button class="hud-btn" data-size="1000" title="Карта 1000 м">1000</button>
+    <button class="hud-btn" data-size="2000" title="Карта 2000 м">2000</button>
+    <button class="hud-btn" id="fit" title="Показать всю карту">Fit</button>
   </div>
 
-  <!-- Верхняя правая панель: Время и Отладка -->
-  <div class="hud-panel hud-top-right">
-    <button class="hud-btn time-btn" id="btn-pause">II</button>
-    <button class="hud-btn time-btn active" id="btn-speed-1">1x</button>
-    <button class="hud-btn time-btn" id="btn-speed-2">2x</button>
-    <button class="hud-btn time-btn" id="btn-speed-4">4x</button>
-    <!-- Кнопка отладки -->
-    <button class="hud-btn time-btn" id="btn-debug" style="border-color: #F4B400;">DBG</button>
+  <div class="hud-panel hud-top-right" role="toolbar" aria-label="Время">
+    <button class="hud-btn time-btn" id="btn-pause" title="Пауза" aria-label="Пауза">II</button>
+    <button class="hud-btn time-btn active" id="btn-speed-1" title="Скорость 1x">1x</button>
+    <button class="hud-btn time-btn" id="btn-speed-2" title="Скорость 2x">2x</button>
+    <button class="hud-btn time-btn" id="btn-speed-4" title="Скорость 4x">4x</button>
+    <button class="hud-btn" id="btn-debug" title="Отладка" style="border-color: #F4B400;">DBG</button>
   </div>
 
-  <!-- Нижняя панель: Позы -->
-  <div class="hud-panel hud-bottom">
+  <div class="hud-panel hud-bottom" role="toolbar" aria-label="Позы">
     <button class="hud-btn stance-btn active" id="btn-stand">Стоя</button>
     <button class="hud-btn stance-btn" id="btn-run">Бег</button>
     <button class="hud-btn stance-btn" id="btn-crouch">Присяд</button>
     <button class="hud-btn stance-btn" id="btn-prone">Лёжа</button>
   </div>
 
-  <!-- Индикатор координат -->
   <div id="coords">X: 0, Y: 0</div>
 
   <script type="module" src="js/main.js"></script>
