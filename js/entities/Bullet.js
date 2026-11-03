@@ -2,7 +2,7 @@
 import { EventBus } from '../core/EventBus.js';
 
 export class Bullet {
-  constructor(x, y, targetX, targetY, speed, damage, owner) {
+  constructor(x, y, targetX, targetY, speed, baseDamage, damageFalloff, maxFalloffDist, owner) {
     this.x = x;
     this.y = y;
     this.startX = x;
@@ -12,15 +12,17 @@ export class Bullet {
     const dy = targetY - y;
     const dist = Math.hypot(dx, dy);
     
-    this.flightDistance = dist; // Запоминаем дистанцию выстрела
+    this.flightDistance = dist; 
     
     this.dirX = dist > 0 ? dx / dist : 0;
     this.dirY = dist > 0 ? dy / dist : 0;
     
     this.speed = speed; 
-    this.baseDamage = damage;
-    this.owner = owner; 
+    this.baseDamage = baseDamage;
+    this.damageFalloff = damageFalloff;
+    this.maxFalloffDist = maxFalloffDist;
     
+    this.owner = owner; 
     this.isDead = false;
     this.life = 0;
     this.maxLife = 3.0; 
@@ -70,9 +72,7 @@ export class Bullet {
         else if (r < 90) hitZone = 'leftLeg';
         else hitZone = 'rightLeg';
         
-        // Считаем итоговый урон
         const finalDamage = this._calculateDamage();
-        
         unit.takeDamage(finalDamage, hitZone);
         EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'blood' });
         return;
@@ -84,15 +84,9 @@ export class Bullet {
   }
 
   _calculateDamage() {
-    // 1. Базовый разброс (от -20% до +20%)
     let dmg = this.baseDamage * (0.8 + Math.random() * 0.4);
-    
-    // 2. Падение энергии с дистанцией
-    // На 0 метров - 0% штрафа, на 1000 метров - 30% штрафа
-    const maxRange = 1000; 
-    const distancePenalty = Math.min(0.3, (this.flightDistance / maxRange) * 0.3);
-    dmg *= (1.0 - distancePenalty);
-    
+    const penaltyPercent = Math.min(this.damageFalloff, (this.flightDistance / this.maxFalloffDist) * this.damageFalloff);
+    dmg *= (1.0 - penaltyPercent);
     return Math.round(dmg);
   }
 
