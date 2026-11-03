@@ -3,7 +3,7 @@ import { Weapon } from './Weapon.js';
 import { WEAPONS } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS } from '../data/health.js';
-import { ARMOR_CONFIGS, ARMOR_MATERIALS } from '../data/armor.js';
+import { ARMOR_CONFIGS, ARMOR_CLASSES } from '../data/armor.js';
 import { Physics } from '../core/Physics.js';
 import { EventBus } from '../core/EventBus.js';
 import { Bullet } from './Bullet.js';
@@ -51,20 +51,20 @@ export class Unit {
     
     for (const armorId of BASE_HUMAN.defaultArmor) {
       const config = ARMOR_CONFIGS[armorId];
-      const material = ARMOR_MATERIALS[config.material];
+      const armorClass = ARMOR_CLASSES[config.class];
       armorWeight += config.weight;
       
       for (const zone of config.covers) {
         this.armor[zone] = {
           name: config.name,
-          level: material.level,
+          level: armorClass.level,
           durability: config.durability,
           maxDurability: config.durability
         };
       }
     }
     
-    // Общий вес (оружие + броня)
+    // Общий вес
     this.totalWeight = this.weapon.weightLoaded + armorWeight;
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     
@@ -119,7 +119,7 @@ export class Unit {
         armorPiece.durability -= amount * 0.8;
       } else {
         finalDamage = amount * 0.1;
-        armorPiece.durability -= amount * 0.2;
+        armorPiece.durability -= amount * 0.1;
       }
 
       if (armorPiece.durability < 0) armorPiece.durability = 0;
