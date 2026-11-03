@@ -9,6 +9,7 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { AudioManager } from '../core/AudioManager.js';
 import { Bullet } from './Bullet.js';
 import { CONFIG } from '../data/config.js';
+import { Brain } from '../core/Brain.js'; // ИМПОРТ МОЗГА
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
@@ -25,11 +26,9 @@ export class Unit {
     }
     this.maxHp = calcMaxTotalHp(this.bodyParts); this.hp = this.maxHp;
 
-    // КРОВЬ И ШОК
     this.maxBlood = 100; this.blood = 100; this.bleedingRate = 0;
     this.shock = 0; this.shockTimer = 0;
 
-    // МЕДИЦИНА
     this.medical = { bandage: 2, tourniquet: 1, isApplying: false, applyTimer: 0, applyTarget: null };
     this.maxStamina = BASE_HUMAN.maxStamina; this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate; this.staminaCooldown = 0;
@@ -42,14 +41,11 @@ export class Unit {
       const config = ARMOR_CONFIGS[armorId]; if (!config) continue;
       const armorClass = ARMOR_CLASSES[config.class]; if (!armorClass) continue;
       armorWeight += config.weight || 0;
-      
       const piece = { name: config.name, level: armorClass.level, durability: config.durability, maxDurability: config.maxDurability ?? config.durability,
         durabilityLossMult: config.durabilityLossMult || 1.0, coveredSubParts: config.coveredSubParts || [], zones: config.zones || null, armorMaterial: config.armorMaterial || 'steel' };
-      
       for (const zone of config.covers) { if (!this.armor[zone] || this.armor[zone].level < piece.level) this.armor[zone] = piece; }
     }
 
-    // ВЕС МЕДИЦИНЫ
     const medWeight = this.medical.bandage * CONFIG.MEDICAL.BANDAGE_WEIGHT + this.medical.tourniquet * CONFIG.MEDICAL.TOURNIQUET_WEIGHT;
     this.totalWeight = (this.weapon.weightLoaded || 3.6) + armorWeight + medWeight;
     
@@ -66,6 +62,9 @@ export class Unit {
     this.pathfinder = null; this.needsRepath = false; this.lastTarget = null; this.lastHeardNoise = null; this.pendingBullets = [];
     this.suppression = 0; this.lastSuppressionTime = 0; this.standLockTimer = 0;
     this.perception = new Map(); this._lastScanTime = 0; this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
+
+    // ИНИЦИАЛИЗАЦИЯ МОЗГА
+    this.brain = new Brain(this);
   }
 
   getTotalHp() { return calcTotalHp(this.bodyParts); }
@@ -87,7 +86,6 @@ export class Unit {
     this.hp = this.getTotalHp(); if (this.hp <= 0) this._die();
   }
 
-  // МЕДИЦИНА
   applyBandage(targetPart, isSelf) {
     if (this.medical.bandage <= 0 || this.isDead) return false;
     this.medical.bandage--;
@@ -154,7 +152,6 @@ export class Unit {
       }
     }
 
-    // ШОК
     if (hitZone === 'torso' || hitZone === 'pelvis') this.shock += finalDamage / 100;
     if (this.shock >= CONFIG.MEDICAL.SHOCK_THRESHOLD) { this.shockTimer = 3.0; this.shock = 0; if (this.stance !== 'prone') this._startStanceTransition('prone'); }
 
@@ -224,19 +221,23 @@ export class Unit {
       const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
       mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
       mem.lastX = other.x; mem.lastY = other.y; mem.lastSeen = now; mem.angle = vis.angle; this.perception.set(other, mem);
+      // Запоминаем для мозга
+      if (this.brain) {
+        this.brain.memory.lastEnemyPos = { x: other.x, y: other.y };
+        this.brain.memory.lastEnemyTime = now;
+      }
     }
   }
 
   _pickEngageTarget() { let best = null, bestSeen = CONFIG.PERCEPTION.ENGAGE_THRESHOLD; for (const [target, mem] of this.perception) { if (target.isDead) continue; if (mem.seen > bestSeen) { const dist = Math.hypot(target.x - this.x, target.y - this.y); if (dist <= this.weapon.effectiveRange) { bestSeen = mem.seen; best = target; } } } return best; }
   canSee(target, obstacles) { const vis = this._visibilityCheck(target, obstacles); if (!vis.visible) return false; const mem = this.perception.get(target); return mem ? mem.seen >= CONFIG.PERCEPTION.ENGAGE_THRESHOLD : false; }
 
-  update(dt, allUnits, currentTime) {
+  update(dt, allUnits, currentTime, worldState) {
     if (this.isDead) return null;
     if (this.suppression > 0) { const timeSince = (performance.now() / 1000) - this.lastSuppressionTime; if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt); }
     if (this.standLockTimer > 0) this.standLockTimer -= dt;
     this._updateStanceTransition(dt);
 
-    // МЕДИЦИНА
     if (this.medical.isApplying) {
       this.medical.applyTimer -= dt;
       if (this.medical.applyTimer <= 0) {
@@ -271,6 +272,12 @@ export class Unit {
 
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
     this._updatePerception(dt, allUnits, obs, currentTime);
+    
+    // МОЗГ ДУМАЕТ
+    if (this.brain && worldState) {
+      this.brain.update(dt, worldState);
+    }
+
     this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
@@ -285,7 +292,6 @@ export class Unit {
     }
     this._updateStamina(dt);
 
-    // ШОК
     if (this.shock > 0) this.shock = Math.max(0, this.shock - CONFIG.MEDICAL.SHOCK_DECAY * dt);
     if (this.shockTimer > 0) { this.shockTimer -= dt; if (this.shockTimer <= 0) this._startStanceTransition('stand'); }
 
@@ -353,7 +359,7 @@ export class Unit {
     const aimBonus = Math.min(this.aimTime / Math.max(0.1, this.maxAimTime), 1.0); spread *= (1.0 - aimBonus * 0.7);
     spread = Math.max(0.01, Math.min(spread, 20)); const hitChance = Math.max(0.1, 1 - (spread / 10));
     
-    AudioManager.playGunshot(this.x, this.y, this.pathfinder?.camera, this.weapon.loudness); // ЗВУК
+    AudioManager.playGunshot(this.x, this.y, this.pathfinder?.camera, this.weapon.loudness);
     EventBus.emit(EVENTS.UNIT_SHOOT, { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y, isMuzzleFlash: true });
     EventBus.emit(EVENTS.WORLD_NOISE, { x: this.x, y: this.y, loudness: this.weapon.loudness, source: this, isGunshot: true });
     this.tinnitus = 1.0;
