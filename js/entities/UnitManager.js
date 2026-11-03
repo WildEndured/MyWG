@@ -71,6 +71,15 @@ export class UnitManager {
     return this.pathfinder.findNearestFreePoint(desiredX, desiredY);
   }
 
+  _spawnTestObstacles(mapSize, enabled = true) {
+    this.pathfinder.clearObstacles();
+    if (!enabled) return;
+    const c = mapSize / 2;
+    this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood');
+    this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete');
+    this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags');
+  }
+
   isPlayerControllable(unit) {
     if (!unit || unit.isDead) return false;
     if (this.playerFaction === null) return false;
