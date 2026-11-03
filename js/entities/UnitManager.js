@@ -17,8 +17,9 @@ export class UnitManager {
     this.captureZone = null;
     this.shells = [];
     this.explosions = [];
-    this.debris = []; // НОВОЕ
-    this.dust = []; // НОВОЕ
+    this.debris = [];
+    this.dust = [];
+    this.grenades = []; // НОВОЕ: Летящие гранаты
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -30,24 +31,15 @@ export class UnitManager {
       EventBus.on(EVENTS.BULLET_IMPACT, (data) => { 
         if (data.type === 'blood') this.decals.push({ x: data.x, y: data.y, r: 0.3 + Math.min(0.6, (data.amount || 10) / 100), alpha: 0.7, ttl: 12.0, age: 0 }); 
       }),
-      // Спавн обломков
       EventBus.on('debris:spawn', (data) => {
         for (let i = 0; i < data.count; i++) {
           const angle = Math.random() * Math.PI * 2;
           const speed = 5 + Math.random() * 10;
-          this.debris.push(new Debris(
-            data.x, data.y,
-            Math.cos(angle) * speed, Math.sin(angle) * speed - 5, // Вверх
-            0.1 + Math.random() * 0.2, // Size
-            0.5 + Math.random() * 1.0, // Mass
-            data.owner, data.material
-          ));
+          this.debris.push(new Debris(data.x, data.y, Math.cos(angle) * speed, Math.sin(angle) * speed - 5, 0.1 + Math.random() * 0.2, 0.5 + Math.random() * 1.0, data.owner, data.material));
         }
       }),
-      // Спавн пыли
-      EventBus.on('dust:spawn', (data) => {
-        this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration));
-      })
+      EventBus.on('dust:spawn', (data) => { this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration)); }),
+      EventBus.on('explosion:created', (data) => { this.explosions.push(data.explosion); }) // Для гранат
     ];
   }
 
@@ -55,7 +47,7 @@ export class UnitManager {
     for (const unsub of this._unsubs) unsub(); 
     this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; 
     this.tracers = []; this.flashes = []; this.decals = []; this.shells = []; 
-    this.explosions = []; this.debris = []; this.dust = []; 
+    this.explosions = []; this.debris = []; this.dust = []; this.grenades = [];
   }
   
   setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
@@ -70,7 +62,7 @@ export class UnitManager {
     this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood'); 
     this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete'); 
     this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); 
-    this.pathfinder.addObstacle(c - 5, c + 10, 10, 1, 'brick'); // Добавим кирпич для теста
+    this.pathfinder.addObstacle(c - 5, c + 10, 10, 1, 'brick');
   }
 
   isPlayerControllable(unit) { if (!unit || unit.isDead) return false; if (this.playerFaction === null) return false; return unit.faction === this.playerFaction; }
@@ -109,6 +101,13 @@ export class UnitManager {
     
     for (let i = this.bullets.length - 1; i >= 0; i--) { const b = this.bullets[i]; b.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (b.isDead) this.bullets.splice(i, 1); }
     
+    // Гранаты
+    for (let i = this.grenades.length - 1; i >= 0; i--) {
+      const g = this.grenades[i];
+      g.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
+      if (g.isDead) this.grenades.splice(i, 1);
+    }
+
     // Взрывы
     for (let i = this.explosions.length - 1; i >= 0; i--) {
       const ex = this.explosions[i];
@@ -173,4 +172,4 @@ export class UnitManager {
 
   selectUnits(units) { const set = Array.isArray(units) ? units : []; for (const u of this.units) u.isSelected = false; this.selectedUnits = set.filter(u => this.isPlayerControllable(u) || this.playerFaction === null); for (const u of this.selectedUnits) u.isSelected = true; EventBus.emit(EVENTS.UNITS_SELECTED, this.selectedUnits); }
   setSelectedStance(stance) { for (const u of this.selectedUnits) { if (u.isDead) continue; u.setStance(stance); } }
-  }
+}
