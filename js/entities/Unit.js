@@ -110,20 +110,19 @@ export class Unit {
     this.lastHeardNoise = null;
     this.pendingBullets = [];
 
-    // FIX: подавление (Волна 1)
-    this.suppression = 0;   // 0..1
-    this.pressedTimer = 0;  // сколько секунд «прижат»
+    // Подавление (Волна 1)
+    this.suppression = 0;
+    this.pressedTimer = 0;
   }
 
   getTotalHp() { return calcTotalHp(this.bodyParts); }
   getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
 
-  // FIX: подавление (Волна 1)
+  // ---------- Подавление (Волна 1) ----------
   applySuppression(amount) {
     if (this.isDead) return;
     this.suppression = Math.min(1, this.suppression + amount);
     if (this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PANIC && this.stance !== 'prone') {
-      // В панике падает
       this.setStance('prone');
     }
   }
@@ -132,10 +131,9 @@ export class Unit {
     return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED;
   }
 
-  // FIX: фрагментация (Волна 1)
+  // ---------- Фрагментация (Волна 1) ----------
   applyFragmentation(amount) {
     if (this.isDead) return;
-    // Распределяем по 2 случайным подчастям торса
     const torso = this.bodyParts.torso;
     if (!torso?.subParts) return;
     for (let i = 0; i < 2; i++) {
@@ -147,7 +145,7 @@ export class Unit {
     if (this.hp <= 0) this._die();
   }
 
-  // FIX: хитбоксы (Волна 1) — raycast по хитбоксам всех частей тела
+  // ---------- Хитбоксы (Волна 1) ----------
   // Возвращает { partId, subPartId, t } или null
   raycastHit(x1, y1, x2, y2) {
     let best = null;
@@ -157,7 +155,6 @@ export class Unit {
       if (!part.hitbox || part.hp <= 0) continue;
 
       const scale = part.stanceScale[this.stance] ?? 1;
-      // локальные координаты -> мир (поворот на angle)
       const cos = Math.cos(this.angle), sin = Math.sin(this.angle);
       const lx = part.hitbox.dx;
       const ly = part.hitbox.dy;
@@ -168,7 +165,6 @@ export class Unit {
       const t = this._rayCircle(x1, y1, x2, y2, cx, cy, r);
       if (t !== null && t < bestT) {
         bestT = t;
-        // Выбираем подчасть по весам, но только если она ещё жива
         let subPartId = null;
         if (part.subParts) {
           const alive = part.subParts.filter(s => s.hp > 0);
@@ -204,6 +200,7 @@ export class Unit {
     return null;
   }
 
+  // ---------- Урон ----------
   takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
     if (this.isDead) return;
     let finalDamage = amount;
@@ -293,7 +290,6 @@ export class Unit {
   setStance(newStance) {
     if (this.isDead || this.stance === newStance) return;
     if (newStance === 'run' && (this.stamina < 10 || this.isLimping || this.isUnconscious)) return;
-    // FIX: подавление мешает встать
     if (newStance === 'stand' && this.isPressed) return;
     this.stance = newStance;
     this.speed = this.speeds[this.stance];
@@ -330,7 +326,6 @@ export class Unit {
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
-    // FIX: спад подавления (Волна 1)
     if (this.suppression > 0) {
       this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt);
     }
@@ -385,7 +380,6 @@ export class Unit {
           this.targetAngle = Math.atan2(dy, dx);
           let sp = this.speed;
           if (this.isLimping) sp *= 0.5;
-          // FIX: подавление замедляет
           if (this.isPressed) sp *= 0.6;
           const stepLen = sp * dt;
           const nx = this.x + (dx / dist) * stepLen;
@@ -445,7 +439,6 @@ export class Unit {
     this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
     this.weapon.updateFireMode(minDist);
 
-    // FIX: подавление блокирует стрельбу стоя (Волна 1)
     if (this.isPressed && this.stance !== 'prone' && this.stance !== 'crouch') return;
 
     if (this.weapon.canFire(currentTime)) {
@@ -470,9 +463,7 @@ export class Unit {
     if (this.target.stance === 'prone') spread *= 1.2;
     else if (this.target.stance === 'crouch') spread *= 1.1;
 
-    // FIX: отдача (Волна 1)
     spread *= this.weapon.getRecoilSpreadMultiplier();
-    // FIX: подавление (Волна 1)
     spread *= (1 + this.suppression * 1.5);
 
     const aimBonus = Math.min(this.aimTime / this.maxAimTime, 1.0);
@@ -501,7 +492,6 @@ export class Unit {
       ty = this.y + Math.sin(ang) * missDist;
     }
 
-    // FIX: трассер каждый N-й патрон (Волна 1)
     const isTracer = (this.weapon.shotsFired % CONFIG.BALLISTICS.TRACER_EVERY_N) === 0;
 
     return new Bullet(
@@ -553,12 +543,35 @@ export class Unit {
     ctx.rotate(this.angle);
 
     if (this.stance === 'prone' || this.isUnconscious) {
-      const w = 0.8 * camera.zoom, h = 1.6 * camera.zoom;
+      // FIX: лежачий вытянут ВДОЛЬ взгляда (angle), а не поперёк
+      // Ось X локально = вперёд (длина тела), ось Y = вбок (ширина плеч)
+      const bodyLength = 1.6 * camera.zoom; // вдоль angle
+      const bodyWidth  = 0.5 * camera.zoom; // поперёк angle
+
+      // Центр смещён вперёд — голова впереди, ноги сзади
+      const offsetForward = 0.2 * camera.zoom;
+
       ctx.beginPath();
-      ctx.ellipse(0, 0, Math.max(3, w / 2), Math.max(2, h / 2), 0, 0, Math.PI * 2);
+      ctx.ellipse(
+        offsetForward, 0,
+        Math.max(3, bodyLength / 2), // rx — вдоль angle
+        Math.max(2, bodyWidth / 2),  // ry — поперёк angle
+        0, 0, Math.PI * 2
+      );
       ctx.fillStyle = color;
       ctx.fill();
       ctx.lineWidth = 1;
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+
+      // Голова (маленький круг впереди) — визуальный ориентир
+      const headScale = this.bodyParts.head?.stanceScale?.prone ?? 0.7;
+      const headR = Math.max(2, (this.bodyParts.head?.hitbox?.r ?? 0.14) * headScale * camera.zoom);
+      const headX = offsetForward + Math.max(3, bodyLength / 2) * 0.7;
+      ctx.beginPath();
+      ctx.arc(headX, 0, headR, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
       ctx.strokeStyle = '#000';
       ctx.stroke();
     } else {
@@ -579,7 +592,7 @@ export class Unit {
     }
     ctx.restore();
 
-    // FIX: индикатор подавления (Волна 1)
+    // Индикатор подавления
     if (this.suppression > 0.1 && !this.isDead) {
       const p = screenPos;
       ctx.beginPath();
@@ -592,7 +605,8 @@ export class Unit {
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
       const ringR = (this.stance === 'prone' || this.isUnconscious)
-        ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
+        ? Math.max(3, 0.8 * camera.zoom) // кольцо вокруг центра, не вокруг вытянутого эллипса
+        : Math.max(3, this.baseRadius * camera.zoom);
       ctx.arc(screenPos.x, screenPos.y, ringR + 4, 0, Math.PI * 2);
       ctx.strokeStyle = '#F4B400';
       ctx.lineWidth = 2;
@@ -660,4 +674,4 @@ export class Unit {
       }
     }
   }
-  }
+}
