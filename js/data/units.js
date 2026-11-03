@@ -1,5 +1,4 @@
 export const BASE_HUMAN = {
-  maxHp: 100,
   baseRadius: 0.5,
   hitRadius: 2.0,
   maxStamina: 100,
