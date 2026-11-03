@@ -20,7 +20,6 @@ export class Unit {
     this.isDead = false;
     this.isUnconscious = false;
     
-    // Здоровье
     this.bodyParts = {};
     for (const [partId, partData] of Object.entries(BODY_PARTS)) {
       this.bodyParts[partId] = {
@@ -35,18 +34,15 @@ export class Unit {
     this.maxHp = this.getMaxTotalHp();
     this.hp = this.getTotalHp();
 
-    // Кровь
     this.maxBlood = 100;
     this.blood = 100; 
     this.bleedingRate = 0;
 
-    // Стамина
     this.maxStamina = BASE_HUMAN.maxStamina;
     this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
     this.staminaCooldown = 0;
     
-    // Роль и Оружие
     const role = ROLES[roleId] || ROLES['infantry'];
     this.roleId = role.id;
     this.name = role.name;
@@ -54,7 +50,6 @@ export class Unit {
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
     
-    // Броня
     this.armor = {};
     let armorWeight = 0;
     for (const armorId of BASE_HUMAN.defaultArmor) {
@@ -73,7 +68,6 @@ export class Unit {
       }
     }
     
-    // Вес и Скорость
     this.totalWeight = this.weapon.weightLoaded + armorWeight;
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
@@ -81,7 +75,6 @@ export class Unit {
     this.stance = 'stand'; 
     this.speed = this.speeds[this.stance];
     
-    // Зрение и Слух
     this.fovAngle = VISION_CONFIG.fovAngle * (Math.PI / 180);
     this.detectRange = VISION_CONFIG.detectRange;
     this.identifyRange = VISION_CONFIG.identifyRange;
@@ -90,7 +83,6 @@ export class Unit {
     this.hearingMultiplier = 1.0;
     this.lastNoiseTime = 0;
 
-    // Состояния
     this.isArmed = true; 
     this.isLimping = false;
     this.aimTime = 0; 
@@ -128,27 +120,21 @@ export class Unit {
     let finalDamage = amount;
     const armorPiece = this.armor[hitZone];
     
-    // Логика брони (динамическая защита + заброневое действие)
     if (armorPiece && armorPiece.durability > 0) {
       const lossMult = armorPiece.durabilityLossMult || 1.0;
 
       if (penetrationLevel > armorPiece.level) {
-        // Полное пробитие
         armorPiece.durability -= amount * 0.5 * lossMult;
       } else if (penetrationLevel === armorPiece.level) {
-        // Пробитие с потерей энергии
         finalDamage = amount * 0.7;
         armorPiece.durability -= amount * 0.8 * lossMult;
       } else {
-        // НЕ ПРОБИЛИ (Заброневое действие)
-        finalDamage = amount * 0.1; // Контузия
+        finalDamage = amount * 0.1; 
         armorPiece.durability -= amount * 0.1 * lossMult;
         
-        // Теряем стамину от удара
         this.stamina -= amount * 0.5;
         if (this.stamina < 0) this.stamina = 0;
         
-        // Шанс сломать ребро при попадании в грудь
         if (hitZone === 'chest' && Math.random() < 0.1) {
           const chest = this.bodyParts.torso.subParts.find(p => p.id === 'chest');
           if (chest) chest.hp -= 5;
@@ -158,7 +144,6 @@ export class Unit {
       if (armorPiece.durability < 0) armorPiece.durability = 0;
     }
 
-    // Применение урона к органам
     let isSubPartHit = false;
     const part = this.bodyParts[hitZone];
     if (!part) return;
@@ -194,7 +179,6 @@ export class Unit {
       if (part.fatal) { this._die(); return; }
     }
 
-    // Активация кровотечения
     if (finalDamage > 5 && localBleed > 0) {
       this.bleedingRate = Math.max(this.bleedingRate, localBleed);
     }
@@ -250,7 +234,6 @@ export class Unit {
     this.path = path; this.pathIndex = 0; this.isMoving = true; this.needsRepath = false;
   }
 
-  // Периферийное зрение
   canSee(target, obstacles) {
     const dx = target.x - this.x;
     const dy = target.y - this.y;
@@ -266,12 +249,10 @@ export class Unit {
     const absAngle = Math.abs(angleDiff);
     const centralAngleRad = (VISION_CONFIG.centralAngle * Math.PI / 180) / 2;
 
-    // 1. Центральное зрение
     if (absAngle <= centralAngleRad) {
       return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
     }
 
-    // 2. Периферийное зрение (видим только очень близко)
     if (absAngle <= this.fovAngle / 2) {
       if (dist > VISION_CONFIG.peripheralRange) return false;
       return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
@@ -283,7 +264,6 @@ export class Unit {
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
-    // Обновление крови
     if (this.bleedingRate > 0 && this.blood > 0) {
       this.blood -= this.bleedingRate * dt;
       
@@ -309,7 +289,6 @@ export class Unit {
       return null;
     }
 
-    // Слух
     if (this.tinnitus > 0) {
       this.tinnitus -= dt;
       if (this.tinnitus < 0) this.tinnitus = 0;
@@ -330,7 +309,6 @@ export class Unit {
     const bullet = this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
-    // Прицеливание
     if (this.isMoving) {
       this.aimTime = 0; 
     } else if (this.target) {
@@ -339,7 +317,6 @@ export class Unit {
       this.aimTime = 0;
     }
 
-    // Движение
     if (!this.target && !this.weapon.isReloading && this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) {
         this.isMoving = false; this.path = [];
@@ -373,7 +350,6 @@ export class Unit {
       }
     }
 
-    // Шум от движения
     if (this.isMoving) {
       let noiseLevel = AUDIO_CONFIG.stepNoise[this.stance] || 0.5;
       noiseLevel += this.totalWeight * AUDIO_CONFIG.weightNoiseMultiplier;
@@ -419,8 +395,7 @@ export class Unit {
       this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
       this.weapon.updateFireMode(minDist);
       
-      // Если оружие перегрето, стрелять не можем
-      if (this.weapon.isJammed) {
+      if (this.weapon.isJammed || this.weapon.isMisfired) {
          return null;
       }
 
@@ -456,7 +431,12 @@ export class Unit {
 
       const hitChance = Math.max(0.1, 1 - (spread / 10));
 
-      EventBus.emit('unit:shoot', { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y });
+      // ВСПЫШКА ВЫСТРЕЛА
+      EventBus.emit('unit:shoot', { 
+        x1: this.x, y1: this.y, 
+        x2: this.target.x, y2: this.target.y,
+        isMuzzleFlash: true 
+      });
       
       EventBus.emit('world:noise', {
         x: this.x, y: this.y,
@@ -617,7 +597,6 @@ export class Unit {
           currentY -= (barH + 2);
         }
 
-        // ПОЛОСКА ПЕРЕГРЕВА
         if (isOverheated) {
           ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
           ctx.fillStyle = this.weapon.isJammed ? '#FF0000' : '#FF8C00';
