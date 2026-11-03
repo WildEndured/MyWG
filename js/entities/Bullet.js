@@ -37,23 +37,27 @@ export class Bullet {
     const nextX = this.x + this.dirX * step;
     const nextY = this.y + this.dirY * step;
 
-    // Стены
+    // Стены (проверка точки)
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
           this.isDead = true;
-          EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
           return;
         }
       }
     }
 
-    // Юниты
+    // Юниты (ПРОВЕРКА ЛИНИИ)
     for (const unit of allUnits) {
       if (unit.isDead || unit.faction === this.owner.faction) continue;
 
-      const distToUnit = Math.hypot(unit.x - nextX, unit.y - nextY);
-      if (distToUnit <= unit.baseRadius) {
+      // Проверяем, пересекает ли отрезок (this.x, this.y) -> (nextX, nextY) круг юнита
+      const hit = this._lineIntersectsCircle(
+        this.x, this.y, nextX, nextY, 
+        unit.x, unit.y, unit.baseRadius
+      );
+
+      if (hit) {
         this.isDead = true;
         
         const r = Math.random() * 100;
@@ -77,17 +81,35 @@ export class Bullet {
     this.y = nextY;
   }
 
+  // Математика: пересекает ли отрезок окружность
+  _lineIntersectsCircle(x1, y1, x2, y2, cx, cy, r) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const fx = x1 - cx;
+    const fy = y1 - cy;
+
+    const a = dx * dx + dy * dy;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - r * r;
+
+    let discriminant = b * b - 4 * a * c;
+    if (discriminant < 0) return false;
+
+    discriminant = Math.sqrt(discriminant);
+    const t1 = (-b - discriminant) / (2 * a);
+    const t2 = (-b + discriminant) / (2 * a);
+
+    return (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1);
+  }
+
   draw(ctx, camera) {
     if (this.isDead) return;
     
-    const p1 = camera.worldToScreen(this.x, this.y);
-    const p2 = camera.worldToScreen(this.x - this.dirX * 2, this.y - this.dirY * 2);
-
+    // Рисуем пулю как точку (так как она летит очень быстро)
+    const p = camera.worldToScreen(this.x, this.y);
     ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
-    ctx.strokeStyle = '#FFFF00'; 
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#FFFF00'; 
+    ctx.fill();
   }
-}
+      }
