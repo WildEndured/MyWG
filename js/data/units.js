@@ -1,44 +1,33 @@
 // js/data/units.js
 
-export const UNIT_TYPES = {
+export const BASE_HUMAN = {
+  maxHp: 100,
+  baseRadius: 0.5,
+  hitRadius: 2.0,
+  maxStamina: 100,
+  
+  // Скорости человека БЕЗ оружия (м/с)
+  nakedSpeeds: {
+    run: 5.0,     
+    stand: 1.6,   
+    crouch: 0.9,  
+    prone: 0.4    
+  },
+  
+  baseRecoveryRate: 12,
+};
+
+export const ROLES = {
   infantry: {
     id: 'infantry',
-    name: 'Пехотинец',
-    maxHp: 100,
-    baseRadius: 0.5,
-    hitRadius: 2.0,
+    name: 'Пехотинец (Стрелок)',
     defaultWeapon: 'ak74',
-    
-    // Скорости по позам (м/с)
-    speeds: {
-      run: 4.5,
-      stand: 1.4,
-      crouch: 0.8,
-      prone: 0.4
-    },
-    
-    // Выносливость
-    maxStamina: 100,
-    speedEndurance: 1.0,
-    recoveryRate: 10
+    // Теперь здесь ТОЛЬКО оружие. Вес берем из WEAPONS.
   },
 
-  // Задел на будущее (тяжелый пехотинец)
-  heavy: {
-    id: 'heavy',
+  machinegunner: {
+    id: 'machinegunner',
     name: 'Пулеметчик',
-    maxHp: 120,
-    baseRadius: 0.6,
-    hitRadius: 2.2,
     defaultWeapon: 'pkm',
-    speeds: {
-      run: 3.5,
-      stand: 1.1,
-      crouch: 0.6,
-      prone: 0.3
-    },
-    maxStamina: 150,
-    speedEndurance: 1.2,
-    recoveryRate: 8
   }
 };
