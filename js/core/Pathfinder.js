@@ -11,11 +11,42 @@ export class Pathfinder {
     this.obstacles = [];
   }
 
-  setWorldSize(worldSize) { this.worldSize = worldSize; this.cols = Math.max(1, Math.ceil(worldSize / this.cellSize)); this.rows = this.cols; this.grid = new Uint8Array(this.cols * this.rows); this.obstacles = []; }
+  setWorldSize(worldSize) {
+    this.worldSize = worldSize;
+    this.cols = Math.max(1, Math.ceil(worldSize / this.cellSize));
+    this.rows = this.cols;
+    this.grid = new Uint8Array(this.cols * this.rows);
+    this.obstacles = [];
+  }
 
   addObstacle(x, y, w, h, materialId = 'concrete') {
     const matData = MATERIALS[materialId] || MATERIALS.concrete;
-    const obs = { x, y, w, h, materialId, matData, hp: 1000, maxHp: 1000 }; // НОВОЕ: HP стены
+    
+    // ЛОКАЛЬНОЕ РАЗРУШЕНИЕ: Разбиваем на сегменты 1x1 м
+    const segments = [];
+    const segSize = 1.0;
+    for (let sy = 0; sy < h; sy += segSize) {
+      for (let sx = 0; sx < w; sx += segSize) {
+        const sw = Math.min(segSize, w - sx);
+        const sh = Math.min(segSize, h - sy);
+        segments.push({
+          x: x + sx, y: y + sy, w: sw, h: sh,
+          hp: 100, maxHp: 100,
+          state: 'intact', // intact, damaged, breached, rubble
+        });
+      }
+    }
+
+    const obs = {
+      x, y, w, h,
+      materialId,
+      matData,
+      segments,
+      state: 'intact',
+      height: matData.height || 2.0,
+      maxHeight: matData.height || 2.0,
+    };
+
     this.obstacles.push(obs);
     this._updateGrid();
   }
@@ -24,28 +55,73 @@ export class Pathfinder {
     const idx = this.obstacles.indexOf(obs);
     if (idx >= 0) {
       this.obstacles.splice(idx, 1);
-      this._updateGrid(); // Перестраиваем сетку
+      this._updateGrid();
     }
+  }
+
+  // Повреждение конкретного сегмента
+  damageSegment(obs, segX, segY, damage) {
+    const seg = obs.segments.find(s => 
+      segX >= s.x && segX <= s.x + s.w && 
+      segY >= s.y && segY <= s.y + s.h
+    );
+    if (!seg) return;
+
+    seg.hp -= damage;
+    if (seg.hp <= 0) seg.hp = 0;
+
+    // Обновляем состояние сегмента
+    const ratio = seg.hp / seg.maxHp;
+    if (ratio > 0.66) seg.state = 'intact';
+    else if (ratio > 0.33) seg.state = 'damaged';
+    else if (ratio > 0) seg.state = 'breached';
+    else seg.state = 'rubble';
+
+    // Обновляем общее состояние стены (по худшему сегменту)
+    const worst = obs.segments.reduce((min, s) => s.hp < min.hp ? s : min, obs.segments[0]);
+    obs.state = worst.state;
+
+    // ОСЫПАНИЕ ПЕСКА: уменьшаем высоту
+    if (obs.matData.destructionType === 'collapse') {
+      const avgHp = obs.segments.reduce((sum, s) => sum + s.hp, 0) / obs.segments.length / 100;
+      obs.height = obs.maxHeight * avgHp;
+    }
+
+    this._updateGrid();
   }
 
   _updateGrid() {
     this.grid.fill(0);
     const padding = CONFIG.PHYSICS.PATHFINDER_PADDING;
     for (const obs of this.obstacles) {
-      const start = this.worldToGrid(obs.x - padding, obs.y - padding);
-      const end = this.worldToGrid(obs.x + obs.w + padding, obs.y + obs.h + padding);
-      for (let gy = start.y; gy <= end.y; gy++) {
-        for (let gx = start.x; gx <= end.x; gx++) {
-          if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) this.grid[gy * this.cols + gx] = 1;
+      for (const seg of obs.segments) {
+        if (seg.state === 'rubble') continue; // Руины проходимы
+        const start = this.worldToGrid(seg.x - padding, seg.y - padding);
+        const end = this.worldToGrid(seg.x + seg.w + padding, seg.y + seg.h + padding);
+        for (let gy = start.y; gy <= end.y; gy++) {
+          for (let gx = start.x; gx <= end.x; gx++) {
+            if (gx >= 0 && gx < this.cols && gy >= 0 && gy < this.rows) {
+              this.grid[gy * this.cols + gx] = 1;
+            }
+          }
         }
       }
     }
   }
 
   clearObstacles() { this.grid.fill(0); this.obstacles = []; }
-  worldToGrid(x, y) { return { x: Math.max(0, Math.min(this.cols - 1, Math.floor(x / this.cellSize))), y: Math.max(0, Math.min(this.rows - 1, Math.floor(y / this.cellSize))) }; }
-  gridToWorld(gx, gy) { return { x: gx * this.cellSize + this.cellSize / 2, y: gy * this.cellSize + this.cellSize / 2 }; }
-  
+
+  worldToGrid(x, y) {
+    return { 
+      x: Math.max(0, Math.min(this.cols - 1, Math.floor(x / this.cellSize))), 
+      y: Math.max(0, Math.min(this.rows - 1, Math.floor(y / this.cellSize))) 
+    };
+  }
+
+  gridToWorld(gx, gy) {
+    return { x: gx * this.cellSize + this.cellSize / 2, y: gy * this.cellSize + this.cellSize / 2 };
+  }
+
   findNearestFreePoint(x, y) {
     const g = this.worldToGrid(x, y);
     if (this.grid[g.y * this.cols + g.x] === 0) return { x, y };
