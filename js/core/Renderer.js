@@ -6,12 +6,10 @@ export class Renderer {
     
     Renderer.drawMap(ctx, camera, map);
     Renderer.drawDecals(ctx, camera, unitManager.decals);
-    Renderer.drawShells(ctx, camera, unitManager.shells); // Гильзы
+    Renderer.drawShells(ctx, camera, unitManager.shells);
     Renderer.drawObstacles(ctx, camera, unitManager.pathfinder.obstacles);
     
-    if (unitManager.captureZone) {
-      Renderer.drawZone(ctx, camera, unitManager.captureZone);
-    }
+    if (unitManager.captureZone) Renderer.drawZone(ctx, camera, unitManager.captureZone);
 
     Renderer.drawPaths(ctx, camera, unitManager.selectedUnits);
 
@@ -20,22 +18,18 @@ export class Renderer {
 
     Renderer.drawBullets(ctx, camera, unitManager.bullets);
     Renderer.drawEffects(ctx, camera, unitManager.tracers, unitManager.flashes);
+    Renderer.drawExplosions(ctx, camera, unitManager.explosions);
   }
 
   static drawZone(ctx, camera, zone) {
     const p = camera.worldToScreen(zone.x, zone.y);
     const r = zone.radius * camera.zoom;
-    
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = zone.owner === 'player' ? 'rgba(66, 133, 244, 0.15)' : 'rgba(234, 67, 53, 0.15)';
-    ctx.fill();
-    
+    ctx.fillStyle = zone.owner === 'player' ? 'rgba(66, 133, 244, 0.15)' : 'rgba(234, 67, 53, 0.15)'; ctx.fill();
     ctx.strokeStyle = zone.owner === 'player' ? 'rgba(66, 133, 244, 0.8)' : 'rgba(234, 67, 53, 0.8)';
     ctx.lineWidth = 2; ctx.setLineDash([10, 5]); ctx.stroke(); ctx.setLineDash([]);
-
     if (zone.captureProgress > 0) {
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r + 4, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2) * (zone.captureProgress / 100));
+      ctx.beginPath(); ctx.arc(p.x, p.y, r + 4, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2) * (zone.captureProgress / 100));
       ctx.strokeStyle = '#F4B400'; ctx.lineWidth = 4; ctx.stroke();
     }
   }
@@ -67,13 +61,12 @@ export class Renderer {
     for (const d of decals) { if (!camera.isPointVisible(d.x, d.y, 50)) continue; const p = camera.worldToScreen(d.x, d.y); const r = d.r * camera.zoom; const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3)); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2); ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`; ctx.fill(); }
   }
 
-  // НОВОЕ: Отрисовка гильз
   static drawShells(ctx, camera, shells) {
     if (!shells) return;
     for (const s of shells) {
       if (!camera.isPointVisible(s.x, s.y, 20)) continue;
       const p = camera.worldToScreen(s.x, s.y);
-      ctx.fillStyle = '#C2B280'; // Латунь
+      ctx.fillStyle = '#C2B280';
       ctx.fillRect(p.x, p.y, Math.max(1, 2 * camera.zoom / 8), Math.max(1, 1 * camera.zoom / 8));
     }
   }
@@ -103,7 +96,6 @@ export class Renderer {
 
     ctx.save(); ctx.translate(screenPos.x, screenPos.y); ctx.rotate(unit.angle);
     
-    // Если сдался — рисуем белый флаг/круг
     if (unit.isSurrendered) {
       ctx.beginPath(); ctx.arc(0, 0, Math.max(3, unit.baseRadius * camera.zoom), 0, Math.PI * 2); 
       ctx.fillStyle = '#FFF'; ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.stroke();
@@ -147,5 +139,21 @@ export class Renderer {
     ctx.lineWidth = 1.5;
     for (const t of tracers) { const p1 = camera.worldToScreen(t.x1, t.y1); const p2 = camera.worldToScreen(t.x2, t.y2); ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.strokeStyle = `rgba(255, 255, 0, ${Math.max(0, t.life * 20)})`; ctx.stroke(); }
     for (const f of flashes) { const p = camera.worldToScreen(f.x, f.y); const radius = (1.0 - f.life / 0.05) * 20; ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fillStyle = `rgba(255, 200, 0, ${Math.max(0, f.life / 0.05)})`; ctx.fill(); }
+  }
+
+  static drawExplosions(ctx, camera, explosions) {
+    if (!explosions) return;
+    for (const ex of explosions) {
+      if (!camera.isPointVisible(ex.x, ex.y, ex.radius * 2)) continue;
+      const p = camera.worldToScreen(ex.x, ex.y);
+      const r = (ex.radius * camera.zoom) * (ex.life / ex.maxLife);
+      const alpha = 1 - (ex.life / ex.maxLife);
+      
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 150, 0, ${alpha * 0.6})`; ctx.fill();
+      
+      ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 0, ${alpha * 0.8})`; ctx.fill();
+    }
   }
 }
