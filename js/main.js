@@ -7,6 +7,7 @@ import { GameMap } from './world/map.js';
 import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
 import { MAP_PRESETS } from './data/config.js';
+import { Debug } from './core/Debug.js'; // <-- ИМПОРТ
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
@@ -47,16 +48,15 @@ function setMapSize(meters) {
 function spawnInitialUnits(mapSize) {
   unitManager.units = [];
   unitManager.selectedUnits = [];
+  unitManager.bullets = [];
 
   const center = mapSize / 2;
   const offset = mapSize * 0.1;
 
-  // Игроки (синие)
   unitManager.addUnit(new Unit(center - offset, center, 'player', 'infantry'));
   unitManager.addUnit(new Unit(center - offset, center + offset * 0.5, 'player', 'machinegunner'));
   unitManager.addUnit(new Unit(center - offset * 0.5, center - offset, 'player', 'infantry'));
   
-  // Враги (красные)
   unitManager.addUnit(new Unit(center + offset, center, 'enemy', 'infantry'));
   unitManager.addUnit(new Unit(center + offset, center + offset, 'enemy', 'machinegunner'));
 
@@ -125,6 +125,15 @@ EventBus.on('time:changed', ({ scale, isPaused }) => {
   }
 });
 
+// --- КНОПКА ОТЛАДКИ ---
+const debugBtn = document.getElementById('btn-debug');
+if (debugBtn) {
+  debugBtn.addEventListener('click', () => {
+    Debug.isEnabled = !Debug.isEnabled;
+    debugBtn.classList.toggle('active', Debug.isEnabled);
+  });
+}
+
 // --- ГЛАВНЫЙ ЦИКЛ ---
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
@@ -136,9 +145,14 @@ function frame(now) {
     unitManager.update(dt);
   }
 
+  Debug.update(realDt); // <-- Обновляем FPS
+
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   map.draw(ctx);
   unitManager.draw(ctx, camera);
+  
+  // Рисуем отладку поверх всего
+  Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
 
   requestAnimationFrame(frame);
 }
