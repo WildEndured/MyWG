@@ -11,14 +11,15 @@ import { CONFIG } from '../data/config.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
-    this.x = x; this.y = y;
+    this.x = Number.isFinite(x) ? x : 50;
+    this.y = Number.isFinite(y) ? y : 50;
     this.faction = faction;
 
     this.vx = 0; this.vy = 0;
     this.maxSpeed = 0;
 
-    this.baseRadius = BASE_HUMAN.baseRadius;
-    this.hitRadius = BASE_HUMAN.hitRadius;
+    this.baseRadius = BASE_HUMAN.baseRadius || 0.5;
+    this.hitRadius = BASE_HUMAN.hitRadius || 2.0;
     this.isDead = false;
     this.isUnconscious = false;
 
@@ -37,16 +38,16 @@ export class Unit {
       };
     }
 
-    this.maxHp = calcMaxTotalHp(this.bodyParts);
+    this.maxHp = calcMaxTotalHp(this.bodyParts) || 100;
     this.hp = this.maxHp;
 
     this.maxBlood = 100;
     this.blood = 100;
     this.bleedingRate = 0;
 
-    this.maxStamina = BASE_HUMAN.maxStamina;
+    this.maxStamina = BASE_HUMAN.maxStamina || 100;
     this.stamina = this.maxStamina;
-    this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
+    this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate || 12;
     this.staminaCooldown = 0;
 
     const role = ROLES[roleId] || ROLES['infantry'];
@@ -55,7 +56,7 @@ export class Unit {
 
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
-    this.maxAimTime = this.weapon.maxAimTime;
+    this.maxAimTime = this.weapon.maxAimTime || 2.0;
 
     this.armor = {};
     let armorWeight = 0;
@@ -63,7 +64,8 @@ export class Unit {
       const config = ARMOR_CONFIGS[armorId];
       if (!config) continue;
       const armorClass = ARMOR_CLASSES[config.class];
-      armorWeight += config.weight;
+      if (!armorClass) continue;
+      armorWeight += config.weight || 0;
       const piece = {
         name: config.name,
         level: armorClass.level,
@@ -79,9 +81,16 @@ export class Unit {
       }
     }
 
-    this.totalWeight = this.weapon.weightLoaded + armorWeight;
+    this.totalWeight = (this.weapon.weightLoaded || 3.6) + armorWeight;
+    if (!Number.isFinite(this.totalWeight) || this.totalWeight <= 0) this.totalWeight = 10;
+
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
+
+    if (!Number.isFinite(this.speeds.stand)) this.speeds.stand = 1.6;
+    if (!Number.isFinite(this.speeds.run)) this.speeds.run = 5.0;
+    if (!Number.isFinite(this.speeds.crouch)) this.speeds.crouch = 0.9;
+    if (!Number.isFinite(this.speeds.prone)) this.speeds.prone = 0.4;
 
     this.accel = CONFIG.MOVEMENT.ACCEL_BASE / this.staminaPenalty;
     this.decel = CONFIG.MOVEMENT.DECEL_BASE / this.staminaPenalty;
@@ -135,7 +144,6 @@ export class Unit {
     if (this.isDead) return;
     this.suppression = Math.min(1, this.suppression + amount);
     this.lastSuppressionTime = performance.now() / 1000;
-
     if (this.stanceTransition) return;
     if (this.suppression >= CONFIG.SUPPRESSION.AUTO_PRONE && this.stance !== 'prone') {
       this._startStanceTransition('prone');
@@ -145,9 +153,7 @@ export class Unit {
     }
   }
 
-  get isPressed() {
-    return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED;
-  }
+  get isPressed() { return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED; }
 
   applyFragmentation(amount) {
     if (this.isDead) return;
@@ -214,10 +220,7 @@ export class Unit {
 
   takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
     if (this.isDead) return;
-
-    if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) {
-      this.stanceTransition = null;
-    }
+    if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
 
     let finalDamage = amount;
     const part = this.bodyParts[hitZone];
@@ -261,10 +264,7 @@ export class Unit {
       if (part.fatal) { this._die(); return; }
     }
 
-    if (finalDamage > 5 && localBleed > 0) {
-      this.bleedingRate = Math.max(this.bleedingRate, localBleed);
-    }
-
+    if (finalDamage > 5 && localBleed > 0) this.bleedingRate = Math.max(this.bleedingRate, localBleed);
     if (hitZone === 'leftLeg' || hitZone === 'rightLeg') this.isLimping = true;
     if (hitZone === 'leftArm' || hitZone === 'rightArm') {
       this.isArmed = false;
@@ -297,10 +297,10 @@ export class Unit {
     let mult = 1.0;
     if (weight > referenceWeight) mult = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
     return {
-      run: baseSpeeds.run * mult,
-      stand: baseSpeeds.stand * mult,
-      crouch: baseSpeeds.crouch * mult,
-      prone: baseSpeeds.prone * mult,
+      run: (baseSpeeds.run || 5) * mult,
+      stand: (baseSpeeds.stand || 1.6) * mult,
+      crouch: (baseSpeeds.crouch || 0.9) * mult,
+      prone: (baseSpeeds.prone || 0.4) * mult,
     };
   }
 
@@ -354,22 +354,17 @@ export class Unit {
     const dx = other.x - this.x, dy = other.y - this.y;
     const dist = Math.hypot(dx, dy);
     if (dist > this.detectRange) return { visible: false, dist, angle: 0, central: false };
-
     const angleToTarget = Math.atan2(dy, dx);
     let angleDiff = angleToTarget - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     const absAngle = Math.abs(angleDiff);
-
     const centralHalf = (VISION_CONFIG.centralAngle * Math.PI / 180) / 2;
     const fovHalf = this.fovAngle / 2;
-
     if (absAngle > fovHalf) return { visible: false, dist, angle: absAngle, central: false };
-
     let rangeLimit = this.detectRange;
     if (absAngle > centralHalf) rangeLimit = VISION_CONFIG.peripheralRange;
     if (dist > rangeLimit) return { visible: false, dist, angle: absAngle, central: false };
-
     if (!Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obstacles)) {
       return { visible: false, dist, angle: absAngle, central: absAngle <= centralHalf };
     }
@@ -380,31 +375,19 @@ export class Unit {
     for (const [target, mem] of this.perception) {
       if (target.isDead) { this.perception.delete(target); continue; }
       mem.seen = Math.max(0, mem.seen - CONFIG.PERCEPTION.LOSE_PER_SEC * dt);
-      if (mem.seen <= 0 && now - mem.lastSeen > CONFIG.PERCEPTION.MEMORY_SEC) {
-        this.perception.delete(target);
-      }
+      if (mem.seen <= 0 && now - mem.lastSeen > CONFIG.PERCEPTION.MEMORY_SEC) this.perception.delete(target);
     }
-
     if (now - this._lastScanTime < this._scanInterval) return;
     this._lastScanTime = now;
-
     for (const other of allUnits) {
       if (other === this || other.faction === this.faction || other.isDead) continue;
-
       const vis = this._visibilityCheck(other, obstacles);
       if (!vis.visible) continue;
-
-      const fillRate = vis.central
-        ? 1 / CONFIG.PERCEPTION.CENTRAL_FILL_SEC
-        : 1 / CONFIG.PERCEPTION.PERIPHERAL_FILL_SEC;
-
+      const fillRate = vis.central ? 1 / CONFIG.PERCEPTION.CENTRAL_FILL_SEC : 1 / CONFIG.PERCEPTION.PERIPHERAL_FILL_SEC;
       const mem = this.perception.get(other) || { seen: 0, lastX: other.x, lastY: other.y, lastSeen: now, angle: 0 };
       const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
       mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
-      mem.lastX = other.x;
-      mem.lastY = other.y;
-      mem.lastSeen = now;
-      mem.angle = vis.angle;
+      mem.lastX = other.x; mem.lastY = other.y; mem.lastSeen = now; mem.angle = vis.angle;
       this.perception.set(other, mem);
     }
   }
@@ -416,10 +399,7 @@ export class Unit {
       if (target.isDead) continue;
       if (mem.seen > bestSeen) {
         const dist = Math.hypot(target.x - this.x, target.y - this.y);
-        if (dist <= this.weapon.effectiveRange) {
-          bestSeen = mem.seen;
-          best = target;
-        }
+        if (dist <= this.weapon.effectiveRange) { bestSeen = mem.seen; best = target; }
       }
     }
     return best;
@@ -434,15 +414,11 @@ export class Unit {
 
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
-
     if (this.suppression > 0) {
       const timeSince = (performance.now() / 1000) - this.lastSuppressionTime;
-      if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) {
-        this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt);
-      }
+      if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt);
     }
     if (this.standLockTimer > 0) this.standLockTimer -= dt;
-
     this._updateStanceTransition(dt);
 
     if (this.bleedingRate > 0 && this.blood > 0) {
@@ -450,10 +426,8 @@ export class Unit {
       if (this.blood <= 0) { this._die(); return null; }
       if (this.blood < 15 && !this.isUnconscious) {
         this.isUnconscious = true;
-        this.stance = 'prone';
-        this.stanceTransition = null;
-        this.isMoving = false; this._wantsToMove = false;
-        this.path = [];
+        this.stance = 'prone'; this.stanceTransition = null;
+        this.isMoving = false; this._wantsToMove = false; this.path = [];
         EventBus.emit(EVENTS.UNIT_UNCONSCIOUS, this);
       } else if (this.blood >= 15 && this.isUnconscious) {
         this.isUnconscious = false;
@@ -532,7 +506,6 @@ export class Unit {
         const dx = p.x - this.x, dy = p.y - this.y;
         const dist = Math.hypot(dx, dy);
         
-        // Если до точки меньше 0.3 метра — идем к следующей
         if (dist < 0.3) {
           this.pathIndex++;
           if (this.pathIndex >= this.path.length) {
@@ -599,7 +572,6 @@ export class Unit {
         this.y = ny; slid = true; this.vx *= 0.3; 
       }
       
-      // Если застряли намертво — делаем микро-рывок в сторону
       if (!slid) {
         this.vx = (Math.random() - 0.5) * 2;
         this.vy = (Math.random() - 0.5) * 2;
@@ -611,18 +583,14 @@ export class Unit {
   _updateCombat(dt, allUnits, currentTime) {
     this.target = this._pickEngageTarget();
     if (!this.target) return;
-
     const mem = this.perception.get(this.target);
     const targetDist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
     const stale = mem && (currentTime - mem.lastSeen) > 2.0;
-
     this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
     this.weapon.updateFireMode(targetDist);
-
     if (stale) return;
     if (this.isPressed && this.stance !== 'prone' && this.stance !== 'crouch') return;
     if (this.stanceTransition && CONFIG.STANCE.FIRE_BLOCKED) return;
-
     if (this.weapon.canFire(currentTime)) {
       const b = this._shoot(currentTime);
       if (b) this.pendingBullets.push(b);
@@ -632,10 +600,8 @@ export class Unit {
   _shoot(currentTime) {
     if (!this.isArmed || this.isUnconscious) return null;
     if (!this.weapon.fire(currentTime)) return null;
-
     const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
     let spread = this.weapon.spreadBase * (dist / 100);
-
     if (this.isLimping) spread *= 2.0;
     const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand));
     spread *= (1 + speedRatio * 3);
@@ -645,25 +611,15 @@ export class Unit {
     if (this.target.isMoving) spread *= 1.5;
     if (this.target.stance === 'prone') spread *= 1.2;
     else if (this.target.stance === 'crouch') spread *= 1.1;
-
     spread *= this.weapon.getRecoilSpreadMultiplier();
     spread *= (1 + this.suppression * 1.5);
-
     const aimBonus = Math.min(this.aimTime / Math.max(0.1, this.maxAimTime), 1.0);
     spread *= (1.0 - aimBonus * 0.7);
     spread = Math.max(0.01, Math.min(spread, 20));
-
     const hitChance = Math.max(0.1, 1 - (spread / 10));
-
-    EventBus.emit(EVENTS.UNIT_SHOOT, {
-      x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y, isMuzzleFlash: true,
-    });
-    EventBus.emit(EVENTS.WORLD_NOISE, {
-      x: this.x, y: this.y, loudness: this.weapon.loudness, source: this, isGunshot: true,
-    });
-
+    EventBus.emit(EVENTS.UNIT_SHOOT, { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y, isMuzzleFlash: true });
+    EventBus.emit(EVENTS.WORLD_NOISE, { x: this.x, y: this.y, loudness: this.weapon.loudness, source: this, isGunshot: true });
     this.tinnitus = 1.0;
-
     let tx = this.target.x, ty = this.target.y;
     if (Math.random() >= hitChance) {
       const ang = Math.atan2(ty - this.y, tx - this.x) + (Math.random() - 0.5) * 0.6;
@@ -671,16 +627,8 @@ export class Unit {
       tx = this.x + Math.cos(ang) * missDist;
       ty = this.y + Math.sin(ang) * missDist;
     }
-
     const isTracer = (this.weapon.shotsFired % CONFIG.BALLISTICS.TRACER_EVERY_N) === 0;
-
-    return new Bullet(
-      this.x, this.y, tx, ty,
-      this.weapon.bulletSpeed, this.weapon.baseDamage,
-      this.weapon.damageFalloff, this.weapon.maxFalloffDist,
-      this.weapon.penetration, this,
-      { drag: this.weapon.drag, fragmentation: this.weapon.fragmentation, isTracer }
-    );
+    return new Bullet(this.x, this.y, tx, ty, this.weapon.bulletSpeed, this.weapon.baseDamage, this.weapon.damageFalloff, this.weapon.maxFalloffDist, this.weapon.penetration, this, { drag: this.weapon.drag, fragmentation: this.weapon.fragmentation, isTracer });
   }
 
   _updateStamina(dt) {
