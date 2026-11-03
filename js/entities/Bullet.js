@@ -42,22 +42,41 @@ export class Bullet {
     const nextX = this.x + this.dirX * step;
     const nextY = this.y + this.dirY * step;
 
-    // Проверка стен
+    // ПРОВЕРКА СТЕН С ПРОБИТИЕМ
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
-          this.isDead = true;
-          return;
+          
+          const wallThickness = Math.min(obs.w, obs.h); // Упрощение: берем меньшую сторону
+          let requiredBr = 6; // Максимальный класс (непробиваемое)
+          
+          if (obs.matData && obs.matData.thicknessData) {
+            for (const data of obs.matData.thicknessData) {
+              if (wallThickness <= data.thickness) {
+                requiredBr = data.requiredBr;
+                break;
+              }
+            }
+          }
+
+          if (this.penetration >= requiredBr) {
+            // Пробили стену! Летим дальше, но с потерей урона (30%)
+            this.baseDamage *= 0.7; 
+            EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
+            // Не убиваем пулю, она продолжает полет
+          } else {
+            // Не пробили — пуля застревает
+            this.isDead = true;
+            EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'wall' });
+            return;
+          }
         }
       }
     }
 
     // Проверка юнитов
     for (const unit of allUnits) {
-      // ЗАЩИТА: если юнита нет (undefined) или он мертв
       if (!unit || unit.isDead) continue;
-      
-      // ЗАЩИТА: не стреляем в своих (если owner есть)
       if (this.owner && unit.faction === this.owner.faction) continue;
 
       const hit = this._lineIntersectsCircle(
