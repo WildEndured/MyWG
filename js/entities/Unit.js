@@ -3,6 +3,7 @@ import { Weapon } from './Weapon.js';
 import { WEAPONS } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS } from '../data/health.js';
+import { ARMOR_CONFIGS, ARMOR_MATERIALS } from '../data/armor.js';
 import { Physics } from '../core/Physics.js';
 import { EventBus } from '../core/EventBus.js';
 import { Bullet } from './Bullet.js';
@@ -17,6 +18,7 @@ export class Unit {
     this.hitRadius = BASE_HUMAN.hitRadius; 
     this.isDead = false;
     
+    // Здоровье
     this.bodyParts = {};
     for (const [partId, partData] of Object.entries(BODY_PARTS)) {
       this.bodyParts[partId] = {
@@ -35,6 +37,7 @@ export class Unit {
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
     this.staminaCooldown = 0;
     
+    // Роль и Оружие
     const role = ROLES[roleId] || ROLES['infantry'];
     this.roleId = role.id;
     this.name = role.name;
@@ -42,8 +45,28 @@ export class Unit {
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
     
-    this.totalWeight = this.weapon.weightLoaded;
-    this.staminaPenalty = Math.max(1.0, this.totalWeight / 4.0); 
+    // Сбор брони
+    this.armor = {};
+    let armorWeight = 0;
+    
+    for (const armorId of BASE_HUMAN.defaultArmor) {
+      const config = ARMOR_CONFIGS[armorId];
+      const material = ARMOR_MATERIALS[config.material];
+      armorWeight += config.weight;
+      
+      for (const zone of config.covers) {
+        this.armor[zone] = {
+          name: config.name,
+          level: material.level,
+          durability: config.durability,
+          maxDurability: config.durability
+        };
+      }
+    }
+    
+    // Общий вес (оружие + броня)
+    this.totalWeight = this.weapon.weightLoaded + armorWeight;
+    this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
     
@@ -81,8 +104,27 @@ export class Unit {
     return total;
   }
 
-  takeDamage(amount, hitZone = 'torso') {
+  takeDamage(amount, hitZone = 'torso', penetrationLevel = 0) {
     if (this.isDead) return;
+    
+    let finalDamage = amount;
+    const armorPiece = this.armor[hitZone];
+    
+    // Логика брони
+    if (armorPiece && armorPiece.durability > 0) {
+      if (penetrationLevel > armorPiece.level) {
+        armorPiece.durability -= amount * 0.5;
+      } else if (penetrationLevel === armorPiece.level) {
+        finalDamage = amount * 0.7;
+        armorPiece.durability -= amount * 0.8;
+      } else {
+        finalDamage = amount * 0.1;
+        armorPiece.durability -= amount * 0.2;
+      }
+
+      if (armorPiece.durability < 0) armorPiece.durability = 0;
+    }
+
     let isSubPartHit = false;
     const part = this.bodyParts[hitZone];
     if (!part) return;
@@ -94,7 +136,8 @@ export class Unit {
         acc += sub.weight;
         if (r <= acc) {
           isSubPartHit = true;
-          sub.hp -= amount;
+          sub.hp -= finalDamage;
+          
           if (sub.hp <= 0) {
             sub.hp = 0;
             if (sub.fatal || sub.id === 'brain' || sub.id === 'heart' || sub.id === 'spine' || sub.id === 'liver') {
@@ -106,7 +149,8 @@ export class Unit {
       }
     }
 
-    if (!isSubPartHit) part.hp -= amount;
+    if (!isSubPartHit) part.hp -= finalDamage;
+    
     if (part.hp <= 0) {
       part.hp = 0;
       if (part.fatal) { this._die(); return; }
@@ -133,12 +177,14 @@ export class Unit {
   }
 
   _calculateSpeeds(baseSpeeds, weight) {
-    const referenceWeight = 3.6; 
-    const penaltyPerKg = 0.04; 
+    const referenceWeight = 10.0; 
+    const penaltyPerKg = 0.03; 
+    
     let speedMultiplier = 1.0;
     if (weight > referenceWeight) {
       speedMultiplier = Math.max(0.5, 1.0 - (weight - referenceWeight) * penaltyPerKg);
     }
+    
     return {
       run: baseSpeeds.run * speedMultiplier,
       stand: baseSpeeds.stand * speedMultiplier,
@@ -285,6 +331,7 @@ export class Unit {
         this.weapon.baseDamage, 
         this.weapon.damageFalloff,
         this.weapon.maxFalloffDist,
+        this.weapon.penetration,
         this
       );
     }
@@ -413,4 +460,4 @@ export class Unit {
       }
     }
   }
- }
+}
