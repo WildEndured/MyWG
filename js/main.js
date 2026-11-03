@@ -13,7 +13,6 @@ import { validateArmorData } from './data/armor.js';
 import { validateWeapons } from './data/weapons.js';
 import { CALIBERS } from './data/calibers.js';
 
-// Ждем полной загрузки HTML, чтобы кнопки точно существовали
 document.addEventListener('DOMContentLoaded', () => {
   const TEAM_INFO = {
     team1:     { id: 'team1',     name: 'Команда 1',  faction: 'player', player: true  },
@@ -36,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const battleTeamEl = document.getElementById('battle-team');
   const battleModeEl = document.getElementById('battle-mode');
 
-  // Валидация данных (если функции есть, они не упадут)
+  // Валидация данных
   try {
     const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)];
     if (errs.length) console.error('[data] validation errors:', errs);
@@ -56,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let gameStarted = false;
 
   // ==========================================
-  // ЛОГИКА СТАРТОВОГО ЭКРАНА
+  // СТАРТОВЫЙ ЭКРАН
   // ==========================================
   function updateStartButton() {
     if (btnStart) {
@@ -66,21 +65,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function bindOptionGroup(groupId, key) {
     const group = document.getElementById(groupId);
-    if (!group) {
-      console.warn(`[UI] Group ${groupId} not found!`);
-      return;
-    }
+    if (!group) return;
     
     group.querySelectorAll('.opt-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
-        // Снимаем выделение
         group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
-        // Добавляем выделение
         btn.classList.add('selected');
-        // Записываем выбор
         selection[key] = btn.dataset.value;
-        // Проверяем
         updateStartButton();
       });
     });
@@ -477,7 +469,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (document.hidden && !TimeManager.isPaused && !TimeManager.isTacticalPause) TimeManager.togglePause();
   });
 
-  // Стартуем
   resize();
   lastTime = performance.now();
   rafId = requestAnimationFrame(frame);
