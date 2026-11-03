@@ -8,7 +8,7 @@ export class UnitManager {
   constructor() {
     this.units = []; this.selectedUnits = []; this.bullets = []; this.pathfinder = new Pathfinder(100, 1); this.camera = null;
     this._isSearchingPath = false; this.tracers = []; this.flashes = []; this.decals = []; this.currentTime = 0;
-    this.playerFaction = 'player'; this.playerTeamId = 'team1'; this.gameMode = 'attack';
+    this.playerFaction = 'player'; this.playerTeamId = 'team1'; this.gameMode = 'attack'; this.mapSize = 100;
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -18,7 +18,7 @@ export class UnitManager {
   }
 
   destroy() { for (const unsub of this._unsubs) unsub(); this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; this.tracers = []; this.flashes = []; this.decals = []; }
-  setWorldSize(size) { this.pathfinder.setWorldSize(size); }
+  setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
   addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
 
@@ -34,8 +34,17 @@ export class UnitManager {
 
   update(dt) {
     this.currentTime += dt;
+    
+    // Формируем "картину мира" для ИИ
+    const worldState = {
+      time: this.currentTime,
+      mapSize: this.mapSize,
+      pathfinder: this.pathfinder,
+      units: this.units
+    };
+
     for (const unit of this.units) {
-      const bullets = unit.update(dt, this.units, this.currentTime);
+      const bullets = unit.update(dt, this.units, this.currentTime, worldState);
       if (bullets) { if (Array.isArray(bullets)) this.bullets.push(...bullets); else this.bullets.push(bullets); }
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false; const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
@@ -81,7 +90,12 @@ export class UnitManager {
         if (count > 1) { const row = Math.floor(index / cols); const col = index % cols; ox = (col - (cols - 1) / 2) * spacing; oy = (row - (rows - 1) / 2) * spacing; }
         const target = this.pathfinder.findNearestFreePoint(freeTarget.x + ox, freeTarget.y + oy);
         const path = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
-        if (path && path.length > 0) { unit.lastTarget = target; unit.setPath(path); }
+        if (path && path.length > 0) {
+          unit.lastTarget = target;
+          // ВАЖНО: Передаем приказ в мозг
+          if (unit.brain) unit.brain.setPlayerOrder(path, target);
+          else unit.setPath(path);
+        }
       });
     } finally { this._isSearchingPath = false; }
   }
