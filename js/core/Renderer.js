@@ -19,6 +19,10 @@ export class Renderer {
     Renderer.drawBullets(ctx, camera, unitManager.bullets);
     Renderer.drawEffects(ctx, camera, unitManager.tracers, unitManager.flashes);
     Renderer.drawExplosions(ctx, camera, unitManager.explosions);
+    
+    // Обломки и Пыль
+    Renderer.drawDebris(ctx, camera, unitManager.debris);
+    Renderer.drawDust(ctx, camera, unitManager.dust);
   }
 
   static drawZone(ctx, camera, zone) {
@@ -72,12 +76,39 @@ export class Renderer {
   }
 
   static drawObstacles(ctx, camera, obstacles) {
-    ctx.lineWidth = 1; const colorMap = { wood: '#8B5A2B', sandbags: '#C2B280', concrete: '#777', steel: '#889', brick: '#a55' };
+    ctx.lineWidth = 1; 
+    const colorMap = { wood: '#8B5A2B', sandbags: '#C2B280', concrete: '#777', steel: '#889', brick: '#a55', aluminum: '#ccc' };
+    
     for (const obs of obstacles) {
-      if (!camera.isPointVisible(obs.x + obs.w/2, obs.y + obs.h/2, 500)) continue;
-      const tl = camera.worldToScreen(obs.x, obs.y), br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
-      ctx.fillStyle = colorMap[obs.materialId] || '#555'; ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-      ctx.strokeStyle = '#000'; ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+      // Рисуем каждый сегмент (для визуализации состояния)
+      for (const seg of obs.segments) {
+        if (seg.state === 'rubble') {
+          // Руины — куча обломков (маленькие точки)
+          const tl = camera.worldToScreen(seg.x, seg.y);
+          const br = camera.worldToScreen(seg.x + seg.w, seg.y + seg.h);
+          ctx.fillStyle = '#444'; ctx.fillRect(tl.x, tl.y, (br.x - tl.x) * 0.8, (br.y - tl.y) * 0.5);
+          continue;
+        }
+        
+        const tl = camera.worldToScreen(seg.x, seg.y);
+        const br = camera.worldToScreen(seg.x + seg.w, seg.y + seg.h);
+        
+        let color = colorMap[obs.materialId] || '#555';
+        // Визуализация состояния
+        if (seg.state === 'damaged') color = color === '#8B5A2B' ? '#6B4A1B' : '#555'; // Темнее
+        if (seg.state === 'breached') color = color === '#8B5A2B' ? '#4B3A0B' : '#333'; // Очень темный
+
+        // Для осыпающегося песка рисуем только часть высоты
+        let drawH = br.y - tl.y;
+        if (obs.matData.destructionType === 'collapse') {
+           drawH *= (obs.height / obs.maxHeight);
+        }
+
+        ctx.fillStyle = color; 
+        ctx.fillRect(tl.x, tl.y, br.x - tl.x, drawH);
+        ctx.strokeStyle = '#000'; 
+        ctx.strokeRect(tl.x, tl.y, br.x - tl.x, drawH);
+      }
     }
   }
 
@@ -154,6 +185,38 @@ export class Renderer {
       
       ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 255, 0, ${alpha * 0.8})`; ctx.fill();
+    }
+  }
+
+  static drawDebris(ctx, camera, debris) {
+    if (!debris) return;
+    for (const d of debris) {
+      if (!camera.isPointVisible(d.x, d.y, 50)) continue;
+      const p = camera.worldToScreen(d.x, d.y);
+      const size = d.size * camera.zoom;
+      
+      // Цвет по материалу
+      let color = '#555';
+      if (d.material === 'wood') color = '#8B5A2B';
+      else if (d.material === 'brick') color = '#a55';
+      else if (d.material === 'concrete') color = '#777';
+      
+      ctx.fillStyle = color;
+      ctx.fillRect(p.x - size/2, p.y - size/2, Math.max(1, size), Math.max(1, size));
+    }
+  }
+
+  static drawDust(ctx, camera, dust) {
+    if (!dust) return;
+    for (const d of dust) {
+      if (!camera.isPointVisible(d.x, d.y, d.radius * 2)) continue;
+      const p = camera.worldToScreen(d.x, d.y);
+      const r = d.radius * camera.zoom;
+      const alpha = 1 - (d.life / d.maxLife); // Исчезает постепенно
+      
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(180, 180, 180, ${alpha * 0.5})`;
+      ctx.fill();
     }
   }
 }
