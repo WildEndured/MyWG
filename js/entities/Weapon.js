@@ -12,7 +12,9 @@ export class Weapon {
     this.bulletSpeed = caliberData.bulletSpeed;
     this.damageFalloff = caliberData.damageFalloff;
     this.maxFalloffDist = caliberData.maxFalloffDist;
-    this.penetration = caliberData.penetration; // <-- ВАЖНО
+    this.penetration = caliberData.penetration;
+    
+    this.noiseLevel = caliberData.noiseLevel * config.noiseMultiplier;
     
     this.rpm = config.rpm;
     this.fireInterval = 60 / this.rpm;
