@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function spawnInitialUnits(mapSize) {
-    unitManager.units = []; unitManager.selectedUnits = []; unitManager.bullets = []; unitManager.tracers = []; unitManager.flashes = []; unitManager.decals = []; unitManager.shells = [];
+    unitManager.units = []; unitManager.selectedUnits = []; unitManager.bullets = []; unitManager.tracers = []; unitManager.flashes = []; unitManager.decals = []; unitManager.shells = []; unitManager.explosions = [];
     if (typeof unitManager._spawnTestObstacles === 'function') unitManager._spawnTestObstacles(mapSize, true);
 
     const center = mapSize / 2, offset = mapSize * 0.1, mode = unitManager.gameMode || 'attack', playerTeam = unitManager.playerTeamId || 'team1';
@@ -105,6 +105,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnBandage) btnBandage.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.bleedingRate > 0) u.applyBandage('torso', true); } });
   if (btnTourniquet) btnTourniquet.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.bleedingRate > 0) u.applyTourniquet('leftLeg', true); } });
   if (btnClearMalfunction) btnClearMalfunction.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.weapon.isJammed || u.weapon.isMisfired) u.weapon.clearMalfunction(); } });
+
+  const btnGrenade = document.getElementById('btn-grenade');
+  if (btnGrenade) {
+    btnGrenade.addEventListener('click', () => {
+      if (unitManager.selectedUnits.length === 1) {
+        const u = unitManager.selectedUnits[0];
+        if (u.grenades > 0) u.throwGrenade(camera.x, camera.y, { unitManager });
+      }
+    });
+  }
 
   const tacticalBtn = document.getElementById('btn-tactical'); if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
   window.addEventListener('keydown', (e) => { if (e.key === CONFIG.TACTICAL_PAUSE.KEY && gameStarted) { e.preventDefault(); TimeManager.toggleTacticalPause(); } });
@@ -140,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('info-weapon').textContent = unit.weapon.name || 'Нет';
     const reserveRounds = unit.weapon.getReserveRounds();
-    document.getElementById('info-ammo').textContent = `${unit.weapon.ammo} / ${reserveRounds} (маг.: ${unit.weapon.reserveMagazines})`;
+    document.getElementById('info-ammo').textContent = `${unit.weapon.ammo} / ${reserveRounds} (маг.: ${unit.weapon.reserveMagazines}) | Гранат: ${unit.grenades}`;
     
     const armorNames = new Set(Object.values(unit.armor).map(a => a.name)); document.getElementById('info-armor').textContent = armorNames.size > 0 ? Array.from(armorNames).join(', ') : 'Нет';
     document.getElementById('info-medical').textContent = `Бинты: ${unit.medical.bandage} | Жгуты: ${unit.medical.tourniquet}`;
