@@ -62,4 +62,4 @@ export class Camera {
     return screen.x >= -marginPx && screen.x <= this.vw + marginPx &&
            screen.y >= -marginPx && screen.y <= this.vh + marginPx;
   }
-                                                                       }
+}
