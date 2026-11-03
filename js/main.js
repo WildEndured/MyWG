@@ -36,9 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const battleTeamEl = document.getElementById('battle-team');
   const battleModeEl = document.getElementById('battle-mode');
 
-  {
+  // Валидация данных (если функции есть, они не упадут)
+  try {
     const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)];
     if (errs.length) console.error('[data] validation errors:', errs);
+  } catch (e) {
+    console.warn('Validation functions missing, skipping...', e);
   }
 
   const camera = new Camera(canvas);
@@ -70,10 +73,14 @@ document.addEventListener('DOMContentLoaded', () => {
     
     group.querySelectorAll('.opt-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        e.preventDefault(); // Защита от перезагрузки страницы
+        e.preventDefault();
+        // Снимаем выделение
         group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected'));
+        // Добавляем выделение
         btn.classList.add('selected');
+        // Записываем выбор
         selection[key] = btn.dataset.value;
+        // Проверяем
         updateStartButton();
       });
     });
@@ -85,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnStart) {
     btnStart.addEventListener('click', () => {
       if (btnStart.disabled) return;
-      AudioManager.init(); // Запуск звука по клику
+      if (window.AudioManager) AudioManager.init();
       startBattle(selection.team, selection.mode);
     });
   }
