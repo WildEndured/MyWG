@@ -1,5 +1,5 @@
 import { Weapon } from './Weapon.js';
-import { WEAPONS } from '../data/weapons.js';
+import { WEAPONS, EXPLOSIVES } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS, calcTotalHp, calcMaxTotalHp } from '../data/health.js';
 import { ARMOR_CONFIGS, ARMOR_CLASSES, findArmorForHit } from '../data/armor.js';
@@ -10,7 +10,7 @@ import { AudioManager } from '../core/AudioManager.js';
 import { Bullet } from './Bullet.js';
 import { CONFIG } from '../data/config.js';
 import { Brain } from '../core/Brain.js';
-import { Explosion } from './Explosion.js';
+import { Grenade } from './Grenade.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
@@ -33,7 +33,7 @@ export class Unit {
     this.isSurrendered = false;
 
     this.medical = { bandage: 2, tourniquet: 1, isApplying: false, applyTimer: 0, applyTarget: null };
-    this.grenades = 2; // НОВОЕ: Гранаты
+    this.grenades = 2; 
 
     this.maxStamina = BASE_HUMAN.maxStamina; this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate; this.staminaCooldown = 0;
@@ -83,9 +83,11 @@ export class Unit {
     if (dist > 30) return false;
     
     this.grenades--;
-    const ex = new Explosion(targetX, targetY, 10, 100, 0.8, this);
+    const grenadeConfig = EXPLOSIVES.grenade_rgd5;
+    const grenade = new Grenade(this.x, this.y, targetX, targetY, this, grenadeConfig);
+    
     if (world && world.unitManager) {
-      world.unitManager.explosions.push(ex);
+      world.unitManager.grenades.push(grenade);
     }
     return true;
   }
@@ -392,7 +394,6 @@ export class Unit {
   _updateCombat(dt, allUnits, currentTime, worldState) {
     this.target = this._pickEngageTarget(); if (!this.target) return;
     
-    // Граната, если нет патронов
     if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0 && this.grenades > 0) {
       const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
       if (dist < 30) this.throwGrenade(this.target.x, this.target.y, worldState);
