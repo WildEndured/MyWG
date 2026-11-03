@@ -26,12 +26,11 @@ export const CONFIG = {
   TAP_DOUBLE_MS: 300,
   PINCH_SENS: 0.8,
 
-  // FIX: cap dt для всех систем (защита от tunneling)
   MAX_DT: 0.05,
 
   PHYSICS: {
     MIN_UNIT_DIST: 1.0,
-    COLLISION_STEPS: 24, // FIX: было 10 — слишком мало для длинных LOS
+    COLLISION_STEPS: 24,
     PATHFINDER_PADDING: 0.3,
   },
 
@@ -39,28 +38,43 @@ export const CONFIG = {
     SPACING: 2.5,
   },
 
-  // FIX: единые единицы для звука
   AUDIO: {
-    HEARING_BASE: 200,     // метров при 0 дБ потерь
+    HEARING_BASE: 200,
     FALLOFF_DB_PER_DOUBLE: 6,
   },
 
-  DEBUG: {
-    ENABLED_BY_DEFAULT: false,
+  // FIX: баллистика
+  BALLISTICS: {
+    GRAVITY: 9.81,               // м/с²
+    DRAG_COEFF: 0.00025,         // коэффициент сопротивления (1/м)
+    MAX_UPDATE_DT: 0.02,         // cap внутри Bullet.update
+    TRACER_EVERY_N: 5,           // каждый N-й патрон — трассер
   },
 
-  // FIX: версия данных для сейвов/миграций
+  // FIX: подавление
+  SUPPRESSION: {
+    RADIUS: 3.5,                 // м — радиус «свиста» пули
+    PER_BULLET: 0.08,            // прирост за пролетевшую рядом пулю
+    DECAY_PER_SEC: 0.35,         // спад в секунду
+    THRESHOLD_PRESSED: 0.4,      // при каком уровне нельзя стрелять стоя
+    THRESHOLD_PANIC: 0.8,        // при каком — падает
+  },
+
+  // FIX: отдача
+  RECOIL: {
+    RECOVERY_PER_SEC: 3.5,       // спад отдачи в секунду
+  },
+
+  DEBUG: { ENABLED_BY_DEFAULT: false },
   DATA_VERSION: 1,
 };
 
-// FIX: clamp с защитой a > b
 export function clamp(v, a, b) {
   if (a > b) { const t = a; a = b; b = t; }
   if (!Number.isFinite(v)) return a;
   return v < a ? a : v > b ? b : v;
 }
 
-// FIX: cap dt
 export function capDt(dt, max = CONFIG.MAX_DT) {
   if (!Number.isFinite(dt) || dt < 0) return 0;
   return Math.min(dt, max);
