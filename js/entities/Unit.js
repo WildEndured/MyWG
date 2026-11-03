@@ -14,6 +14,10 @@ export class Unit {
     this.x = x; this.y = y;
     this.faction = faction;
 
+    // FIX: скорость с инерцией (Волна 2)
+    this.vx = 0; this.vy = 0;
+    this.maxSpeed = 0; // выставляется в _calculateSpeeds
+
     this.baseRadius = BASE_HUMAN.baseRadius;
     this.hitRadius = BASE_HUMAN.hitRadius;
     this.isDead = false;
@@ -80,8 +84,16 @@ export class Unit {
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
 
+    // FIX: ускорение зависит от веса (Волна 2)
+    this.accel = CONFIG.MOVEMENT.ACCEL_BASE / this.staminaPenalty;
+    this.decel = CONFIG.MOVEMENT.DECEL_BASE / this.staminaPenalty;
+
     this.stance = 'stand';
     this.speed = this.speeds[this.stance];
+    this.maxSpeed = this.speed;
+
+    // FIX: переходы поз (Волна 2)
+    this.stanceTransition = null; // { from, to, timer, total }
 
     this.fovAngle = VISION_CONFIG.fovAngle * (Math.PI / 180);
     this.detectRange = VISION_CONFIG.detectRange;
@@ -100,6 +112,7 @@ export class Unit {
     this.path = [];
     this.pathIndex = 0;
     this.isMoving = false;
+    this._wantsToMove = false; // FIX: намерение двигаться (Волна 2)
 
     this.angle = 0;
     this.targetAngle = 0;
@@ -112,18 +125,32 @@ export class Unit {
 
     // Подавление (Волна 1)
     this.suppression = 0;
-    this.pressedTimer = 0;
+    this.lastSuppressionTime = 0; // FIX: когда последний раз подавляли (Волна 2)
+    this.standLockTimer = 0;      // FIX: нельзя встать (Волна 2)
+
+    // FIX: восприятие (Волна 2)
+    // Map<unitRef, { seen: 0..1, lastX, lastY, lastSeen, angle }>
+    this.perception = new Map();
+    this._lastScanTime = 0;
+    this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
   }
 
   getTotalHp() { return calcTotalHp(this.bodyParts); }
   getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
 
-  // ---------- Подавление (Волна 1) ----------
+  // ---------- Подавление ----------
   applySuppression(amount) {
     if (this.isDead) return;
     this.suppression = Math.min(1, this.suppression + amount);
-    if (this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PANIC && this.stance !== 'prone') {
-      this.setStance('prone');
+    this.lastSuppressionTime = performance.now() / 1000;
+
+    // FIX: автоприжатие (Волна 2)
+    if (this.stanceTransition) return; // не прерываем переход
+    if (this.suppression >= CONFIG.SUPPRESSION.AUTO_PRONE && this.stance !== 'prone') {
+      this._startStanceTransition('prone');
+      this.standLockTimer = CONFIG.SUPPRESSION.STAND_LOCK_TIME;
+    } else if (this.suppression >= CONFIG.SUPPRESSION.AUTO_CROUCH && this.stance === 'stand') {
+      this._startStanceTransition('crouch');
     }
   }
 
@@ -131,7 +158,7 @@ export class Unit {
     return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED;
   }
 
-  // ---------- Фрагментация (Волна 1) ----------
+  // ---------- Фрагментация ----------
   applyFragmentation(amount) {
     if (this.isDead) return;
     const torso = this.bodyParts.torso;
@@ -145,15 +172,12 @@ export class Unit {
     if (this.hp <= 0) this._die();
   }
 
-  // ---------- Хитбоксы (Волна 1) ----------
-  // Возвращает { partId, subPartId, t } или null
+  // ---------- Хитбоксы ----------
   raycastHit(x1, y1, x2, y2) {
     let best = null;
     let bestT = Infinity;
-
     for (const [partId, part] of Object.entries(this.bodyParts)) {
       if (!part.hitbox || part.hp <= 0) continue;
-
       const scale = part.stanceScale[this.stance] ?? 1;
       const cos = Math.cos(this.angle), sin = Math.sin(this.angle);
       const lx = part.hitbox.dx;
@@ -161,7 +185,6 @@ export class Unit {
       const cx = this.x + lx * cos - ly * sin;
       const cy = this.y + lx * sin + ly * cos;
       const r = part.hitbox.r * scale;
-
       const t = this._rayCircle(x1, y1, x2, y2, cx, cy, r);
       if (t !== null && t < bestT) {
         bestT = t;
@@ -203,8 +226,13 @@ export class Unit {
   // ---------- Урон ----------
   takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
     if (this.isDead) return;
-    let finalDamage = amount;
 
+    // FIX: прерывание перехода поз (Волна 2)
+    if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) {
+      this.stanceTransition = null;
+    }
+
+    let finalDamage = amount;
     const part = this.bodyParts[hitZone];
     if (!part) return;
 
@@ -230,7 +258,6 @@ export class Unit {
     }
 
     let localBleed = part.bleedRate || 0;
-
     if (chosenSub) {
       chosenSub.hp -= finalDamage;
       if (chosenSub.bleedRate > localBleed) localBleed = chosenSub.bleedRate;
@@ -265,12 +292,15 @@ export class Unit {
     if (this.isDead) return;
     this.isDead = true;
     this.isMoving = false;
+    this._wantsToMove = false;
     this.path = [];
     this.isSelected = false;
     this.stance = 'prone';
+    this.stanceTransition = null;
     this.target = null;
     this.weapon.isReloading = false;
     this.pendingBullets.length = 0;
+    this.vx = 0; this.vy = 0;
     EventBus.emit(EVENTS.UNIT_DEATH, this);
   }
 
@@ -287,26 +317,57 @@ export class Unit {
     };
   }
 
+  // ---------- Переходы поз (Волна 2) ----------
+  _startStanceTransition(to) {
+    const from = this.stance;
+    if (from === to) return;
+    const key = `${from}->${to}`;
+    const duration = CONFIG.STANCE.TRANSITIONS[key] ?? 0.5;
+    this.stanceTransition = { from, to, timer: duration, total: duration };
+  }
+
   setStance(newStance) {
     if (this.isDead || this.stance === newStance) return;
+    if (this.stanceTransition) return; // уже переходит
     if (newStance === 'run' && (this.stamina < 10 || this.isLimping || this.isUnconscious)) return;
-    if (newStance === 'stand' && this.isPressed) return;
-    this.stance = newStance;
-    this.speed = this.speeds[this.stance];
+    if (newStance === 'stand' && (this.isPressed || this.standLockTimer > 0)) return;
+    this._startStanceTransition(newStance);
+  }
+
+  _updateStanceTransition(dt) {
+    if (!this.stanceTransition) return;
+    const t = this.stanceTransition;
+    t.timer -= dt;
+    if (t.timer <= 0) {
+      this.stance = t.to;
+      this.speed = this.speeds[this.stance];
+      this.maxSpeed = this.speed;
+      this.stanceTransition = null;
+    }
+  }
+
+  // FIX: визуальный прогресс перехода (0..1), для отрисовки
+  get stanceTransitionProgress() {
+    if (!this.stanceTransition) return 1;
+    const t = this.stanceTransition;
+    return 1 - Math.max(0, t.timer / t.total);
   }
 
   setPath(path) {
-    if (!path || path.length === 0) { this.isMoving = false; this.path = []; return; }
+    if (!path || path.length === 0) { this.isMoving = false; this._wantsToMove = false; this.path = []; return; }
     this.path = path;
     this.pathIndex = 0;
     this.isMoving = true;
+    this._wantsToMove = true;
     this.needsRepath = false;
   }
 
-  canSee(target, obstacles) {
-    const dx = target.x - this.x, dy = target.y - this.y;
+  // ---------- Восприятие (Волна 2) ----------
+  // Проверяем видимость с учётом направления, LOS, позы цели
+  _visibilityCheck(other, obstacles) {
+    const dx = other.x - this.x, dy = other.y - this.y;
     const dist = Math.hypot(dx, dy);
-    if (dist > this.detectRange) return false;
+    if (dist > this.detectRange) return { visible: false, dist, angle: 0, central: false };
 
     const angleToTarget = Math.atan2(dy, dx);
     let angleDiff = angleToTarget - this.angle;
@@ -315,28 +376,108 @@ export class Unit {
     const absAngle = Math.abs(angleDiff);
 
     const centralHalf = (VISION_CONFIG.centralAngle * Math.PI / 180) / 2;
-    if (absAngle <= centralHalf) return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
-    if (absAngle <= this.fovAngle / 2) {
-      if (dist > VISION_CONFIG.peripheralRange) return false;
-      return Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles);
+    const fovHalf = this.fovAngle / 2;
+
+    if (absAngle > fovHalf) return { visible: false, dist, angle: absAngle, central: false };
+
+    let rangeLimit = this.detectRange;
+    if (absAngle > centralHalf) rangeLimit = VISION_CONFIG.peripheralRange;
+    if (dist > rangeLimit) return { visible: false, dist, angle: absAngle, central: false };
+
+    // LOS — дорого, проверяем только если потенциально видимо
+    if (!Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obstacles)) {
+      return { visible: false, dist, angle: absAngle, central: absAngle <= centralHalf };
     }
-    return false;
+    return { visible: true, dist, angle: absAngle, central: absAngle <= centralHalf };
   }
 
+  // FIX: обновление восприятия (Волна 2)
+  _updatePerception(dt, allUnits, obstacles, now) {
+    // 1. Затухание «seen» для всех, кого помним
+    for (const [target, mem] of this.perception) {
+      if (target.isDead) { this.perception.delete(target); continue; }
+      mem.seen = Math.max(0, mem.seen - CONFIG.PERCEPTION.LOSE_PER_SEC * dt);
+      if (mem.seen <= 0 && now - mem.lastSeen > CONFIG.PERCEPTION.MEMORY_SEC) {
+        this.perception.delete(target);
+      }
+    }
+
+    // 2. Только раз в scanInterval — полная проверка всех видимых
+    if (now - this._lastScanTime < this._scanInterval) return;
+    this._lastScanTime = now;
+
+    for (const other of allUnits) {
+      if (other === this || other.faction === this.faction || other.isDead) continue;
+
+      const vis = this._visibilityCheck(other, obstacles);
+      if (!vis.visible) continue;
+
+      // Скорость заполнения: центральный сектор — быстро, периферия — медленно
+      const fillRate = vis.central
+        ? 1 / CONFIG.PERCEPTION.CENTRAL_FILL_SEC
+        : 1 / CONFIG.PERCEPTION.PERIPHERAL_FILL_SEC;
+
+      const mem = this.perception.get(other) || { seen: 0, lastX: other.x, lastY: other.y, lastSeen: now, angle: 0 };
+      // Чем ближе — тем быстрее обнаружение
+      const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
+      mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
+      mem.lastX = other.x;
+      mem.lastY = other.y;
+      mem.lastSeen = now;
+      mem.angle = vis.angle;
+      this.perception.set(other, mem);
+    }
+  }
+
+  // Возвращает лучшую цель (seen > порог), либо null
+  _pickEngageTarget() {
+    let best = null;
+    let bestSeen = CONFIG.PERCEPTION.ENGAGE_THRESHOLD;
+    for (const [target, mem] of this.perception) {
+      if (target.isDead) continue;
+      if (mem.seen > bestSeen) {
+        const dist = Math.hypot(target.x - this.x, target.y - this.y);
+        if (dist <= this.weapon.effectiveRange) {
+          bestSeen = mem.seen;
+          best = target;
+        }
+      }
+    }
+    return best;
+  }
+
+  canSee(target, obstacles) {
+    const vis = this._visibilityCheck(target, obstacles);
+    if (!vis.visible) return false;
+    const mem = this.perception.get(target);
+    return mem ? mem.seen >= CONFIG.PERCEPTION.ENGAGE_THRESHOLD : false;
+  }
+
+  // ---------- Главный апдейт ----------
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
+    // Подавление: спад + снятие прижатия
     if (this.suppression > 0) {
-      this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt);
+      const timeSince = (performance.now() / 1000) - this.lastSuppressionTime;
+      if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) {
+        this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt);
+      }
     }
+    if (this.standLockTimer > 0) this.standLockTimer -= dt;
 
+    // Переход поз
+    this._updateStanceTransition(dt);
+
+    // Кровотечение
     if (this.bleedingRate > 0 && this.blood > 0) {
       this.blood = Math.max(0, this.blood - this.bleedingRate * dt);
       if (this.blood <= 0) { this._die(); return null; }
       if (this.blood < 15 && !this.isUnconscious) {
         this.isUnconscious = true;
         this.stance = 'prone';
-        this.isMoving = false;
+        this.stanceTransition = null;
+        this.isMoving = false; this._wantsToMove = false;
         this.path = [];
         EventBus.emit(EVENTS.UNIT_UNCONSCIOUS, this);
       } else if (this.blood >= 15 && this.isUnconscious) {
@@ -344,7 +485,11 @@ export class Unit {
       }
     }
 
-    if (this.isUnconscious) { this.weapon.update(dt); return null; }
+    if (this.isUnconscious) {
+      this.weapon.update(dt);
+      this._integrateVelocity(dt); // всё равно затухаем
+      return null;
+    }
 
     if (this.tinnitus > 0) this.tinnitus = Math.max(0, this.tinnitus - dt);
 
@@ -360,43 +505,22 @@ export class Unit {
     if (this.tinnitus > 0) hearingMult -= 0.5;
     this.hearingMultiplier = Math.max(0, hearingMult);
 
+    // Восприятие
+    const obs = this.pathfinder ? this.pathfinder.obstacles : null;
+    this._updatePerception(dt, allUnits, obs, currentTime);
+
     this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
-    if (this.isMoving) this.aimTime = 0;
+    // aimTime
+    if (this.isMoving || this._wantsToMove) this.aimTime = 0;
     else if (this.target) this.aimTime += dt;
     else this.aimTime = 0;
 
-    if (!this.target && this.isMoving && this.path.length > 0) {
-      if (this.pathIndex >= this.path.length) { this.isMoving = false; this.path = []; }
-      else {
-        const t = this.path[this.pathIndex];
-        const dx = t.x - this.x, dy = t.y - this.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < 0.5) {
-          this.pathIndex++;
-          if (this.pathIndex >= this.path.length) { this.isMoving = false; this.path = []; }
-        } else {
-          this.targetAngle = Math.atan2(dy, dx);
-          let sp = this.speed;
-          if (this.isLimping) sp *= 0.5;
-          if (this.isPressed) sp *= 0.6;
-          const stepLen = sp * dt;
-          const nx = this.x + (dx / dist) * stepLen;
-          const ny = this.y + (dy / dist) * stepLen;
-          const obs = this.pathfinder ? this.pathfinder.obstacles : null;
+    // Движение с инерцией
+    this._updateMovement(dt);
 
-          if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) { this.x = nx; this.y = ny; }
-          else {
-            let slid = false;
-            if (Physics.isPositionFree(nx, this.y, this.baseRadius, obs)) { this.x = nx; slid = true; }
-            else if (Physics.isPositionFree(this.x, ny, this.baseRadius, obs)) { this.y = ny; slid = true; }
-            if (!slid) { this.isMoving = false; this.path = []; this.needsRepath = true; }
-          }
-        }
-      }
-    }
-
+    // Шум шагов
     if (this.isMoving) {
       const base = AUDIO_CONFIG.stepLoudness[this.stance] || 60;
       const loudness = base + this.totalWeight * AUDIO_CONFIG.weightLoudnessPerKg;
@@ -408,6 +532,7 @@ export class Unit {
 
     this._updateStamina(dt);
 
+    // Поворот
     let angleDiff = this.targetAngle - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -420,26 +545,93 @@ export class Unit {
     return bullets.length ? bullets : null;
   }
 
-  _updateCombat(dt, allUnits, currentTime) {
-    let closestEnemy = null;
-    let minDist = this.weapon.effectiveRange;
+  // FIX: движение с ускорением и инерцией (Волна 2)
+  _updateMovement(dt) {
+    // Целевая скорость
+    let targetSpeedX = 0, targetSpeedY = 0;
+    let wantMove = false;
 
-    for (const other of allUnits) {
-      if (other.faction === this.faction || other.isDead) continue;
-      const dist = Math.hypot(other.x - this.x, other.y - this.y);
-      if (dist < minDist) {
-        const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-        if (this.canSee(other, obs)) { minDist = dist; closestEnemy = other; }
+    if (this._wantsToMove && this.path.length > 0 && !this.target) {
+      if (this.pathIndex >= this.path.length) {
+        this.isMoving = false; this._wantsToMove = false; this.path = [];
+      } else {
+        const p = this.path[this.pathIndex];
+        const dx = p.x - this.x, dy = p.y - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 0.5) {
+          this.pathIndex++;
+          if (this.pathIndex >= this.path.length) { this.isMoving = false; this._wantsToMove = false; this.path = []; }
+        } else {
+          this.targetAngle = Math.atan2(dy, dx);
+          let maxSp = this.speeds[this.stance];
+          if (this.isLimping) maxSp *= 0.5;
+          if (this.isPressed) maxSp *= CONFIG.SUPPRESSION.PRESSED_MOVE_MULT;
+          if (this.stanceTransition) maxSp *= 0.3; // медленно на переходе
+          targetSpeedX = (dx / dist) * maxSp;
+          targetSpeedY = (dy / dist) * maxSp;
+          wantMove = true;
+        }
       }
     }
 
-    this.target = closestEnemy;
+    this.isMoving = wantMove;
+
+    // Ускорение / торможение
+    const ax = targetSpeedX - this.vx;
+    const ay = targetSpeedY - this.vy;
+    const accel = wantMove ? this.accel : this.decel;
+    const maxDelta = accel * dt;
+    const deltaLen = Math.hypot(ax, ay);
+    if (deltaLen > 0.0001) {
+      const k = Math.min(1, maxDelta / deltaLen);
+      this.vx += ax * k;
+      this.vy += ay * k;
+    }
+
+    this._integrateVelocity(dt);
+  }
+
+  _integrateVelocity(dt) {
+    const sp = Math.hypot(this.vx, this.vy);
+    if (sp < CONFIG.MOVEMENT.STOP_EPS) {
+      this.vx = 0; this.vy = 0;
+      return;
+    }
+    const nx = this.x + this.vx * dt;
+    const ny = this.y + this.vy * dt;
+    const obs = this.pathfinder ? this.pathfinder.obstacles : null;
+
+    if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) {
+      this.x = nx; this.y = ny;
+    } else {
+      // Скольжение по оси
+      let slid = false;
+      if (Physics.isPositionFree(nx, this.y, this.baseRadius, obs)) { this.x = nx; slid = true; this.vy *= 0.3; }
+      else if (Physics.isPositionFree(this.x, ny, this.baseRadius, obs)) { this.y = ny; slid = true; this.vx *= 0.3; }
+      if (!slid) {
+        this.vx = 0; this.vy = 0;
+        this.isMoving = false; this._wantsToMove = false; this.path = []; this.needsRepath = true;
+      }
+    }
+  }
+
+  _updateCombat(dt, allUnits, currentTime) {
+    // FIX: цель из восприятия (Волна 2)
+    this.target = this._pickEngageTarget();
     if (!this.target) return;
 
-    this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
-    this.weapon.updateFireMode(minDist);
+    const mem = this.perception.get(this.target);
+    const targetDist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
+    // Если давно не видели — идём к последней позиции, не стреляем
+    const now = currentTime;
+    const stale = mem && (now - mem.lastSeen) > 2.0;
 
+    this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
+    this.weapon.updateFireMode(targetDist);
+
+    if (stale) return;
     if (this.isPressed && this.stance !== 'prone' && this.stance !== 'crouch') return;
+    if (this.stanceTransition && CONFIG.STANCE.FIRE_BLOCKED) return;
 
     if (this.weapon.canFire(currentTime)) {
       const b = this._shoot(currentTime);
@@ -455,7 +647,9 @@ export class Unit {
     let spread = this.weapon.spreadBase * (dist / 100);
 
     if (this.isLimping) spread *= 2.0;
-    if (this.isMoving) spread *= 3.0;
+    // FIX: движение через скорость (Волна 2)
+    const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand));
+    spread *= (1 + speedRatio * 3);
     if (this.stamina < 20) spread *= 1.5;
     if (this.blood < 70) spread *= 1.2;
     if (this.blood < 40) spread *= 1.5;
@@ -499,11 +693,7 @@ export class Unit {
       this.weapon.bulletSpeed, this.weapon.baseDamage,
       this.weapon.damageFalloff, this.weapon.maxFalloffDist,
       this.weapon.penetration, this,
-      {
-        drag: this.weapon.drag,
-        fragmentation: this.weapon.fragmentation,
-        isTracer,
-      }
+      { drag: this.weapon.drag, fragmentation: this.weapon.fragmentation, isTracer }
     );
   }
 
@@ -538,24 +728,29 @@ export class Unit {
     const screenPos = camera.worldToScreen(this.x, this.y);
     const color = this.isDead ? '#444' : (this.faction === 'player' ? '#4285F4' : '#EA4335');
 
+    // FIX: визуальный прогресс перехода (Волна 2)
+    let visualStance = this.stance;
+    let transitionT = 1;
+    if (this.stanceTransition) {
+      transitionT = this.stanceTransitionProgress;
+      // Между «from» и «to»: плавное изменение размера
+      visualStance = transitionT < 0.5 ? this.stanceTransition.from : this.stanceTransition.to;
+    }
+
     ctx.save();
     ctx.translate(screenPos.x, screenPos.y);
     ctx.rotate(this.angle);
 
-    if (this.stance === 'prone' || this.isUnconscious) {
-      // FIX: лежачий вытянут ВДОЛЬ взгляда (angle), а не поперёк
-      // Ось X локально = вперёд (длина тела), ось Y = вбок (ширина плеч)
-      const bodyLength = 1.6 * camera.zoom; // вдоль angle
-      const bodyWidth  = 0.5 * camera.zoom; // поперёк angle
-
-      // Центр смещён вперёд — голова впереди, ноги сзади
+    if (visualStance === 'prone' || this.isUnconscious) {
+      const bodyLength = 1.6 * camera.zoom;
+      const bodyWidth  = 0.5 * camera.zoom;
       const offsetForward = 0.2 * camera.zoom;
 
       ctx.beginPath();
       ctx.ellipse(
         offsetForward, 0,
-        Math.max(3, bodyLength / 2), // rx — вдоль angle
-        Math.max(2, bodyWidth / 2),  // ry — поперёк angle
+        Math.max(3, bodyLength / 2),
+        Math.max(2, bodyWidth / 2),
         0, 0, Math.PI * 2
       );
       ctx.fillStyle = color;
@@ -564,7 +759,6 @@ export class Unit {
       ctx.strokeStyle = '#000';
       ctx.stroke();
 
-      // Голова (маленький круг впереди) — визуальный ориентир
       const headScale = this.bodyParts.head?.stanceScale?.prone ?? 0.7;
       const headR = Math.max(2, (this.bodyParts.head?.hitbox?.r ?? 0.14) * headScale * camera.zoom);
       const headX = offsetForward + Math.max(3, bodyLength / 2) * 0.7;
@@ -575,7 +769,8 @@ export class Unit {
       ctx.strokeStyle = '#000';
       ctx.stroke();
     } else {
-      const r = Math.max(3, this.baseRadius * camera.zoom);
+      const crouchScale = visualStance === 'crouch' ? 0.8 : 1.0;
+      const r = Math.max(3, this.baseRadius * camera.zoom * crouchScale);
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fillStyle = color;
@@ -583,7 +778,7 @@ export class Unit {
       ctx.lineWidth = 1;
       ctx.strokeStyle = '#000';
       ctx.stroke();
-      if (r > 5 && this.stance !== 'crouch') {
+      if (r > 5 && visualStance !== 'crouch') {
         ctx.beginPath();
         ctx.arc(r * 0.6, 0, r * 0.3, 0, Math.PI * 2);
         ctx.fillStyle = '#fff';
@@ -594,18 +789,28 @@ export class Unit {
 
     // Индикатор подавления
     if (this.suppression > 0.1 && !this.isDead) {
-      const p = screenPos;
       ctx.beginPath();
-      ctx.arc(p.x, p.y - 20, 8, 0, Math.PI * 2 * this.suppression);
+      ctx.arc(screenPos.x, screenPos.y - 20, 8, 0, Math.PI * 2 * this.suppression);
       ctx.strokeStyle = this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED ? '#FF5500' : '#FFAA00';
       ctx.lineWidth = 2;
       ctx.stroke();
     }
 
+    // FIX: индикатор перехода поз (Волна 2)
+    if (this.stanceTransition) {
+      const w = 24, h = 3;
+      const x = screenPos.x - w / 2;
+      const y = screenPos.y - 32;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#5096ff';
+      ctx.fillRect(x, y, w * this.stanceTransitionProgress, h);
+    }
+
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
       const ringR = (this.stance === 'prone' || this.isUnconscious)
-        ? Math.max(3, 0.8 * camera.zoom) // кольцо вокруг центра, не вокруг вытянутого эллипса
+        ? Math.max(3, 0.8 * camera.zoom)
         : Math.max(3, this.baseRadius * camera.zoom);
       ctx.arc(screenPos.x, screenPos.y, ringR + 4, 0, Math.PI * 2);
       ctx.strokeStyle = '#F4B400';
@@ -614,8 +819,7 @@ export class Unit {
 
       if (this.isMoving && this.path.length > 0) {
         ctx.beginPath();
-        const start = camera.worldToScreen(this.x, this.y);
-        ctx.moveTo(start.x, start.y);
+        ctx.moveTo(screenPos.x, screenPos.y);
         for (let i = this.pathIndex; i < this.path.length; i++) {
           const p = camera.worldToScreen(this.path[i].x, this.path[i].y);
           ctx.lineTo(p.x, p.y);
@@ -674,4 +878,4 @@ export class Unit {
       }
     }
   }
-}
+ }
