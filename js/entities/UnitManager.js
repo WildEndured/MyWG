@@ -1,5 +1,4 @@
-// js/entities/UnitManager.js
-import { EventBus } from '../core/EventBus.js';
+import { EventBus, EVENTS } from '../core/EventBus.js';
 import { Unit } from './Unit.js';
 import { Pathfinder } from '../core/Pathfinder.js';
 import { Physics } from '../core/Physics.js';
@@ -11,39 +10,51 @@ export class UnitManager {
     this.selectedUnits = [];
     this.bullets = [];
     this.pathfinder = new Pathfinder(100, 1);
-    this.camera = null; 
+    this.camera = null;
     this._isSearchingPath = false;
-    this.tracers = []; 
-    this.flashes = []; // Для вспышек выстрелов
+    this.tracers = [];
+    this.flashes = [];
     this.currentTime = 0;
 
-    EventBus.on('input:tap', this.handleTap.bind(this));
-    EventBus.on('input:doubleTap', this.handleDoubleTap.bind(this));
-    
-    EventBus.on('unit:shoot', (data) => {
-      this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 });
-      
-      if (data.isMuzzleFlash) {
-        this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
-      }
-    });
+    this._unsubs = [
+      EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)),
+      EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
+      EventBus.on(EVENTS.UNIT_SHOOT, (data) => {
+        this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 });
+        if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
+      }),
+    ];
+  }
+
+  destroy() {
+    for (const unsub of this._unsubs) unsub();
+    this._unsubs = [];
+    this.units = [];
+    this.selectedUnits = [];
+    this.bullets = [];
+    this.tracers = [];
+    this.flashes = [];
   }
 
   setWorldSize(size) {
     this.pathfinder.setWorldSize(size);
-    this._spawnTestObstacles(size);
   }
 
   addUnit(unit) {
-    unit.pathfinder = this.pathfinder; 
+    unit.pathfinder = this.pathfinder;
     this.units.push(unit);
+  }
+
+  removeUnit(unit) {
+    const i = this.units.indexOf(unit);
+    if (i >= 0) this.units.splice(i, 1);
+    const j = this.selectedUnits.indexOf(unit);
+    if (j >= 0) this.selectedUnits.splice(j, 1);
   }
 
   getSafeSpawnPoint(desiredX, desiredY) {
     const obs = this.pathfinder.obstacles;
-    if (Physics.isPositionFree(desiredX, desiredY, 1.0, obs)) {
-      return { x: desiredX, y: desiredY };
-    }
+    if (Physics.isPositionFree(desiredX, desiredY, 1.0, obs)) return { x: desiredX, y: desiredY };
     return this.pathfinder.findNearestFreePoint(desiredX, desiredY);
   }
 
@@ -51,11 +62,11 @@ export class UnitManager {
     this.currentTime += dt;
 
     for (const unit of this.units) {
-      const bullet = unit.update(dt, this.units, this.currentTime); 
-      if (bullet) {
-        this.bullets.push(bullet);
+      const bullets = unit.update(dt, this.units, this.currentTime);
+      if (bullets) {
+        if (Array.isArray(bullets)) this.bullets.push(...bullets);
+        else this.bullets.push(bullets);
       }
-      
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
         if (unit.lastTarget) {
@@ -64,22 +75,24 @@ export class UnitManager {
         }
       }
     }
-    
+
     this._resolveCollisions();
+
+    // FIX: чистим мёртвых
+    for (let i = this.units.length - 1; i >= 0; i--) {
+      if (this.units[i].isDead) this.removeUnit(this.units[i]);
+    }
 
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const b = this.bullets[i];
       b.update(dt, this.units, this.pathfinder.obstacles);
-      if (b.isDead) {
-        this.bullets.splice(i, 1);
-      }
+      if (b.isDead) this.bullets.splice(i, 1);
     }
 
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       this.tracers[i].life -= dt;
       if (this.tracers[i].life <= 0) this.tracers.splice(i, 1);
     }
-
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       this.flashes[i].life -= dt;
       if (this.flashes[i].life <= 0) this.flashes.splice(i, 1);
@@ -89,12 +102,8 @@ export class UnitManager {
   _resolveCollisions() {
     for (let i = 0; i < this.units.length; i++) {
       for (let j = i + 1; j < this.units.length; j++) {
-        const u1 = this.units[i];
-        const u2 = this.units[j];
-        
+        const u1 = this.units[i], u2 = this.units[j];
         if (u1.isDead || u2.isDead) continue;
-        if (u1.stance === 'prone' || u2.stance === 'prone') continue;
-        
         const obs = this.pathfinder ? this.pathfinder.obstacles : null;
         Physics.resolveUnitCollision(u1, u2, obs);
       }
@@ -103,45 +112,35 @@ export class UnitManager {
 
   draw(ctx, camera) {
     this._drawObstacles(ctx, camera);
-    
-    const sortedUnits = [...this.units].sort((a, b) => a.y - b.y);
-    for (const unit of sortedUnits) {
-      unit.draw(ctx, camera);
-    }
+    const sorted = [...this.units].sort((a, b) => a.y - b.y);
+    for (const u of sorted) u.draw(ctx, camera);
+    for (const b of this.bullets) b.draw(ctx, camera);
 
-    for (const b of this.bullets) {
-      b.draw(ctx, camera);
-    }
-
-    // Трассеры
     ctx.lineWidth = 1.5;
     for (const t of this.tracers) {
       const p1 = camera.worldToScreen(t.x1, t.y1);
       const p2 = camera.worldToScreen(t.x2, t.y2);
-      
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
-      ctx.strokeStyle = `rgba(255, 255, 0, ${t.life * 20})`;
+      ctx.strokeStyle = `rgba(255, 255, 0, ${Math.max(0, t.life * 20)})`;
       ctx.stroke();
     }
-
-    // Вспышки
     for (const f of this.flashes) {
       const p = camera.worldToScreen(f.x, f.y);
-      const radius = (1.0 - f.life / 0.05) * 20; 
-      
+      const radius = (1.0 - f.life / 0.05) * 20;
       ctx.beginPath();
       ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 200, 0, ${f.life / 0.05})`;
+      ctx.fillStyle = `rgba(255, 200, 0, ${Math.max(0, f.life / 0.05)})`;
       ctx.fill();
     }
   }
 
-  _spawnTestObstacles(mapSize) {
+  // FIX: тестовые препятствия — только по флагу
+  _spawnTestObstacles(mapSize, enabled = true) {
     this.pathfinder.clearObstacles();
+    if (!enabled) return;
     const c = mapSize / 2;
-    
     this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood');
     this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete');
     this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags');
@@ -149,18 +148,12 @@ export class UnitManager {
 
   _drawObstacles(ctx, camera) {
     ctx.lineWidth = 1;
-
     for (const obs of this.pathfinder.obstacles) {
       const tl = camera.worldToScreen(obs.x, obs.y);
       const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
-      
-      if (obs.materialId === 'wood') ctx.fillStyle = '#8B5A2B';
-      else if (obs.materialId === 'sandbags') ctx.fillStyle = '#C2B280';
-      else if (obs.materialId === 'concrete') ctx.fillStyle = '#777';
-      else ctx.fillStyle = '#555';
-      
+      const colorMap = { wood: '#8B5A2B', sandbags: '#C2B280', concrete: '#777', steel: '#889', brick: '#a55' };
+      ctx.fillStyle = colorMap[obs.materialId] || '#555';
       ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-      
       ctx.strokeStyle = '#000';
       ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
     }
@@ -168,114 +161,79 @@ export class UnitManager {
 
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
-
-    let clickedUnit = null;
+    let clicked = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
       if (u.faction !== 'player' || u.isDead) continue;
-      
-      const dist = Math.hypot(u.x - x, u.y - y);
-      if (dist <= u.hitRadius) {
-        clickedUnit = u;
-        break;
-      }
+      if (Math.hypot(u.x - x, u.y - y) <= u.hitRadius) { clicked = u; break; }
     }
-
-    if (clickedUnit) {
-      this.selectUnits([clickedUnit]);
-    } else if (this.selectedUnits.length > 0) {
-      this._issueMoveOrder(x, y);
-    } else {
-      this.selectUnits([]); 
-    }
+    if (clicked) this.selectUnits([clicked]);
+    else if (this.selectedUnits.length > 0) this._issueMoveOrder(x, y);
+    else this.selectUnits([]);
   }
 
   handleDoubleTap({ x, y }) {
     if (this._isSearchingPath) return;
-
-    let clickedUnit = null;
+    let clicked = null;
     for (let i = this.units.length - 1; i >= 0; i--) {
       const u = this.units[i];
       if (u.faction !== 'player' || u.isDead) continue;
-      
-      const dist = Math.hypot(u.x - x, u.y - y);
-      if (dist <= u.hitRadius) {
-        clickedUnit = u;
-        break;
-      }
+      if (Math.hypot(u.x - x, u.y - y) <= u.hitRadius) { clicked = u; break; }
     }
+    if (!clicked) return;
+    if (!this.camera) return;
 
-    if (!clickedUnit) return; 
-
+    // FIX: используем roleId (а не несуществующий type)
+    const roleId = clicked.roleId;
+    const faction = clicked.faction;
     const selected = [];
-    const type = clickedUnit.type; 
-    const faction = clickedUnit.faction;
-
     for (const u of this.units) {
-      if (u.faction !== faction || u.type !== type || u.isDead) continue;
-      if (this.camera.isPointVisible(u.x, u.y)) {
-        selected.push(u);
-      }
+      if (u.faction !== faction || u.roleId !== roleId || u.isDead) continue;
+      if (this.camera.isPointVisible(u.x, u.y)) selected.push(u);
     }
-
     this.selectUnits(selected);
   }
 
   _issueMoveOrder(tx, ty) {
     this._isSearchingPath = true;
-    
-    const freeTarget = this.pathfinder.findNearestFreePoint(tx, ty);
-    
-    const count = this.selectedUnits.length;
-    const spacing = CONFIG.FORMATION.SPACING;
+    try {
+      const freeTarget = this.pathfinder.findNearestFreePoint(tx, ty);
+      const count = this.selectedUnits.length;
+      const spacing = CONFIG.FORMATION.SPACING;
+      const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
+      const rows = Math.max(1, Math.ceil(count / cols));
 
-    this.selectedUnits.forEach((unit, index) => {
-      if (unit.isDead) return;
-
-      let offsetX = 0;
-      let offsetY = 0;
-
-      if (count > 1) {
-        const cols = Math.ceil(Math.sqrt(count));
-        const row = Math.floor(index / cols);
-        const col = index % cols;
-        offsetX = (col - (cols - 1) / 2) * spacing;
-        offsetY = (row - (Math.ceil(count / cols) - 1) / 2) * spacing;
-      }
-
-      const individualTarget = this.pathfinder.findNearestFreePoint(
-        freeTarget.x + offsetX, 
-        freeTarget.y + offsetY
-      );
-
-      unit.lastTarget = individualTarget;
-      
-      const path = this.pathfinder.findPath(unit.x, unit.y, individualTarget.x, individualTarget.y);
-      unit.setPath(path);
-    });
-
-    this._isSearchingPath = false;
+      this.selectedUnits.forEach((unit, index) => {
+        if (unit.isDead) return;
+        let ox = 0, oy = 0;
+        if (count > 1) {
+          const row = Math.floor(index / cols);
+          const col = index % cols;
+          ox = (col - (cols - 1) / 2) * spacing;
+          oy = (row - (rows - 1) / 2) * spacing;
+        }
+        const target = this.pathfinder.findNearestFreePoint(freeTarget.x + ox, freeTarget.y + oy);
+        unit.lastTarget = target;
+        const path = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
+        unit.setPath(path);
+      });
+    } finally {
+      this._isSearchingPath = false;
+    }
   }
 
   selectUnits(units) {
-    for (const u of this.units) {
-      u.isSelected = false;
-    }
-    this.selectedUnits = units;
-    for (const u of this.selectedUnits) {
-      u.isSelected = true;
-    }
-    EventBus.emit('units:selected', this.selectedUnits);
+    const set = Array.isArray(units) ? units : [];
+    for (const u of this.units) u.isSelected = false;
+    this.selectedUnits = set;
+    for (const u of set) u.isSelected = true;
+    EventBus.emit(EVENTS.UNITS_SELECTED, this.selectedUnits);
   }
 
   setSelectedStance(stance) {
-    for (const unit of this.selectedUnits) {
-      if (unit.isDead) continue;
-      if (stance === 'run' && unit.stamina < 10) {
-        unit.setStance('stand');
-      } else {
-        unit.setStance(stance);
-      }
+    for (const u of this.selectedUnits) {
+      if (u.isDead) continue;
+      u.setStance(stance);
     }
   }
 }
