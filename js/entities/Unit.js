@@ -17,6 +17,7 @@ export class Unit {
     this.baseRadius = BASE_HUMAN.baseRadius; 
     this.hitRadius = BASE_HUMAN.hitRadius; 
     this.isDead = false;
+    this.isUnconscious = false;
     
     // Здоровье
     this.bodyParts = {};
@@ -25,12 +26,18 @@ export class Unit {
         hp: partData.maxHp,
         maxHp: partData.maxHp,
         fatal: partData.fatal,
+        bleedRate: partData.bleedRate || 0,
         subParts: partData.subParts ? JSON.parse(JSON.stringify(partData.subParts)) : null
       };
     }
     
     this.maxHp = this.getMaxTotalHp();
     this.hp = this.getTotalHp();
+
+    // КРОВЬ
+    this.maxBlood = 100;
+    this.blood = 100; 
+    this.bleedingRate = 0;
 
     this.maxStamina = BASE_HUMAN.maxStamina;
     this.stamina = this.maxStamina;
@@ -45,10 +52,9 @@ export class Unit {
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
     
-    // Сбор брони
+    // Броня
     this.armor = {};
     let armorWeight = 0;
-    
     for (const armorId of BASE_HUMAN.defaultArmor) {
       const config = ARMOR_CONFIGS[armorId];
       const armorClass = ARMOR_CLASSES[config.class];
@@ -64,10 +70,9 @@ export class Unit {
       }
     }
     
-    // Общий вес
+    // Общий вес и скорости
     this.totalWeight = this.weapon.weightLoaded + armorWeight;
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
-    
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
     
     this.stance = 'stand'; 
@@ -121,13 +126,15 @@ export class Unit {
         finalDamage = amount * 0.1;
         armorPiece.durability -= amount * 0.1;
       }
-
       if (armorPiece.durability < 0) armorPiece.durability = 0;
     }
 
+    // Применение урона
     let isSubPartHit = false;
     const part = this.bodyParts[hitZone];
     if (!part) return;
+
+    let localBleed = part.bleedRate || 0;
 
     if (part.subParts && part.subParts.length > 0) {
       const r = Math.random() * 100;
@@ -138,6 +145,8 @@ export class Unit {
           isSubPartHit = true;
           sub.hp -= finalDamage;
           
+          if (sub.bleedRate > localBleed) localBleed = sub.bleedRate;
+
           if (sub.hp <= 0) {
             sub.hp = 0;
             if (sub.fatal || sub.id === 'brain' || sub.id === 'heart' || sub.id === 'spine' || sub.id === 'liver') {
@@ -154,6 +163,11 @@ export class Unit {
     if (part.hp <= 0) {
       part.hp = 0;
       if (part.fatal) { this._die(); return; }
+    }
+
+    // Активация кровотечения
+    if (finalDamage > 5 && localBleed > 0) {
+      this.bleedingRate = Math.max(this.bleedingRate, localBleed);
     }
 
     if (hitZone === 'leftLeg' || hitZone === 'rightLeg') this.isLimping = true;
@@ -195,7 +209,7 @@ export class Unit {
 
   setStance(newStance) {
     if (this.stance === newStance) return;
-    if (newStance === 'run' && (this.stamina < 10 || this.isLimping)) return;
+    if (newStance === 'run' && (this.stamina < 10 || this.isLimping || this.isUnconscious)) return;
     this.stance = newStance;
     this.speed = this.speeds[this.stance];
   }
@@ -209,6 +223,32 @@ export class Unit {
 
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
+
+    // Обновление крови
+    if (this.bleedingRate > 0 && this.blood > 0) {
+      this.blood -= this.bleedingRate * dt;
+      
+      if (this.blood <= 0) {
+        this.blood = 0;
+        this._die();
+        return null;
+      }
+
+      if (this.blood < 15 && !this.isUnconscious) {
+        this.isUnconscious = true;
+        this.stance = 'prone';
+        this.isMoving = false;
+        this.path = [];
+        EventBus.emit('unit:unconscious', this);
+      } else if (this.blood >= 15 && this.isUnconscious) {
+        this.isUnconscious = false;
+      }
+    }
+
+    if (this.isUnconscious) {
+      this.weapon.update(dt);
+      return null;
+    }
 
     const bullet = this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
@@ -294,7 +334,7 @@ export class Unit {
   }
 
   _shoot(currentTime) {
-    if (!this.isArmed) return null;
+    if (!this.isArmed || this.isUnconscious) return null;
 
     if (this.weapon.fire(currentTime)) {
       const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
@@ -303,6 +343,11 @@ export class Unit {
       if (this.isLimping) spread *= 2.0;
       if (this.isMoving) spread *= 3.0;
       if (this.stamina < 20) spread *= 1.5;
+      
+      // Штраф от кровопотери на точность
+      if (this.blood < 70) spread *= 1.2;
+      if (this.blood < 40) spread *= 1.5;
+
       if (this.target.isMoving) spread *= 1.5;
       if (this.target.stance === 'prone') spread *= 1.2;
       else if (this.target.stance === 'crouch') spread *= 1.1;
@@ -353,12 +398,17 @@ export class Unit {
       if (this.staminaCooldown > 0) {
         this.staminaCooldown -= dt;
       } else {
-        let recoveryMultiplier = 1.0;
-        if (this.stance === 'stand') recoveryMultiplier = 1.0;
-        else if (this.stance === 'crouch') recoveryMultiplier = 1.2;
-        else if (this.stance === 'prone') recoveryMultiplier = 1.5;
+        // Штраф от кровопотери на восстановление
+        let recoveryMult = 1.0;
+        if (this.blood < 70) recoveryMult = 0.7;
+        if (this.blood < 40) recoveryMult = 0.4;
+        if (this.blood < 15) recoveryMult = 0.1;
+
+        let baseRec = this.baseRecoveryRate;
+        if (this.stance === 'crouch') baseRec *= 1.2;
+        else if (this.stance === 'prone') baseRec *= 1.5;
         
-        const recovery = (this.baseRecoveryRate * recoveryMultiplier) / this.staminaPenalty;
+        const recovery = (baseRec * recoveryMult) / this.staminaPenalty;
         this.stamina += recovery * dt;
       }
     }
@@ -377,7 +427,7 @@ export class Unit {
     ctx.translate(screenPos.x, screenPos.y);
     ctx.rotate(this.angle);
     
-    if (this.stance === 'prone') {
+    if (this.stance === 'prone' || this.isUnconscious) {
       const w = 0.8 * camera.zoom;
       const h = 1.6 * camera.zoom;
       ctx.beginPath();
@@ -408,7 +458,7 @@ export class Unit {
 
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
-      const ringRadius = this.stance === 'prone' ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
+      const ringRadius = (this.stance === 'prone' || this.isUnconscious) ? (1.6 * camera.zoom) / 2 : Math.max(3, this.baseRadius * camera.zoom);
       ctx.arc(screenPos.x, screenPos.y, ringRadius + 4, 0, Math.PI * 2);
       ctx.strokeStyle = '#F4B400';
       ctx.lineWidth = 2;
@@ -433,7 +483,7 @@ export class Unit {
       const isTired = this.stamina < this.maxStamina;
       const isReloading = this.weapon.isReloading;
       
-      if (isDamaged || isTired || isReloading) {
+      if (isDamaged || isTired || isReloading || this.bleedingRate > 0) {
         const barW = Math.max(20, this.baseRadius * camera.zoom * 2);
         const barH = 3;
         const barX = screenPos.x - barW / 2;
@@ -456,6 +506,17 @@ export class Unit {
           ctx.fillStyle = '#5096ff';
           const reloadProgress = 1 - (this.weapon.reloadTimer / this.weapon.reloadTime);
           ctx.fillRect(barX, currentY, barW * reloadProgress, barH);
+        }
+
+        // Индикатор кровотечения
+        if (this.bleedingRate > 0) {
+          ctx.fillStyle = '#EA4335';
+          const pulse = Math.sin(performance.now() / 200) * 0.5 + 0.5;
+          ctx.globalAlpha = 0.5 + pulse * 0.5;
+          ctx.beginPath();
+          ctx.arc(screenPos.x, screenPos.y - 25, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1.0;
         }
       }
     }
