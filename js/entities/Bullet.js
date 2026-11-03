@@ -25,6 +25,17 @@ export class Bullet {
     this.vy += CONFIG.BALLISTICS.GRAVITY * dt;
     const dragFactor = Math.exp(-this.drag * dt);
     this.vx *= dragFactor; this.vy *= dragFactor;
+    
+    // НОВОЕ: Рикошет от пола (если пуля летит вниз под малым углом)
+    if (this.vy > 0 && this.y > (pathfinder?.worldSize || 1000) - 1) {
+       // Условный "пол" — нижняя граница карты
+       this.y = (pathfinder?.worldSize || 1000) - 1;
+       this.vy = -this.vy * 0.3; // Отскок с потерей энергии
+       this.vx *= 0.8;
+       EventBus.emit(EVENTS.BULLET_IMPACT, { x: this.x, y: this.y, type: 'ricochet' });
+       return;
+    }
+
     const nextX = this.x + this.vx * dt, nextY = this.y + this.vy * dt;
 
     if (obstacles) {
@@ -37,10 +48,9 @@ export class Bullet {
         if (obs.hp <= 0) { pathfinder.removeObstacle(obs); EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'wall_break' }); }
 
         if (this.penetration >= requiredBr) {
-          // НОВОЕ: Потеря энергии и кувыркание после стены
           this.baseDamage *= 0.4;
           this.penetration = Math.max(0, this.penetration - requiredBr);
-          this.vx *= 0.5; this.vy *= 0.5; // Резкое падение скорости
+          this.vx *= 0.5; this.vy *= 0.5;
           EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'wall' });
           break;
         } else {
@@ -74,13 +84,12 @@ export class Bullet {
 
         unit.takeDamage(finalDamage, hit.partId, this.penetration, hit.subPartId);
         EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'blood', amount: finalDamage, unit, hitZone: hit.partId });
-        EventBus.emit(EVENTS.SHELL_EJECT, { x: this.x, y: this.y }); // Гильза (условно)
+        EventBus.emit(EVENTS.SHELL_EJECT, { x: this.x, y: this.y });
 
-        // НОВОЕ: Overpenetration (пробитие насквозь)
         if (this.overpenetration > 0 && Math.random() < this.overpenetration) {
           this.baseDamage *= 0.6;
           this.penetration = Math.max(0, this.penetration - 2);
-          this.isDead = false; // Продолжаем полет
+          this.isDead = false;
         } else {
           this.isDead = true;
         }
@@ -103,7 +112,7 @@ export class Bullet {
     dmg *= (1.0 - t * this.damageFalloff) * (0.7 + 0.3 * speedRatio);
     return Math.max(0, Math.round(dmg));
   }
-  // ... (остальные методы: _incidenceAngle, _thicknessAlong, _reflectFromBox)
+  
   _incidenceAngle(obs) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - obs.x), dr = Math.abs(cx - (obs.x + obs.w));
