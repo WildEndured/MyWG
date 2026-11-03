@@ -83,7 +83,6 @@ export class Unit {
 
   takeDamage(amount, hitZone = 'torso') {
     if (this.isDead) return;
-    let finalZone = hitZone;
     let isSubPartHit = false;
     const part = this.bodyParts[hitZone];
     if (!part) return;
@@ -94,7 +93,6 @@ export class Unit {
       for (const sub of part.subParts) {
         acc += sub.weight;
         if (r <= acc) {
-          finalZone = sub.id;
           isSubPartHit = true;
           sub.hp -= amount;
           if (sub.hp <= 0) {
@@ -280,7 +278,15 @@ export class Unit {
         targetY = this.y + Math.sin(missAngle) * missDist;
       }
 
-      return new Bullet(this.x, this.y, targetX, targetY, this.weapon.bulletSpeed, this.weapon.damage, this);
+      return new Bullet(
+        this.x, this.y, 
+        targetX, targetY, 
+        this.weapon.bulletSpeed, 
+        this.weapon.baseDamage, 
+        this.weapon.damageFalloff,
+        this.weapon.maxFalloffDist,
+        this
+      );
     }
     return null;
   }
@@ -398,7 +404,7 @@ export class Unit {
           ctx.fillRect(barX, currentY, barW * (this.stamina / this.maxStamina), barH);
           currentY -= (barH + 2);
         }
-                if (isReloading) {
+        if (isReloading) {
           ctx.fillStyle = '#333'; ctx.fillRect(barX, currentY, barW, barH);
           ctx.fillStyle = '#5096ff';
           const reloadProgress = 1 - (this.weapon.reloadTimer / this.weapon.reloadTime);
@@ -407,4 +413,4 @@ export class Unit {
       }
     }
   }
-} // <--- ЭТА СКОБКА ЗАКРЫВАЕТ КЛАСС Unit. БЕЗ НЕЕ БУДЕТ ОШИБКА.
+ }
