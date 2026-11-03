@@ -2,7 +2,7 @@
 import { EventBus } from '../core/EventBus.js';
 
 export class Bullet {
-  constructor(x, y, targetX, targetY, speed, baseDamage, damageFalloff, maxFalloffDist, owner) {
+  constructor(x, y, targetX, targetY, speed, baseDamage, damageFalloff, maxFalloffDist, penetration, owner) {
     this.x = x;
     this.y = y;
     this.startX = x;
@@ -21,6 +21,7 @@ export class Bullet {
     this.baseDamage = baseDamage;
     this.damageFalloff = damageFalloff;
     this.maxFalloffDist = maxFalloffDist;
+    this.penetration = penetration;
     
     this.owner = owner; 
     this.isDead = false;
@@ -41,6 +42,7 @@ export class Bullet {
     const nextX = this.x + this.dirX * step;
     const nextY = this.y + this.dirY * step;
 
+    // Проверка стен
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX >= obs.x && nextX <= obs.x + obs.w && nextY >= obs.y && nextY <= obs.y + obs.h) {
@@ -50,8 +52,13 @@ export class Bullet {
       }
     }
 
+    // Проверка юнитов
     for (const unit of allUnits) {
-      if (unit.isDead || unit.faction === this.owner.faction) continue;
+      // ЗАЩИТА: если юнита нет (undefined) или он мертв
+      if (!unit || unit.isDead) continue;
+      
+      // ЗАЩИТА: не стреляем в своих (если owner есть)
+      if (this.owner && unit.faction === this.owner.faction) continue;
 
       const hit = this._lineIntersectsCircle(
         this.x, this.y, nextX, nextY, 
@@ -73,7 +80,7 @@ export class Bullet {
         else hitZone = 'rightLeg';
         
         const finalDamage = this._calculateDamage();
-        unit.takeDamage(finalDamage, hitZone);
+        unit.takeDamage(finalDamage, hitZone, this.penetration);
         EventBus.emit('bullet:impact', { x: nextX, y: nextY, type: 'blood' });
         return;
       }
@@ -119,4 +126,4 @@ export class Bullet {
     ctx.fillStyle = '#FFFF00'; 
     ctx.fill();
   }
-}
+      }
