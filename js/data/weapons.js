@@ -1,4 +1,3 @@
-// js/data/weapons.js
 export const WEAPONS = {
   ak74: {
     id: 'ak74',
@@ -12,7 +11,11 @@ export const WEAPONS = {
     fireModes: ['single', 'auto'],
     spreadBase: 0.3,
     reloadTime: 2.5,
-    noiseMultiplier: 1.0 // Стандартный ствол
+    noiseMultiplier: 1.0,
+    misfireChance: 0.01,
+    heatPerShot: 1.5,
+    maxHeat: 100,
+    coolingRate: 10,
   },
   pkm: {
     id: 'pkm',
@@ -26,6 +29,20 @@ export const WEAPONS = {
     fireModes: ['auto'],
     spreadBase: 0.5,
     reloadTime: 6.0,
-    noiseMultiplier: 1.2 // Длинный ствол + мощный патрон (громче)
+    noiseMultiplier: 1.2,
+    misfireChance: 0.02,
+    heatPerShot: 1.5,
+    maxHeat: 100,
+    coolingRate: 10,
   }
 };
+
+// FIX: валидатор
+export function validateWeapons(calibers) {
+  const errors = [];
+  for (const [id, w] of Object.entries(WEAPONS)) {
+    if (w.id !== id) errors.push(`weapon id mismatch: ${id} != ${w.id}`);
+    if (!calibers[w.caliber]) errors.push(`weapon ${id}: unknown caliber ${w.caliber}`);
+  }
+  return errors;
+}
