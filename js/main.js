@@ -1,35 +1,48 @@
-// js/main.js
 import { Camera } from './core/Camera.js';
 import { Input } from './core/Input.js';
-import { EventBus } from './core/EventBus.js';
+import { EventBus, EVENTS } from './core/EventBus.js';
 import { TimeManager } from './core/TimeManager.js';
 import { GameMap } from './world/map.js';
 import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
-import { MAP_PRESETS } from './data/config.js';
+import { CONFIG } from './data/config.js';
 import { Debug } from './core/Debug.js';
+import { validateArmorData } from './data/armor.js';
+import { validateWeapons } from './data/weapons.js';
+import { CALIBERS } from './data/calibers.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false });
 const coordsDiv = document.getElementById('coords');
 
+// FIX: валидация данных при старте
+{
+  const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)];
+  if (errs.length) console.error('[data] validation errors:', errs);
+}
+
 const camera = new Camera(canvas);
 const map = new GameMap(camera);
 const input = new Input(canvas, camera);
 const unitManager = new UnitManager();
-unitManager.camera = camera; 
+unitManager.camera = camera;
 
-let dpr = 1;
+// FIX: экспорт для Debug
+window.__TimeManager = TimeManager;
+
 let lastTime = performance.now();
+let rafId = 0;
 
 function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = window.innerWidth;
   const h = window.innerHeight;
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
   canvas.width = Math.floor(w * dpr);
   canvas.height = Math.floor(h * dpr);
+  camera.setDpr(dpr);
+  camera.clampTo(map.size, map.size);
 }
 
 function setMapSize(meters) {
@@ -37,11 +50,12 @@ function setMapSize(meters) {
   input.setWorldSize(meters);
   unitManager.setWorldSize(meters);
   camera.fit(meters, meters);
-  
+  camera.clampTo(meters, meters);
+
   document.querySelectorAll('.hud-top-left button[data-size]').forEach(b => {
     b.classList.toggle('active', Number(b.dataset.size) === meters);
   });
-  
+
   spawnInitialUnits(meters);
 }
 
@@ -49,138 +63,160 @@ function spawnInitialUnits(mapSize) {
   unitManager.units = [];
   unitManager.selectedUnits = [];
   unitManager.bullets = [];
+  unitManager.tracers = [];
+  unitManager.flashes = [];
+  unitManager._spawnTestObstacles(mapSize, true);
 
   const center = mapSize / 2;
   const offset = mapSize * 0.1;
 
-  // Игроки (синие)
-  let p1 = unitManager.getSafeSpawnPoint(center - offset, center);
-  unitManager.addUnit(new Unit(p1.x, p1.y, 'player', 'infantry'));
+  const spawn = (dx, dy, faction, role) => {
+    const p = unitManager.getSafeSpawnPoint(center + dx, center + dy);
+    // clamp в границы карты
+    const cx = Math.max(0, Math.min(mapSize, p.x));
+    const cy = Math.max(0, Math.min(mapSize, p.y));
+    unitManager.addUnit(new Unit(cx, cy, faction, role));
+  };
 
-  let p2 = unitManager.getSafeSpawnPoint(center - offset, center + offset * 0.5);
-  unitManager.addUnit(new Unit(p2.x, p2.y, 'player', 'machinegunner'));
-
-  let p3 = unitManager.getSafeSpawnPoint(center - offset * 0.5, center - offset);
-  unitManager.addUnit(new Unit(p3.x, p3.y, 'player', 'infantry'));
-  
-  // Враги (красные)
-  let e1 = unitManager.getSafeSpawnPoint(center + offset, center);
-  unitManager.addUnit(new Unit(e1.x, e1.y, 'enemy', 'infantry'));
-
-  let e2 = unitManager.getSafeSpawnPoint(center + offset, center + offset);
-  unitManager.addUnit(new Unit(e2.x, e2.y, 'enemy', 'machinegunner'));
-
-  unitManager._spawnTestObstacles(mapSize);
+  spawn(-offset, 0, 'player', 'infantry');
+  spawn(-offset, offset * 0.5, 'player', 'machinegunner');
+  spawn(-offset * 0.5, -offset, 'player', 'infantry');
+  spawn(offset, 0, 'enemy', 'infantry');
+  spawn(offset, offset, 'enemy', 'machinegunner');
 }
 
-EventBus.on('input:tap', (data) => {
-  coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
-});
-
-EventBus.on('world:noise', ({ x, y, radius, source, isGunshot }) => {
+// FIX: слух по единой шкале (loudness / sqrt(dist))
+EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => {
+  if (!source || !loudness) return;
   for (const unit of unitManager.units) {
     if (unit.isDead || unit.faction === source.faction) continue;
-    
-    const dist = Math.hypot(unit.x - x, unit.y - y);
-    if (dist <= radius * unit.hearingMultiplier) {
-      unit.lastHeardNoise = { x, y, isGunshot };
+    const dist = Math.max(0.5, Math.hypot(unit.x - x, unit.y - y));
+    const heard = loudness / Math.sqrt(dist) * unit.hearingMultiplier;
+    if (heard >= 10) {
+      unit.lastHeardNoise = { x, y, loudness, time: performance.now() };
     }
   }
+});
+
+EventBus.on(EVENTS.INPUT_TAP, (data) => {
+  if (coordsDiv) coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`;
 });
 
 document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => {
-  btn.addEventListener('click', () => setMapSize(Number(btn.dataset.size)));
+  btn.addEventListener('click', () => {
+    // FIX: подтверждение сброса боя
+    const meters = Number(btn.dataset.size);
+    if (meters !== map.size && unitManager.units.some(u => !u.isDead)) {
+      if (!confirm('Сменить карту? Текущий бой будет сброшен.')) return;
+    }
+    setMapSize(meters);
+  });
 });
 
-document.getElementById('fit').addEventListener('click', () => {
-  camera.fit(map.size, map.size);
-});
+const fitBtn = document.getElementById('fit');
+if (fitBtn) fitBtn.addEventListener('click', () => { camera.fit(map.size, map.size); camera.clampTo(map.size, map.size); });
 
 const stanceButtons = {
-  'btn-stand': 'stand',
-  'btn-run': 'run',
-  'btn-crouch': 'crouch',
-  'btn-prone': 'prone'
+  'btn-stand': 'stand', 'btn-run': 'run', 'btn-crouch': 'crouch', 'btn-prone': 'prone',
 };
+
+function updateStanceUI(active) {
+  for (const [id, stance] of Object.entries(stanceButtons)) {
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.toggle('active', stance === active);
+  }
+}
 
 for (const [id, stance] of Object.entries(stanceButtons)) {
   const btn = document.getElementById(id);
-  if (btn) {
-    btn.addEventListener('click', () => {
-      unitManager.setSelectedStance(stance);
-      updateStanceUI(stance); 
-    });
-  }
-}
-
-function updateStanceUI(activeStance) {
-  for (const [id, stance] of Object.entries(stanceButtons)) {
-    const btn = document.getElementById(id);
-    if (btn) {
-      btn.classList.toggle('active', stance === activeStance);
-    }
-  }
-}
-
-updateStanceUI('stand');
-
-document.getElementById('btn-pause').addEventListener('click', () => {
-  TimeManager.togglePause();
-});
-
-document.getElementById('btn-speed-1').addEventListener('click', () => TimeManager.setTimeScale(1.0));
-document.getElementById('btn-speed-2').addEventListener('click', () => TimeManager.setTimeScale(2.0));
-document.getElementById('btn-speed-4').addEventListener('click', () => TimeManager.setTimeScale(4.0));
-
-EventBus.on('time:changed', ({ scale, isPaused }) => {
-  document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
-  
-  if (isPaused) {
-    document.getElementById('btn-pause').classList.add('active');
-  } else {
-    const activeBtn = document.getElementById(`btn-speed-${scale}`);
-    if (activeBtn) activeBtn.classList.add('active');
-  }
-});
-
-const debugBtn = document.getElementById('btn-debug');
-if (debugBtn) {
-  debugBtn.addEventListener('click', () => {
-    Debug.isEnabled = !Debug.isEnabled;
-    debugBtn.classList.toggle('active', Debug.isEnabled);
+  if (btn) btn.addEventListener('click', () => {
+    unitManager.setSelectedStance(stance);
+    updateStanceUI(stance);
   });
 }
+updateStanceUI('stand');
 
+// Пауза и скорости
+const pauseBtn = document.getElementById('btn-pause');
+if (pauseBtn) pauseBtn.addEventListener('click', () => TimeManager.togglePause());
+[1, 2, 4].forEach(s => {
+  const b = document.getElementById(`btn-speed-${s}`);
+  if (b) b.addEventListener('click', () => TimeManager.setTimeScale(s));
+});
+
+EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused }) => {
+  document.querySelectorAll('.time-btn').forEach(btn => {
+    // FIX: не трогаем debug-кнопку
+    if (btn.id === 'btn-debug') return;
+    btn.classList.remove('active');
+  });
+  if (isPaused) {
+    document.getElementById('btn-pause')?.classList.add('active');
+  } else {
+    document.getElementById(`btn-speed-${scale}`)?.classList.add('active');
+  }
+});
+
+// Debug
+const debugBtn = document.getElementById('btn-debug');
+function syncDebugButton() {
+  if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled);
+}
+if (debugBtn) {
+  debugBtn.addEventListener('click', () => {
+    Debug.setEnabled(!Debug.isEnabled);
+    syncDebugButton();
+  });
+}
+EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
+
+// Игровой цикл
 function frame(now) {
   const realDt = (now - lastTime) / 1000;
   lastTime = now;
 
-  const dt = TimeManager.getScaledDt(realDt);
+  let dt = TimeManager.getScaledDt(realDt);
+  dt = Math.min(dt, CONFIG.MAX_DT);
 
   if (dt > 0) {
-    unitManager.update(dt);
+    try { unitManager.update(dt); }
+    catch (err) { console.error('[Game] update error:', err); }
   }
 
   Debug.update(realDt);
 
+  const dpr = camera.dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  map.draw(ctx);
-  unitManager.draw(ctx, camera);
-  
-  Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
+  try {
+    map.draw(ctx);
+    unitManager.draw(ctx, camera);
+    Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
+  } catch (err) {
+    console.error('[Game] draw error:', err);
+  }
 
-  requestAnimationFrame(frame);
+  rafId = requestAnimationFrame(frame);
 }
+
+// FIX: destroy при unload
+window.addEventListener('beforeunload', () => {
+  cancelAnimationFrame(rafId);
+  input.destroy();
+  unitManager.destroy();
+  Debug.destroy();
+});
 
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 100));
 
+// FIX: пауза при скрытой вкладке
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && !TimeManager.isPaused) TimeManager.togglePause();
+});
+
 resize();
 setMapSize(100);
 lastTime = performance.now();
-requestAnimationFrame(frame);
+rafId = requestAnimationFrame(frame);
 
-setTimeout(() => {
-  resize();
-  camera.fit(map.size, map.size);
-}, 100);
+// FIX: убран двойной setTimeout — fit уже вызван внутри setMapSize
