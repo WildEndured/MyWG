@@ -6,17 +6,18 @@ export class Camera {
     this.x = x;
     this.y = y;
     this.zoom = zoom;
-    this.dpr = dpr; // FIX: dpr — единый источник истины
+    this.dpr = dpr;
     this.minZoom = CONFIG.MIN_PX_PER_METER;
     this.maxZoom = CONFIG.MAX_PX_PER_METER;
   }
 
   setDpr(dpr) { this.dpr = dpr; }
 
-  get vw() { return this.canvas.clientWidth; }
-  get vh() { return this.canvas.clientHeight; }
+  get vw() { return this.canvas.clientWidth || 1; }
+  get vh() { return this.canvas.clientHeight || 1; }
 
   screenToWorld(sx, sy) {
+    if (!Number.isFinite(sx) || !Number.isFinite(sy)) return { x: 0, y: 0 };
     return {
       x: (sx - this.vw / 2) / this.zoom + this.x,
       y: (sy - this.vh / 2) / this.zoom + this.y,
@@ -24,6 +25,7 @@ export class Camera {
   }
 
   worldToScreen(wx, wy) {
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) return { x: -9999, y: -9999 };
     return {
       x: (wx - this.x) * this.zoom + this.vw / 2,
       y: (wy - this.y) * this.zoom + this.vh / 2,
@@ -31,7 +33,12 @@ export class Camera {
   }
 
   clampTo(worldW, worldH) {
-    if (!(worldW > 0) || !(worldH > 0)) return;
+    if (!Number.isFinite(worldW) || !Number.isFinite(worldH) || worldW <= 0 || worldH <= 0) return;
+    if (!Number.isFinite(this.x) || !Number.isFinite(this.y) || !Number.isFinite(this.zoom)) {
+      this.x = worldW / 2; this.y = worldH / 2; this.zoom = 2;
+      return;
+    }
+
     const halfW = (this.vw / 2) / this.zoom;
     const halfH = (this.vh / 2) / this.zoom;
 
@@ -52,7 +59,7 @@ export class Camera {
   }
 
   fit(worldW, worldH) {
-    if (!(worldW > 0) || !(worldH > 0)) return;
+    if (!Number.isFinite(worldW) || !Number.isFinite(worldH) || worldW <= 0 || worldH <= 0) return;
     const zx = this.vw / worldW;
     const zy = this.vh / worldH;
     this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, Math.min(zx, zy)));
@@ -61,6 +68,7 @@ export class Camera {
   }
 
   isPointVisible(wx, wy, marginPx = 50) {
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) return false;
     const screen = this.worldToScreen(wx, wy);
     return screen.x >= -marginPx && screen.x <= this.vw + marginPx &&
            screen.y >= -marginPx && screen.y <= this.vh + marginPx;
