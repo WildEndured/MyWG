@@ -4,7 +4,6 @@ import { Unit } from './Unit.js';
 import { Pathfinder } from '../core/Pathfinder.js';
 import { Physics } from '../core/Physics.js';
 import { CONFIG } from '../data/config.js';
-import { Bullet } from './Bullet.js';
 
 export class UnitManager {
   constructor() {
