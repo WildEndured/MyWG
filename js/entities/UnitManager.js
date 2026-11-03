@@ -87,18 +87,22 @@ export class UnitManager {
         else this.bullets.push(bullets);
       }
 
-      // FIX: репас — с fallback на текущую цель
+      // FIX: Репас и защита от бесконечного цикла
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
-        const target = unit.lastTarget
-          || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
+        const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
+        
         if (target) {
           const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
+          
+          // Если путь найден и он не пустой — идём
           if (newPath && newPath.length > 0) {
             unit.setPath(newPath);
           } else {
+            // Пути нет (стена/препятствие) — сбрасываем намерение
             unit._wantsToMove = false;
             unit.isMoving = false;
+            unit.lastTarget = null;
           }
         } else {
           unit._wantsToMove = false;
@@ -257,6 +261,7 @@ export class UnitManager {
       const spacing = CONFIG.FORMATION.SPACING;
       const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
       const rows = Math.max(1, Math.ceil(count / cols));
+      
       this.selectedUnits.forEach((unit, index) => {
         if (unit.isDead) return;
         let ox = 0, oy = 0;
@@ -267,9 +272,16 @@ export class UnitManager {
           oy = (row - (rows - 1) / 2) * spacing;
         }
         const target = this.pathfinder.findNearestFreePoint(freeTarget.x + ox, freeTarget.y + oy);
-        unit.lastTarget = target;
         const path = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
-        unit.setPath(path);
+        
+        // FIX: Если путь не найден — не отдаём приказ!
+        if (path && path.length > 0) {
+          unit.lastTarget = target;
+          unit.setPath(path);
+        } else {
+          // Опционально: можно показать "Х" над юнитом, что пути нет
+          console.warn("No path found for unit", unit.roleId);
+        }
       });
     } finally {
       this._isSearchingPath = false;
