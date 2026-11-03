@@ -531,7 +531,9 @@ export class Unit {
         const p = this.path[this.pathIndex];
         const dx = p.x - this.x, dy = p.y - this.y;
         const dist = Math.hypot(dx, dy);
-        if (dist < 0.5) {
+        
+        // Если до точки меньше 0.3 метра — идем к следующей
+        if (dist < 0.3) {
           this.pathIndex++;
           if (this.pathIndex >= this.path.length) {
             this.isMoving = false; this._wantsToMove = false; this.path = [];
@@ -543,7 +545,6 @@ export class Unit {
           if (this.isPressed) maxSp *= CONFIG.SUPPRESSION.PRESSED_MOVE_MULT;
           if (this.stanceTransition) maxSp *= 0.3;
           
-          // ЗАЩИТА: делим только если dist > 0
           const safeDist = Math.max(0.001, dist);
           targetSpeedX = (dx / safeDist) * maxSp;
           targetSpeedY = (dy / safeDist) * maxSp;
@@ -565,7 +566,6 @@ export class Unit {
       this.vy += ay * k;
     }
 
-    // ЗАЩИТА: если скорость стала NaN — сбрасываем её
     if (!Number.isFinite(this.vx)) this.vx = 0;
     if (!Number.isFinite(this.vy)) this.vy = 0;
 
@@ -581,7 +581,6 @@ export class Unit {
     const nx = this.x + this.vx * dt;
     const ny = this.y + this.vy * dt;
     
-    // ЗАЩИТА: не двигаемся, если координаты сломались
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
       this.vx = 0; this.vy = 0;
       return;
@@ -589,15 +588,21 @@ export class Unit {
 
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
 
-    if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) {
+    if (Physics.isPositionFree(nx, ny, this.baseRadius * 0.8, obs)) {
       this.x = nx; this.y = ny;
     } else {
       let slid = false;
-      if (Physics.isPositionFree(nx, this.y, this.baseRadius, obs)) { this.x = nx; slid = true; this.vy *= 0.3; }
-      else if (Physics.isPositionFree(this.x, ny, this.baseRadius, obs)) { this.y = ny; slid = true; this.vx *= 0.3; }
+      if (Physics.isPositionFree(nx, this.y, this.baseRadius * 0.8, obs)) { 
+        this.x = nx; slid = true; this.vy *= 0.3; 
+      }
+      else if (Physics.isPositionFree(this.x, ny, this.baseRadius * 0.8, obs)) { 
+        this.y = ny; slid = true; this.vx *= 0.3; 
+      }
+      
+      // Если застряли намертво — делаем микро-рывок в сторону
       if (!slid) {
-        this.vx = 0; this.vy = 0;
-        this.isMoving = false;
+        this.vx = (Math.random() - 0.5) * 2;
+        this.vy = (Math.random() - 0.5) * 2;
         this.needsRepath = true;
       }
     }
@@ -632,7 +637,6 @@ export class Unit {
     let spread = this.weapon.spreadBase * (dist / 100);
 
     if (this.isLimping) spread *= 2.0;
-    // ЗАЩИТА: max(0.1, speeds.stand) чтобы не было деления на 0
     const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand));
     spread *= (1 + speedRatio * 3);
     if (this.stamina < 20) spread *= 1.5;
