@@ -34,6 +34,14 @@ export class UnitManager {
     this.units.push(unit);
   }
 
+  getSafeSpawnPoint(desiredX, desiredY) {
+    const obs = this.pathfinder.obstacles;
+    if (Physics.isPositionFree(desiredX, desiredY, 1.0, obs)) {
+      return { x: desiredX, y: desiredY };
+    }
+    return this.pathfinder.findNearestFreePoint(desiredX, desiredY);
+  }
+
   update(dt) {
     this.currentTime += dt;
 
@@ -112,13 +120,8 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
-    // Деревянная стена (пробивается АК-74)
     this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood');
-    
-    // Бетонная стена (пробивается только ПКМ)
     this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete');
-    
-    // Мешки с песком (гасят пули)
     this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags');
   }
 
@@ -129,10 +132,9 @@ export class UnitManager {
       const tl = camera.worldToScreen(obs.x, obs.y);
       const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
       
-      // Разный цвет для разных материалов
-      if (obs.materialId === 'wood') ctx.fillStyle = '#8B5A2B'; // Коричневый
-      else if (obs.materialId === 'sandbags') ctx.fillStyle = '#C2B280'; // Песочный
-      else if (obs.materialId === 'concrete') ctx.fillStyle = '#777'; // Серый
+      if (obs.materialId === 'wood') ctx.fillStyle = '#8B5A2B';
+      else if (obs.materialId === 'sandbags') ctx.fillStyle = '#C2B280';
+      else if (obs.materialId === 'concrete') ctx.fillStyle = '#777';
       else ctx.fillStyle = '#555';
       
       ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
