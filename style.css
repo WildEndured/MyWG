@@ -1,26 +1,14 @@
-/* ==========================================================
-   MyWG - War Simulator
-   Стили HUD, стартового экрана, кнопок, индикаторов
-   ========================================================== */
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  /* HUD */
   --hud-bg: rgba(30, 34, 40, 0.85);
   --hud-bg-active: rgba(80, 150, 255, 0.8);
   --hud-border: rgba(255, 255, 255, 0.15);
   --hud-radius: 8px;
-
-  /* Шрифт */
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Команды */
   --team1: #4285F4;
   --team2: #EA4335;
   --spectator: #9aa0a6;
-
-  /* Акценты */
   --accent-blue: #5096ff;
   --accent-lightblue: #8ab4f8;
   --accent-yellow: #F4B400;
@@ -28,8 +16,6 @@
   --accent-red: #EA4335;
   --accent-green: #0F9D58;
 }
-
-/* ================= БАЗА ================= */
 
 html, body {
   width: 100%;
@@ -45,18 +31,10 @@ html, body {
   color: #e8eaed;
 }
 
-#game {
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-}
-
-/* Скрытый контейнер HUD до старта боя */
+#game { display: block; width: 100%; height: 100%; touch-action: none; }
 #hud.hidden { display: none; }
 
-/* ================= СТАРТОВЫЙ ЭКРАН ================= */
-
+/* ================== СТАРТОВЫЙ ЭКРАН ================== */
 .screen-overlay {
   position: fixed;
   inset: 0;
@@ -70,11 +48,7 @@ html, body {
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
   transition: opacity 0.25s ease;
 }
-
-.screen-overlay.hidden {
-  opacity: 0;
-  pointer-events: none;
-}
+.screen-overlay.hidden { opacity: 0; pointer-events: none; }
 
 .screen-card {
   width: 100%;
@@ -85,382 +59,188 @@ html, body {
   padding: 24px 20px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
 }
-
-.screen-title {
-  font-size: 28px;
-  font-weight: 800;
-  text-align: center;
-  letter-spacing: 2px;
-  color: var(--accent-lightblue);
-}
-
-.screen-subtitle {
-  text-align: center;
-  font-size: 13px;
-  color: #9aa0a6;
-  margin-top: 4px;
-  margin-bottom: 24px;
-}
-
+.screen-title { font-size: 28px; font-weight: 800; text-align: center; letter-spacing: 2px; color: var(--accent-lightblue); }
+.screen-subtitle { text-align: center; font-size: 13px; color: #9aa0a6; margin-top: 4px; margin-bottom: 24px; }
 .screen-section { margin-bottom: 20px; }
-
-.screen-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: #9aa0a6;
-  margin-bottom: 8px;
-}
-
-.screen-options {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
+.screen-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: #9aa0a6; margin-bottom: 8px; }
+.screen-options { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .opt-btn {
-  flex: 1 1 0;
-  min-width: 100px;
-  min-height: 48px;
-  padding: 10px 12px;
-  font: 600 13px/1.2 var(--font);
-  color: #e8eaed;
+  flex: 1 1 0; min-width: 100px; min-height: 48px; padding: 10px 12px;
+  font: 600 13px/1.2 var(--font); color: #e8eaed;
   background: rgba(40, 44, 52, 0.9);
   border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--hud-radius);
-  cursor: pointer;
+  border-radius: var(--hud-radius); cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 0.1s;
   touch-action: manipulation;
 }
-
 .opt-btn:hover { background: rgba(55, 60, 70, 0.95); }
 .opt-btn:active { transform: scale(0.97); }
-.opt-btn:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
-
-.opt-btn.selected {
-  background: rgba(80, 150, 255, 0.25);
-  border-color: var(--accent-blue);
-  color: #fff;
-  box-shadow: 0 0 12px rgba(80, 150, 255, 0.3);
-}
-
-.opt-btn[data-value="team1"].selected {
-  background: rgba(66, 133, 244, 0.25);
-  border-color: var(--team1);
-  box-shadow: 0 0 12px rgba(66, 133, 244, 0.4);
-}
-
-.opt-btn[data-value="team2"].selected {
-  background: rgba(234, 67, 53, 0.25);
-  border-color: var(--team2);
-  box-shadow: 0 0 12px rgba(234, 67, 53, 0.4);
-}
-
-.opt-btn[data-value="spectator"].selected {
-  background: rgba(154, 160, 166, 0.25);
-  border-color: var(--spectator);
-  box-shadow: 0 0 12px rgba(154, 160, 166, 0.3);
-}
+.opt-btn.selected { background: rgba(80, 150, 255, 0.25); border-color: var(--accent-blue); color: #fff; box-shadow: 0 0 12px rgba(80, 150, 255, 0.3); }
+.opt-btn[data-value="team1"].selected { background: rgba(66, 133, 244, 0.25); border-color: var(--team1); box-shadow: 0 0 12px rgba(66, 133, 244, 0.4); }
+.opt-btn[data-value="team2"].selected { background: rgba(234, 67, 53, 0.25); border-color: var(--team2); box-shadow: 0 0 12px rgba(234, 67, 53, 0.4); }
+.opt-btn[data-value="spectator"].selected { background: rgba(154, 160, 166, 0.25); border-color: var(--spectator); box-shadow: 0 0 12px rgba(154, 160, 166, 0.3); }
 
 .start-btn {
-  width: 100%;
-  min-height: 52px;
-  margin-top: 8px;
-  font: 700 15px/1 var(--font);
-  color: #fff;
+  width: 100%; min-height: 52px; margin-top: 8px;
+  font: 700 15px/1 var(--font); color: #fff;
   background: linear-gradient(135deg, var(--accent-blue) 0%, #2b6fd6 100%);
-  border: none;
-  border-radius: var(--hud-radius);
-  cursor: pointer;
+  border: none; border-radius: var(--hud-radius); cursor: pointer;
   transition: opacity 0.15s, transform 0.1s;
 }
-
 .start-btn:active:not(:disabled) { transform: scale(0.98); }
-.start-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+.start-btn:disabled { opacity: 0.4; cursor: not-allowed; background: rgba(80, 90, 110, 0.6); }
 
-.start-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  background: rgba(80, 90, 110, 0.6);
-}
+/* ================== HUD ================== */
+.hud-panel { position: fixed; display: flex; gap: 6px; z-index: 10; flex-wrap: wrap; contain: layout style; }
+.hud-top-left, .hud-top-right { max-width: 45vw; }
+.hud-top-left { top: 8px; top: calc(8px + env(safe-area-inset-top)); left: 8px; left: calc(8px + env(safe-area-inset-left)); }
+.hud-top-right { top: 8px; top: calc(8px + env(safe-area-inset-top)); right: 8px; right: calc(8px + env(safe-area-inset-right)); justify-content: flex-end; }
 
-/* ================= HUD-ПАНЕЛИ ================= */
-
-.hud-panel {
-  position: fixed;
-  display: flex;
-  gap: 6px;
-  z-index: 10;
-  flex-wrap: wrap;
-  contain: layout style;
-}
-
-/* Верхние панели */
-.hud-top-left,
-.hud-top-right { max-width: 45vw; }
-
-.hud-top-left {
-  top: 8px;
-  top: calc(8px + env(safe-area-inset-top));
-  left: 8px;
-  left: calc(8px + env(safe-area-inset-left));
-}
-
-.hud-top-right {
-  top: 8px;
-  top: calc(8px + env(safe-area-inset-top));
-  right: 8px;
-  right: calc(8px + env(safe-area-inset-right));
-  justify-content: flex-end;
-}
-
-/* Центральная панель с инфо о бое */
 .hud-top-center {
-  top: 8px;
-  top: calc(8px + env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
+  top: 8px; top: calc(8px + env(safe-area-inset-top));
+  left: 50%; transform: translateX(-50%);
   background: rgba(20, 24, 30, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--hud-radius);
   padding: 8px 14px;
   font: 600 12px/1 var(--font);
-  gap: 12px;
-  align-items: center;
-  white-space: nowrap;
-  pointer-events: none;
+  gap: 12px; align-items: center; white-space: nowrap; pointer-events: none;
 }
-
 #battle-team { color: var(--accent-lightblue); }
 #battle-mode { color: var(--accent-yellow); }
 #battle-team.team1 { color: var(--team1); }
 #battle-team.team2 { color: var(--team2); }
 #battle-team.spectator { color: var(--spectator); }
 
-/* Нижняя панель — позы */
 .hud-bottom {
-  bottom: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  left: 50%;
-  transform: translateX(-50%);
-  width: 95vw;
-  justify-content: center;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  touch-action: pan-x;
+  bottom: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
+  left: 50%; transform: translateX(-50%);
+  width: 95vw; justify-content: center;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; touch-action: pan-x;
 }
-
 .hud-bottom::-webkit-scrollbar { display: none; }
 
-/* ================= КНОПКИ HUD ================= */
-
 .hud-btn {
-  padding: 10px 12px;
-  min-height: 44px;
-  min-width: 44px;
-  font: 600 13px/1 var(--font);
-  color: #e8eaed;
+  padding: 10px 12px; min-height: 44px; min-width: 44px;
+  font: 600 13px/1 var(--font); color: #e8eaed;
   background: var(--hud-bg);
   border: 1px solid var(--hud-border);
-  border-radius: var(--hud-radius);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
+  border-radius: var(--hud-radius); cursor: pointer;
+  user-select: none; white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, transform 0.1s;
   flex-shrink: 0;
 }
-
 .hud-btn:hover { background: rgba(45, 50, 60, 0.9); }
-.hud-btn:active {
-  transform: scale(0.95);
-  background: rgba(50, 55, 65, 0.9);
-}
+.hud-btn:active { transform: scale(0.95); background: rgba(50, 55, 65, 0.9); }
+.hud-btn.active { background: var(--hud-bg-active); border-color: var(--accent-blue); color: #fff; box-shadow: 0 0 10px rgba(80, 150, 255, 0.3); }
+#btn-pause.active { background: rgba(234, 67, 53, 0.8); border-color: var(--accent-red); box-shadow: 0 0 10px rgba(234, 67, 53, 0.3); }
+#btn-debug.active { background: rgba(244, 180, 0, 0.8); border-color: var(--accent-yellow); color: #000; box-shadow: 0 0 10px rgba(244, 180, 0, 0.3); }
+#btn-tactical.active { background: rgba(80, 150, 255, 0.8); border-color: var(--accent-lightblue); color: #fff; box-shadow: 0 0 12px rgba(138, 180, 248, 0.5); }
 
-.hud-btn:focus-visible {
-  outline: 2px solid var(--accent-blue);
-  outline-offset: 2px;
-}
-
-.hud-btn.active {
-  background: var(--hud-bg-active);
-  border-color: var(--accent-blue);
-  color: #fff;
-  box-shadow: 0 0 10px rgba(80, 150, 255, 0.3);
-}
-
-/* Специальные состояния кнопок */
-
-/* Пауза — красная */
-#btn-pause.active {
-  background: rgba(234, 67, 53, 0.8);
-  border-color: var(--accent-red);
-  box-shadow: 0 0 10px rgba(234, 67, 53, 0.3);
-}
-
-/* Debug — жёлтая */
-#btn-debug.active {
-  background: rgba(244, 180, 0, 0.8);
-  border-color: var(--accent-yellow);
-  color: #000;
-  box-shadow: 0 0 10px rgba(244, 180, 0, 0.3);
-}
-
-/* Тактическая пауза — голубая */
-#btn-tactical.active {
-  background: rgba(80, 150, 255, 0.8);
-  border-color: var(--accent-lightblue);
-  color: #fff;
-  box-shadow: 0 0 12px rgba(138, 180, 248, 0.5);
-}
-
-/* Позы — активная подсвечена синим (по умолчанию) */
-
-/* ================= ИНДИКАТОР КООРДИНАТ ================= */
-
+/* ================== ИНДИКАТОР КООРДИНАТ ================== */
 #coords {
   position: fixed;
-  bottom: 70px;
-  bottom: calc(70px + env(safe-area-inset-bottom));
-  right: 12px;
-  right: calc(12px + env(safe-area-inset-right));
+  bottom: 70px; bottom: calc(70px + env(safe-area-inset-bottom));
+  right: 12px; right: calc(12px + env(safe-area-inset-right));
   color: var(--accent-lightblue);
-  font: 13px/1.4 monospace;
-  font-variant-numeric: tabular-nums;
+  font: 13px/1.4 monospace; font-variant-numeric: tabular-nums;
   background: rgba(0, 0, 0, 0.6);
-  padding: 6px 10px;
-  border-radius: 6px;
+  padding: 6px 10px; border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  pointer-events: none;
-  z-index: 9;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  pointer-events: none; z-index: 9;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
 
-/* ================= АДАПТИВ ================= */
+/* ================== ПАНЕЛЬ ЮНИТА ================== */
+.unit-panel {
+  position: fixed;
+  bottom: calc(70px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 95vw;
+  max-width: 400px;
+  background: rgba(20, 24, 30, 0.95);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  z-index: 20;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+.unit-panel.hidden { display: none; }
+
+.unit-panel-tabs { display: flex; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.unit-tab {
+  flex: 1; padding: 10px 4px;
+  background: transparent; border: none; color: #9aa0a6;
+  font: 600 12px/1 var(--font); cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+  border-bottom: 2px solid transparent;
+}
+.unit-tab:hover { background: rgba(255, 255, 255, 0.05); }
+.unit-tab.active { color: #fff; border-bottom-color: var(--accent-blue); }
+
+.unit-panel-content { padding: 12px; color: #e8eaed; font: 13px/1.4 var(--font); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+.info-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.info-label { color: #9aa0a6; }
+
+.stat-bar-container { margin-bottom: 10px; }
+.stat-label { margin-bottom: 4px; font-size: 12px; }
+.stat-bar-bg { width: 100%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; }
+.stat-bar-fill { height: 100%; width: 100%; transition: width 0.2s ease, background 0.2s; }
+.stat-bar-fill.hp { background: var(--accent-green); }
+.stat-bar-fill.stamina { background: var(--accent-yellow); }
+.stat-bar-fill.blood { background: var(--accent-red); }
+
+.warning-text { color: var(--accent-red); font-weight: bold; text-align: center; margin-top: 8px; animation: pulse-red 1s infinite; }
+.warning-text.hidden { display: none; }
+
+@keyframes pulse-red { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+@media (min-width: 768px) {
+  .unit-panel { left: auto; right: 12px; transform: none; bottom: 70px; max-width: 320px; }
+}
 
 @media (max-width: 500px) {
-  .hud-top-left,
-  .hud-top-right {
-    max-width: calc(50vw - 12px);
-  }
-
-  .hud-btn {
-    font-size: 12px;
-    padding: 8px 10px;
-    min-height: 42px;
-    min-width: 42px;
-  }
-
-  .hud-top-center {
-    font-size: 11px;
-    padding: 6px 10px;
-    gap: 8px;
-  }
-
-  .screen-card {
-    padding: 20px 16px;
-  }
-
-  .screen-title {
-    font-size: 24px;
-  }
-
-  .screen-options {
-    gap: 6px;
-  }
-
-  .opt-btn {
-    min-width: 90px;
-    min-height: 44px;
-    font-size: 12px;
-  }
+  .hud-top-left, .hud-top-right { max-width: calc(50vw - 12px); }
+  .hud-btn { font-size: 12px; padding: 8px 10px; min-height: 42px; min-width: 42px; }
+  .hud-top-center { font-size: 11px; padding: 6px 10px; gap: 8px; }
+  .screen-card { padding: 20px 16px; }
+  .screen-title { font-size: 24px; }
+  .screen-options { gap: 6px; }
+  .opt-btn { min-width: 90px; min-height: 44px; font-size: 12px; }
 }
 
 @media (max-width: 360px) {
-  .hud-top-center {
-    /* На очень узких экранах центр может перекрыть верхние панели */
-    top: auto;
-    bottom: calc(70px + env(safe-area-inset-bottom));
-    font-size: 10px;
-    padding: 4px 8px;
-  }
-
-  .hud-btn {
-    font-size: 11px;
-    padding: 6px 8px;
-    min-height: 40px;
-    min-width: 40px;
-  }
-
-  .opt-btn {
-    min-width: 80px;
-    font-size: 11px;
-  }
+  .hud-top-center { top: auto; bottom: calc(70px + env(safe-area-inset-bottom)); font-size: 10px; padding: 4px 8px; }
+  .hud-btn { font-size: 11px; padding: 6px 8px; min-height: 40px; min-width: 40px; }
+  .opt-btn { min-width: 80px; font-size: 11px; }
 }
 
-/* Ландшафтная ориентация на телефоне */
 @media (max-height: 480px) and (orientation: landscape) {
-  .hud-bottom {
-    bottom: calc(6px + env(safe-area-inset-bottom));
-  }
-
-  #coords {
-    bottom: calc(56px + env(safe-area-inset-bottom));
-  }
-
-  .hud-btn {
-    min-height: 38px;
-    padding: 6px 10px;
-  }
-
-  .screen-card {
-    max-width: 560px;
-    padding: 16px;
-  }
-
+  .hud-bottom { bottom: calc(6px + env(safe-area-inset-bottom)); }
+  #coords { bottom: calc(56px + env(safe-area-inset-bottom)); }
+  .hud-btn { min-height: 38px; padding: 6px 10px; }
+  .screen-card { max-width: 560px; padding: 16px; }
   .screen-title { font-size: 20px; margin-bottom: 4px; }
   .screen-subtitle { margin-bottom: 12px; }
   .screen-section { margin-bottom: 12px; }
   .start-btn { min-height: 44px; }
+  .unit-panel { bottom: calc(56px + env(safe-area-inset-bottom)); max-width: 280px; }
 }
 
-/* ================= ДОСТУПНОСТЬ ================= */
-
-/* Уважение prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
-  .hud-btn,
-  .opt-btn,
-  .start-btn,
-  .screen-overlay {
-    transition: none;
-  }
-
-  .hud-btn:active,
-  .opt-btn:active,
-  .start-btn:active {
-    transform: none;
-  }
+  .hud-btn, .opt-btn, .start-btn, .screen-overlay { transition: none; }
+  .hud-btn:active, .opt-btn:active, .start-btn:active { transform: none; }
 }
 
-/* Тёмная тема — на всякий случай */
-@media (prefers-color-scheme: light) {
-  /* Оставляем тёмную — игра всегда тёмная, но явно указываем */
-  :root {
-    color-scheme: dark;
-  }
-}
-
-/* Высококонтрастный режим (Windows HC) */
 @media (forced-colors: active) {
-  .hud-btn,
-  .opt-btn,
-  .start-btn {
-    border: 1px solid CanvasText;
-  }
-
-  .hud-btn.active,
-  .opt-btn.selected {
-    outline: 2px solid Highlight;
-  }
+  .hud-btn, .opt-btn, .start-btn { border: 1px solid CanvasText; }
+  .hud-btn.active, .opt-btn.selected { outline: 2px solid Highlight; }
 }
