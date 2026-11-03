@@ -62,14 +62,12 @@ document.addEventListener('DOMContentLoaded', () => {
     map.setSize(meters); input.setWorldSize(meters); unitManager.setWorldSize(meters); camera.fit(meters, meters); camera.clampTo(meters, meters);
     document.querySelectorAll('.hud-top-left button[data-size]').forEach(b => b.classList.toggle('active', Number(b.dataset.size) === meters));
 
-    // СОЗДАЕМ ЗОНУ
     const center = meters / 2;
     const offset = meters * 0.15;
     let zoneX = unitManager.gameMode === 'attack' ? center + offset : center;
     let zoneY = center;
     let initialOwner = unitManager.gameMode === 'attack' ? 'enemy' : 'player';
     
-    // Если мы играем за team2 — инвертируем владельца
     if (unitManager.playerTeamId === 'team2') {
       initialOwner = initialOwner === 'player' ? 'enemy' : 'player';
     }
@@ -134,7 +132,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!unit) return;
     document.getElementById('info-name').textContent = unit.name || 'Безымянный';
     document.getElementById('info-role').textContent = unit.roleId === 'machinegunner' ? 'Пулеметчик' : 'Стрелок';
-    document.getElementById('info-weight').textContent = `${unit.totalWeight.toFixed(1)} кг`;
+    
+    // Показываем общий вес и вес оружия
+    document.getElementById('info-weight').textContent = `${unit.totalWeight.toFixed(1)} кг (оружие: ${unit.weapon.weightLoaded.toFixed(1)} кг)`;
+    
     let statusText = 'Живой', statusColor = '#0F9D58';
     if (unit.isDead) { statusText = 'Мертв'; statusColor = '#EA4335'; } else if (unit.isUnconscious) { statusText = 'Без сознания'; statusColor = '#F4B400'; }
     const statusEl = document.getElementById('info-status'); if (statusEl) { statusEl.textContent = statusText; statusEl.style.color = statusColor; }
