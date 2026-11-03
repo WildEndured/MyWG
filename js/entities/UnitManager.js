@@ -112,24 +112,32 @@ export class UnitManager {
     this.pathfinder.clearObstacles();
     const c = mapSize / 2;
     
-    const wallW = 0.5; 
-    const wallH = mapSize * 0.4;
-    const wallX = c - wallW / 2;
-    const wallY = c - wallH / 2;
+    // Деревянная стена (пробивается АК-74)
+    this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood');
     
-    this.pathfinder.addObstacle(wallX, wallY, wallW, wallH * 0.3);
-    this.pathfinder.addObstacle(wallX, wallY + wallH * 0.7, wallW, wallH * 0.3);
+    // Бетонная стена (пробивается только ПКМ)
+    this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete');
+    
+    // Мешки с песком (гасят пули)
+    this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags');
   }
 
   _drawObstacles(ctx, camera) {
-    ctx.fillStyle = '#555';
-    ctx.strokeStyle = '#888';
     ctx.lineWidth = 1;
 
     for (const obs of this.pathfinder.obstacles) {
       const tl = camera.worldToScreen(obs.x, obs.y);
       const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
+      
+      // Разный цвет для разных материалов
+      if (obs.materialId === 'wood') ctx.fillStyle = '#8B5A2B'; // Коричневый
+      else if (obs.materialId === 'sandbags') ctx.fillStyle = '#C2B280'; // Песочный
+      else if (obs.materialId === 'concrete') ctx.fillStyle = '#777'; // Серый
+      else ctx.fillStyle = '#555';
+      
       ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+      
+      ctx.strokeStyle = '#000';
       ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
     }
   }
