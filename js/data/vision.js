@@ -1,37 +1,23 @@
-// js/data/vision.js
-
 export const VISION_CONFIG = {
-  // Общий угол обзора (в градусах) - сектор, куда смотрит юнит
-  fovAngle: 120, 
-  
-  // Угол четкого (центрального) зрения (в градусах)
+  fovAngle: 120,
   centralAngle: 60,
-  
-  // Дистанция обнаружения (замечаем силуэт в центральном секторе)
-  detectRange: 100, 
-  
-  // Дистанция идентификации (понимаем, что это враг - в центральном секторе)
+  detectRange: 100,
   identifyRange: 50,
-  
-  // Дистанция периферийного зрения (на краях сектора видим только очень близко)
-  peripheralRange: 30
+  peripheralRange: 30,
 };
 
+// FIX: единая шкала громкости
+// loudness — «громкость в метрах» при которой слышно на этой дистанции
+// слышимость = loudness / (dist^0.5) — упрощённая модель
 export const AUDIO_CONFIG = {
-  // Громкость шагов в зависимости от позы (0 - тихо, 1 - громко)
-  stepNoise: {
-    prone: 0.1,
-    crouch: 0.3,
-    stand: 0.6,
-    run: 1.0
+  stepLoudness: {
+    prone:  20,
+    crouch: 60,
+    stand: 120,
+    run:   200,
   },
-  
-  // Множитель шума от веса (тяжелый юнит топает громче)
-  weightNoiseMultiplier: 0.02, 
-
-  // Громкость выстрела (по умолчанию, если у оружия не задано)
-  gunshotNoise: 10.0, 
-
-  // Радиус слышимости (насколько далеко слышен шум)
-  hearingRange: 200 
+  weightLoudnessPerKg: 0.5,
+  gunshotLoudnessDefault: 400,
+  // базовая формула: слышно если loudness / sqrt(dist) > threshold
+  hearingThreshold: 10,
 };
