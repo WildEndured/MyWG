@@ -12,7 +12,6 @@ export class Renderer {
 
     const sortedUnits = [...unitManager.units].sort((a, b) => a.y - b.y);
     for (const unit of sortedUnits) {
-      // Если юнит далеко за экраном — пропускаем отрисовку (экономия ресурсов и защита)
       if (camera.isPointVisible(unit.x, unit.y, 200)) {
         Renderer.drawUnit(ctx, camera, unit);
       }
