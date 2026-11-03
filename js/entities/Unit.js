@@ -542,8 +542,11 @@ export class Unit {
           if (this.isLimping) maxSp *= 0.5;
           if (this.isPressed) maxSp *= CONFIG.SUPPRESSION.PRESSED_MOVE_MULT;
           if (this.stanceTransition) maxSp *= 0.3;
-          targetSpeedX = (dx / dist) * maxSp;
-          targetSpeedY = (dy / dist) * maxSp;
+          
+          // ЗАЩИТА: делим только если dist > 0
+          const safeDist = Math.max(0.001, dist);
+          targetSpeedX = (dx / safeDist) * maxSp;
+          targetSpeedY = (dy / safeDist) * maxSp;
           wantMove = true;
         }
       }
@@ -562,6 +565,10 @@ export class Unit {
       this.vy += ay * k;
     }
 
+    // ЗАЩИТА: если скорость стала NaN — сбрасываем её
+    if (!Number.isFinite(this.vx)) this.vx = 0;
+    if (!Number.isFinite(this.vy)) this.vy = 0;
+
     this._integrateVelocity(dt);
   }
 
@@ -573,6 +580,13 @@ export class Unit {
     }
     const nx = this.x + this.vx * dt;
     const ny = this.y + this.vy * dt;
+    
+    // ЗАЩИТА: не двигаемся, если координаты сломались
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) {
+      this.vx = 0; this.vy = 0;
+      return;
+    }
+
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
 
     if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) {
@@ -618,6 +632,7 @@ export class Unit {
     let spread = this.weapon.spreadBase * (dist / 100);
 
     if (this.isLimping) spread *= 2.0;
+    // ЗАЩИТА: max(0.1, speeds.stand) чтобы не было деления на 0
     const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand));
     spread *= (1 + speedRatio * 3);
     if (this.stamina < 20) spread *= 1.5;
@@ -630,7 +645,7 @@ export class Unit {
     spread *= this.weapon.getRecoilSpreadMultiplier();
     spread *= (1 + this.suppression * 1.5);
 
-    const aimBonus = Math.min(this.aimTime / this.maxAimTime, 1.0);
+    const aimBonus = Math.min(this.aimTime / Math.max(0.1, this.maxAimTime), 1.0);
     spread *= (1.0 - aimBonus * 0.7);
     spread = Math.max(0.01, Math.min(spread, 20));
 
