@@ -1,55 +1,48 @@
-// js/core/EventBus.js
+export const EVENTS = {
+  INPUT_TAP: 'input:tap',
+  INPUT_DOUBLE_TAP: 'input:doubleTap',
+  UNITS_SELECTED: 'units:selected',
+  UNIT_DEATH: 'unit:death',
+  UNIT_UNCONSCIOUS: 'unit:unconscious',
+  UNIT_SHOOT: 'unit:shoot',
+  BULLET_IMPACT: 'bullet:impact',
+  WORLD_NOISE: 'world:noise',
+  TIME_CHANGED: 'time:changed',
+  DEBUG_TOGGLED: 'debug:toggled',
+};
 
 class EventBusClass {
-  constructor() {
-    this.listeners = new Map();
-  }
+  constructor() { this.listeners = new Map(); }
 
-  /**
-   * Подписаться на событие
-   * @param {string} event - Название события
-   * @param {Function} callback - Функция-обработчик
-   * @returns {Function} - Функция для отписки
-   */
   on(event, callback) {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
-    }
+    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event).add(callback);
-    
-    // Возвращаем функцию отписки для удобства (паттерн Cleanup)
     return () => this.off(event, callback);
   }
 
-  /**
-   * Отписаться от события
-   */
-  off(event, callback) {
-    if (this.listeners.has(event)) {
-      this.listeners.get(event).delete(callback);
-    }
+  once(event, callback) {
+    const unsub = this.on(event, (data) => { unsub(); callback(data); });
+    return unsub;
   }
 
-  /**
-   * Вызвать событие
-   * @param {string} event - Название события
-   * @param {*} data - Данные, передаваемые слушателям
-   */
-  emit(event, data) {
-    if (!this.listeners.has(event)) return;
+  off(event, callback) {
+    if (this.listeners.has(event)) this.listeners.get(event).delete(callback);
+  }
 
-    // Копируем Set в массив, чтобы безопасно удалять слушателей во время emit
-    const callbacks = [...this.listeners.get(event)];
-    
+  clear(event) {
+    if (event) this.listeners.delete(event);
+    else this.listeners.clear();
+  }
+
+  emit(event, data) {
+    const set = this.listeners.get(event);
+    if (!set) return;
+    const callbacks = [...set];
     for (const cb of callbacks) {
-      try {
-        cb(data);
-      } catch (err) {
-        console.error(`[EventBus] Ошибка в обработчике события "${event}":`, err);
-      }
+      try { cb(data); }
+      catch (err) { console.error(`[EventBus] "${event}":`, err); }
     }
   }
 }
 
-// Экспортируем Singleton (единственный экземпляр на всю игру)
 export const EventBus = new EventBusClass();
