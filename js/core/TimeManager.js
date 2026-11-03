@@ -1,32 +1,33 @@
-// js/core/TimeManager.js
-import { EventBus } from './EventBus.js';
+import { EventBus, EVENTS } from './EventBus.js';
 
 class TimeManagerClass {
   constructor() {
-    this.timeScale = 1.0; // 1.0 = норма, 0 = пауза, 2.0 = ускорение
+    this.timeScale = 1.0;
+    this._prevScale = 1.0;
     this.isPaused = false;
   }
 
   setTimeScale(scale) {
+    if (!Number.isFinite(scale) || scale < 0) return; // FIX: валидация
+    if (this.timeScale > 0) this._prevScale = this.timeScale;
     this.timeScale = scale;
     this.isPaused = (scale === 0);
-    EventBus.emit('time:changed', { scale: this.timeScale, isPaused: this.isPaused });
+    EventBus.emit(EVENTS.TIME_CHANGED, { scale: this.timeScale, isPaused: this.isPaused });
   }
 
   togglePause() {
-    if (this.isPaused) {
-      this.setTimeScale(1.0); // Выход из паузы в нормальную скорость
-    } else {
-      this.setTimeScale(0);
-    }
+    // FIX: возвращаемся к предыдущему множителю, а не к 1.0
+    if (this.isPaused) this.setTimeScale(this._prevScale || 1.0);
+    else this.setTimeScale(0);
   }
 
-  // Возвращает модифицированную дельту времени
   getScaledDt(realDt) {
-    // Защита от слишком больших скачков (например, при сворачивании вкладки)
-    const cappedDt = Math.min(realDt, 0.1);
-    return cappedDt * this.timeScale;
+    if (this.isPaused) return 0;
+    const capped = Math.min(realDt, 0.1);
+    return capped * this.timeScale;
   }
+
+  reset() { this.timeScale = 1.0; this._prevScale = 1.0; this.isPaused = false; }
 }
 
 export const TimeManager = new TimeManagerClass();
