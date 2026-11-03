@@ -43,17 +43,14 @@ export class Bullet {
           if (seg.state === 'rubble') continue;
           if (nextX < seg.x || nextX > seg.x + seg.w || nextY < seg.y || nextY > seg.y + seg.h) continue;
           
-          const wallThickness = seg.w; // Упрощенно — толщина сегмента
+          const wallThickness = seg.w;
           const requiredBr = getRequiredBr(obs.materialId, wallThickness);
 
-          // ЛОКАЛЬНОЕ РАЗРУШЕНИЕ: наносим урон конкретному сегменту
           pathfinder.damageSegment(obs, nextX, nextY, this.baseDamage * (this.penetration / requiredBr));
           
-          // Визуальные обломки
           if (obs.matData.destructionType === 'shatter' || obs.matData.destructionType === 'chip') {
              EventBus.emit('debris:spawn', { x: nextX, y: nextY, count: 3, material: obs.materialId, owner: this.owner });
           }
-          // Пыль при разрушении
           if (seg.state === 'rubble' || seg.state === 'breached') {
              EventBus.emit('dust:spawn', { x: nextX, y: nextY, radius: 3, duration: 3.0 });
           }
@@ -94,7 +91,10 @@ export class Bullet {
           unit.vy += (this.vy / speed) * this.impulse;
         }
 
-        unit.takeDamage(finalDamage, hit.partId, this.penetration, hit.subPartId);
+        // Угол падения пули (0 = прямо, 90 = скользящий)
+        const incidenceAngle = Math.abs(Math.atan2(this.vy, this.vx) * 180 / Math.PI);
+
+        unit.takeDamage(finalDamage, hit.partId, this.penetration, hit.subPartId, incidenceAngle);
         EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'blood', amount: finalDamage, unit, hitZone: hit.partId });
         EventBus.emit(EVENTS.SHELL_EJECT, { x: this.x, y: this.y });
 
