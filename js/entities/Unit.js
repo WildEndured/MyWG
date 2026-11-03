@@ -2,15 +2,16 @@ import { Weapon } from './Weapon.js';
 import { WEAPONS, EXPLOSIVES } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS, calcTotalHp, calcMaxTotalHp } from '../data/health.js';
-import { ARMOR_CONFIGS, ARMOR_CLASSES, findArmorForHit } from '../data/armor.js';
+import { ARMOR_CONFIGS, ARMOR_CLASSES } from '../data/armor.js';
 import { VISION_CONFIG, AUDIO_CONFIG } from '../data/vision.js';
 import { Physics } from '../core/Physics.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
-import { AudioManager } from '../core/AudioManager.js';
-import { Bullet } from './Bullet.js';
 import { CONFIG } from '../data/config.js';
 import { Brain } from '../core/Brain.js';
-import { Grenade } from './Grenade.js';
+
+// Импорт миксинов (методы добавятся в прототип)
+import { applyHealthMixin } from './UnitHealth.js';
+import { applyCombatMixin } from './UnitCombat.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
@@ -47,15 +48,10 @@ export class Unit {
       const armorClass = ARMOR_CLASSES[config.class]; if (!armorClass) continue;
       armorWeight += config.weight || 0;
       const piece = { 
-        name: config.name, 
-        level: armorClass.level, 
-        baseLevel: armorClass.level, 
-        durability: config.durability, 
-        maxDurability: config.maxDurability ?? config.durability,
-        durabilityLossMult: config.durabilityLossMult || 1.0, 
-        coveredSubParts: config.coveredSubParts || [], 
-        zones: config.zones || null, 
-        armorMaterial: config.armorMaterial || 'steel',
+        name: config.name, level: armorClass.level, baseLevel: armorClass.level, 
+        durability: config.durability, maxDurability: config.maxDurability ?? config.durability,
+        durabilityLossMult: config.durabilityLossMult || 1.0, coveredSubParts: config.coveredSubParts || [], 
+        zones: config.zones || null, armorMaterial: config.armorMaterial || 'steel',
         ricochetAngle: config.ricochetAngle || 45
       };
       for (const zone of config.covers) { if (!this.armor[zone] || this.armor[zone].level < piece.level) this.armor[zone] = piece; }
@@ -85,185 +81,6 @@ export class Unit {
 
   getTotalHp() { return calcTotalHp(this.bodyParts); }
   getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
-  get isPressed() { return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED; }
-
-  throwGrenade(targetX, targetY, world) {
-    if (this.grenades <= 0 || this.isDead || this.medical.isApplying) return false;
-    const dist = Math.hypot(targetX - this.x, targetY - this.y);
-    if (dist > 30) return false;
-    
-    this.grenades--;
-    const grenadeConfig = EXPLOSIVES.grenade_rgd5;
-    const grenade = new Grenade(this.x, this.y, targetX, targetY, this, grenadeConfig);
-    
-    if (world && world.unitManager) {
-      world.unitManager.grenades.push(grenade);
-    }
-    return true;
-  }
-
-  applySuppression(amount) {
-    if (this.isDead) return;
-    this.suppression = Math.min(1, this.suppression + amount); this.lastSuppressionTime = performance.now() / 1000;
-    if (this.stanceTransition) return;
-    if (this.suppression >= CONFIG.SUPPRESSION.AUTO_PRONE && this.stance !== 'prone') { this._startStanceTransition('prone'); this.standLockTimer = CONFIG.SUPPRESSION.STAND_LOCK_TIME; }
-    else if (this.suppression >= CONFIG.SUPPRESSION.AUTO_CROUCH && this.stance === 'stand') this._startStanceTransition('crouch');
-  }
-
-  applyFragmentation(amount) {
-    if (this.isDead) return;
-    const torso = this.bodyParts.torso; if (!torso?.subParts) return;
-    for (let i = 0; i < 2; i++) { const sub = torso.subParts[Math.floor(Math.random() * torso.subParts.length)]; sub.hp -= amount; if (sub.hp <= 0) { sub.hp = 0; if (sub.fatal) { this._die(); return; } } }
-    this.hp = this.getTotalHp(); if (this.hp <= 0) this._die();
-  }
-
-  applyBandage(targetPart, isSelf) {
-    if (this.medical.bandage <= 0 || this.isDead) return false;
-    this.medical.bandage--;
-    const duration = isSelf ? CONFIG.MEDICAL.BANDAGE_TIME * 1.5 : CONFIG.MEDICAL.BANDAGE_TIME;
-    this.medical.isApplying = true; this.medical.applyTimer = duration; this.medical.applyType = 'bandage'; this.medical.applyPart = targetPart;
-    return true;
-  }
-
-  applyTourniquet(targetPart, isSelf) {
-    if (this.medical.tourniquet <= 0 || this.isDead) return false;
-    this.medical.tourniquet--;
-    const duration = isSelf ? CONFIG.MEDICAL.TOURNIQUET_TIME * 1.5 : CONFIG.MEDICAL.TOURNIQUET_TIME;
-    this.medical.isApplying = true; this.medical.applyTimer = duration; this.medical.applyType = 'tourniquet'; this.medical.applyPart = targetPart;
-    return true;
-  }
-
-  raycastHit(x1, y1, x2, y2) {
-    let best = null, bestT = Infinity;
-    for (const [partId, part] of Object.entries(this.bodyParts)) {
-      if (!part.hitbox || part.hp <= 0) continue;
-      let scale = part.stanceScale[this.stance] ?? 1;
-      if (this.stance === 'crouch') scale *= 0.7;
-      
-      const cos = Math.cos(this.angle), sin = Math.sin(this.angle);
-      const cx = this.x + part.hitbox.dx * cos - part.hitbox.dy * sin;
-      const cy = this.y + part.hitbox.dx * sin + part.hitbox.dy * cos;
-      const t = this._rayCircle(x1, y1, x2, y2, cx, cy, part.hitbox.r * scale);
-      if (t !== null && t < bestT) {
-        bestT = t; let subPartId = null;
-        if (part.subParts) {
-          const alive = part.subParts.filter(s => s.hp > 0);
-          if (alive.length) { const totalW = alive.reduce((s, p) => s + p.weight, 0); let rnd = Math.random() * totalW; for (const s of alive) { rnd -= s.weight; if (rnd <= 0) { subPartId = s.id; break; } } }
-        }
-        best = { partId, subPartId, t: bestT };
-      }
-    }
-    return best;
-  }
-
-  _rayCircle(x1, y1, x2, y2, cx, cy, r) {
-    const dx = x2 - x1, dy = y2 - y1, fx = x1 - cx, fy = y1 - cy;
-    const a = dx * dx + dy * dy; if (a < 1e-12) return (fx * fx + fy * fy) <= r * r ? 0 : null;
-    const b = 2 * (fx * dx + fy * dy), c = fx * fx + fy * fy - r * r;
-    let disc = b * b - 4 * a * c; if (disc < 0) return null; disc = Math.sqrt(disc);
-    const t1 = (-b - disc) / (2 * a), t2 = (-b + disc) / (2 * a);
-    if (t1 >= 0 && t1 <= 1) return t1; if (t2 >= 0 && t2 <= 1) return t2; return null;
-  }
-
-  takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null, incidenceAngle = 0) {
-    if (this.isDead) return;
-    if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) this.stanceTransition = null;
-    if (this.weapon.isReloading) this.weapon.abortReload();
-
-    let finalDamage = amount; const part = this.bodyParts[hitZone]; if (!part) return;
-
-    if (this.brain && this.target) this.brain.registerDamage(this.target.x, this.target.y);
-
-    let chosenSub = null;
-    if (forcedSubPartId && part.subParts) chosenSub = part.subParts.find(s => s.id === forcedSubPartId) || null;
-
-    const armorPiece = findArmorForHit(this.armor, hitZone, chosenSub?.id);
-
-    if (armorPiece && armorPiece.durability > 0) {
-      const lossMult = armorPiece.durabilityLossMult || 1.0;
-      
-      // 1. РИКОШЕТ ОТ БРОНИ
-      if (incidenceAngle > armorPiece.ricochetAngle) {
-        EventBus.emit(EVENTS.BULLET_IMPACT, { x: this.x, y: this.y, type: 'ricochet' });
-        return; // Пуля срикошетила
-      }
-
-      // 2. ЗОНАЛЬНАЯ БРОНЯ
-      let zoneMult = 1.0;
-      let zoneLevelBonus = 0;
-      if (armorPiece.zones) {
-        const zone = armorPiece.zones[chosenSub?.id] || armorPiece.zones['default'];
-        if (zone) {
-          zoneMult = zone.damageMult || 1.0;
-          zoneLevelBonus = zone.levelBonus || 0;
-        }
-      }
-
-      const effectiveLevel = armorPiece.level + zoneLevelBonus;
-      
-      // 3. КЕРАМИКА ТРЕСКАЕТСЯ
-      if (armorPiece.armorMaterial === 'ceramic') {
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_CRACK_THRESHOLD && armorPiece.level > 0) {
-          armorPiece.level = Math.max(0, armorPiece.level - 1);
-        }
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) {
-          armorPiece.level = 0;
-        }
-      }
-
-      // 4. ПРОБИТИЕ
-      if (penetrationLevel > effectiveLevel) {
-        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.5 * lossMult);
-        finalDamage = amount * zoneMult;
-      } else if (penetrationLevel === effectiveLevel) {
-        finalDamage = amount * 0.7 * zoneMult;
-        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.8 * lossMult);
-      } else {
-        finalDamage = amount * 0.1 * zoneMult;
-        armorPiece.durability = Math.max(0, armorPiece.durability - amount * 0.1 * lossMult);
-        
-        this.stamina = Math.max(0, this.stamina - amount * 0.5);
-        
-        // Заброневая травма
-        if (amount > 20 && Math.random() < CONFIG.ARMOR.BLUNT_TRAUMA_CHANCE) {
-          this.shock += 0.3;
-          this.stamina = Math.max(0, this.stamina - 20);
-          if (hitZone === 'torso' && chosenSub?.id === 'chest') {
-            const chestPart = this.bodyParts.torso.subParts.find(s => s.id === 'chest');
-            if (chestPart) chestPart.hp -= 5;
-          }
-        }
-      }
-    }
-
-    this.pain = Math.min(1, this.pain + finalDamage / 50);
-
-    if (hitZone === 'torso' || hitZone === 'pelvis') this.shock += finalDamage / 100;
-    if (this.shock >= CONFIG.MEDICAL.SHOCK_THRESHOLD) { this.shockTimer = 3.0; this.shock = 0; if (this.stance !== 'prone') this._startStanceTransition('prone'); }
-
-    if ((hitZone === 'head' && chosenSub?.id === 'brain') || (hitZone === 'torso' && chosenSub?.id === 'heart')) { this._die(); return; }
-
-    let localBleed = part.bleedRate || 0;
-    if (chosenSub) {
-      chosenSub.hp -= finalDamage; if (chosenSub.bleedRate > localBleed) localBleed = chosenSub.bleedRate;
-      if (chosenSub.hp <= 0) { chosenSub.hp = 0; if (chosenSub.fatal) { this._die(); return; } }
-    } else { part.hp -= finalDamage; }
-
-    if (part.hp <= 0) { part.hp = 0; if (part.fatal) { this._die(); return; } }
-    if (finalDamage > 5 && localBleed > 0) this.bleedingRate = Math.max(this.bleedingRate, localBleed);
-    if (hitZone === 'leftLeg' || hitZone === 'rightLeg') this.isLimping = true;
-    if (hitZone === 'leftArm' || hitZone === 'rightArm') { this.isArmed = false; this.weapon.isReloading = false; }
-
-    this.hp = this.getTotalHp(); if (this.hp <= 0) this._die();
-  }
-
-  _die() {
-    if (this.isDead) return;
-    this.isDead = true; this.isMoving = false; this._wantsToMove = false; this.path = []; this.isSelected = false;
-    this.stance = 'prone'; this.stanceTransition = null; this.target = null; this.weapon.isReloading = false;
-    this.pendingBullets.length = 0; this.vx = 0; this.vy = 0;
-    EventBus.emit(EVENTS.UNIT_DEATH, this);
-  }
 
   _calculateSpeeds(baseSpeeds, weight) {
     const referenceWeight = 10.0; const penaltyPerKg = 0.03; 
@@ -293,69 +110,12 @@ export class Unit {
   get stanceTransitionProgress() { if (!this.stanceTransition) return 1; const t = this.stanceTransition; return 1 - Math.max(0, t.timer / t.total); }
   setPath(path) { if (!path || path.length === 0) { this.isMoving = false; this._wantsToMove = false; this.path = []; return; } this.path = path; this.pathIndex = 0; this.isMoving = true; this._wantsToMove = true; this.needsRepath = false; }
 
-  _visibilityCheck(other, obstacles) {
-    const dx = other.x - this.x, dy = other.y - this.y, dist = Math.hypot(dx, dy);
-    if (dist > this.detectRange) return { visible: false, dist, angle: 0, central: false };
-    const angleToTarget = Math.atan2(dy, dx); let angleDiff = angleToTarget - this.angle;
-    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2; while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-    const absAngle = Math.abs(angleDiff), centralHalf = (VISION_CONFIG.centralAngle * Math.PI / 180) / 2, fovHalf = this.fovAngle / 2;
-    if (absAngle > fovHalf) return { visible: false, dist, angle: absAngle, central: false };
-    let rangeLimit = this.detectRange; if (absAngle > centralHalf) rangeLimit = VISION_CONFIG.peripheralRange;
-    if (dist > rangeLimit) return { visible: false, dist, angle: absAngle, central: false };
-    if (!Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obstacles)) return { visible: false, dist, angle: absAngle, central: absAngle <= centralHalf };
-    
-    if (other.stance === 'crouch' && dist > 30) return { visible: false, dist, angle: absAngle, central: false };
-    return { visible: true, dist, angle: absAngle, central: absAngle <= centralHalf };
-  }
-
-  _updatePerception(dt, allUnits, obstacles, now) {
-    for (const [target, mem] of this.perception) { if (target.isDead) { this.perception.delete(target); continue; } mem.seen = Math.max(0, mem.seen - CONFIG.PERCEPTION.LOSE_PER_SEC * dt); if (mem.seen <= 0 && now - mem.lastSeen > CONFIG.PERCEPTION.MEMORY_SEC) this.perception.delete(target); }
-    if (now - this._lastScanTime < this._scanInterval) return; this._lastScanTime = now;
-    for (const other of allUnits) {
-      if (other === this || other.faction === this.faction || other.isDead) continue;
-      const vis = this._visibilityCheck(other, obstacles); if (!vis.visible) continue;
-      const fillRate = vis.central ? 1 / CONFIG.PERCEPTION.CENTRAL_FILL_SEC : 1 / CONFIG.PERCEPTION.PERIPHERAL_FILL_SEC;
-      const mem = this.perception.get(other) || { seen: 0, lastX: other.x, lastY: other.y, lastSeen: now, angle: 0 };
-      const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
-      mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
-      mem.lastX = other.x; mem.lastY = other.y; mem.lastSeen = now; mem.angle = vis.angle; this.perception.set(other, mem);
-      if (this.brain) { this.brain.memory.lastEnemyPos = { x: other.x, y: other.y }; this.brain.memory.lastEnemyTime = now; }
-    }
-  }
-
-  _pickEngageTarget() { let best = null, bestSeen = CONFIG.PERCEPTION.ENGAGE_THRESHOLD; for (const [target, mem] of this.perception) { if (target.isDead) continue; if (mem.seen > bestSeen) { const dist = Math.hypot(target.x - this.x, target.y - this.y); if (dist <= this.weapon.effectiveRange) { bestSeen = mem.seen; best = target; } } } return best; }
-  canSee(target, obstacles) { const vis = this._visibilityCheck(target, obstacles); if (!vis.visible) return false; const mem = this.perception.get(target); return mem ? mem.seen >= CONFIG.PERCEPTION.ENGAGE_THRESHOLD : false; }
-
   update(dt, allUnits, currentTime, worldState) {
     if (this.isDead) return null;
     if (this.suppression > 0) { const timeSince = (performance.now() / 1000) - this.lastSuppressionTime; if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt); }
     if (this.standLockTimer > 0) this.standLockTimer -= dt;
     this._updateStanceTransition(dt);
-
-    if (this.medical.isApplying) {
-      this.medical.applyTimer -= dt;
-      if (this.medical.applyTimer <= 0) {
-        this.medical.isApplying = false;
-        const part = this.bodyParts[this.medical.applyPart];
-        if (part) {
-          if (this.medical.applyType === 'bandage') { part.bleedRate = 0; this.bleedingRate = 0; }
-          else if (this.medical.applyType === 'tourniquet') {
-            this.bleedingRate = 0;
-            if (this.medical.applyPart === 'leftLeg' || this.medical.applyPart === 'rightLeg') this.isLimping = true;
-            if (this.medical.applyPart === 'leftArm' || this.medical.applyPart === 'rightArm') this.isArmed = false;
-          }
-        }
-      }
-    }
-
-    if (this.bleedingRate > 0 && this.blood > 0) {
-      const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.run));
-      const lossMult = 1 + speedRatio;
-      this.blood = Math.max(0, this.blood - this.bleedingRate * lossMult * dt);
-      if (this.blood <= 0) { this._die(); return null; }
-      if (this.blood < 15 && !this.isUnconscious) { this.isUnconscious = true; this.stance = 'prone'; this.stanceTransition = null; this.isMoving = false; this._wantsToMove = false; this.path = []; EventBus.emit(EVENTS.UNIT_UNCONSCIOUS, this); }
-      else if (this.blood >= 15 && this.isUnconscious) this.isUnconscious = false;
-    }
+    this._updateHealthAndMedical(dt, currentTime); // Миксин
 
     if (this.isUnconscious) { this.weapon.update(dt); this._integrateVelocity(dt); return null; }
     if (this.tinnitus > 0) this.tinnitus = Math.max(0, this.tinnitus - dt);
@@ -373,11 +133,9 @@ export class Unit {
     this.hearingMultiplier = Math.max(0, hearingMult);
 
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-    this._updatePerception(dt, allUnits, obs, currentTime);
-    
+    this._updatePerception(dt, allUnits, obs, currentTime); // Миксин
     if (this.brain && worldState) this.brain.update(dt, worldState);
-
-    this._updateCombat(dt, allUnits, currentTime, worldState);
+    this._updateCombat(dt, allUnits, currentTime, worldState); // Миксин
     this.weapon.update(dt);
 
     if (this.isMoving || this._wantsToMove) this.aimTime = 0;
@@ -440,52 +198,13 @@ export class Unit {
     }
   }
 
-  _updateCombat(dt, allUnits, currentTime, worldState) {
-    this.target = this._pickEngageTarget(); if (!this.target) return;
-    
-    if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0 && this.grenades > 0) {
-      const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-      if (dist < 30) this.throwGrenade(this.target.x, this.target.y, worldState);
-      return;
-    }
-
-    if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0) return;
-    if (this.isSurrendered) return;
-
-    const mem = this.perception.get(this.target); const targetDist = Math.hypot(this.target.x - this.x, this.target.y - this.y); const stale = mem && (currentTime - mem.lastSeen) > 2.0;
-    this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x); this.weapon.updateFireMode(targetDist);
-    if (stale || this.medical.isApplying || this.shockTimer > 0) return;
-    if (this.isPressed && this.stance !== 'prone' && this.stance !== 'crouch') return;
-    if (this.stanceTransition && CONFIG.STANCE.FIRE_BLOCKED) return;
-    if (this.weapon.isJammed || this.weapon.isMisfired) return;
-
-    if (this.weapon.canFire(currentTime)) { const b = this._shoot(currentTime); if (b) this.pendingBullets.push(b); }
-  }
-
-  _shoot(currentTime) {
-    if (!this.isArmed || this.isUnconscious) return null; if (!this.weapon.fire(currentTime)) return null;
-    const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y); let spread = this.weapon.spreadBase * (dist / 100);
-    if (this.isLimping) spread *= 2.0; const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand)); spread *= (1 + speedRatio * 3);
-    if (this.stamina < 20) spread *= 1.5; if (this.blood < 70) spread *= 1.2; if (this.blood < 40) spread *= 1.5;
-    if (this.target.isMoving) spread *= 1.5; if (this.target.stance === 'prone') spread *= 1.2; else if (this.target.stance === 'crouch') spread *= 1.1;
-    spread *= this.weapon.getRecoilSpreadMultiplier(); spread *= (1 + this.suppression * 1.5);
-    const aimBonus = Math.min(this.aimTime / Math.max(0.1, this.maxAimTime), 1.0); spread *= (1.0 - aimBonus * 0.7);
-    spread = Math.max(0.01, Math.min(spread, 20)); const hitChance = Math.max(0.1, 1 - (spread / 10));
-    
-    AudioManager.playGunshot(this.x, this.y, this.pathfinder?.camera, this.weapon.loudness);
-    EventBus.emit(EVENTS.UNIT_SHOOT, { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y, isMuzzleFlash: true });
-    EventBus.emit(EVENTS.WORLD_NOISE, { x: this.x, y: this.y, loudness: this.weapon.loudness, source: this, isGunshot: true });
-    this.tinnitus = 1.0;
-
-    let tx = this.target.x, ty = this.target.y;
-    if (Math.random() >= hitChance) { const ang = Math.atan2(ty - this.y, tx - this.x) + (Math.random() - 0.5) * 0.6; const missDist = dist + (Math.random() - 0.5) * 60; tx = this.x + Math.cos(ang) * missDist; ty = this.y + Math.sin(ang) * missDist; }
-    const isTracer = (this.weapon.shotsFired % CONFIG.BALLISTICS.TRACER_EVERY_N) === 0;
-    return new Bullet(this.x, this.y, tx, ty, this.weapon.bulletSpeed, this.weapon.baseDamage, this.weapon.damageFalloff, this.weapon.maxFalloffDist, this.weapon.penetration, this, { drag: this.weapon.drag, fragmentation: this.weapon.fragmentation, impulse: this.weapon.impulse, isTracer, woundingMult: this.weapon.woundingMult, overpenetration: this.weapon.overpenetration });
-  }
-
   _updateStamina(dt) {
     if (this.isMoving) { let drain = 0; if (this.stance === 'run') drain = 8; else if (this.stance === 'stand') drain = 0.5; else if (this.stance === 'crouch') drain = 0.2; else if (this.stance === 'prone') drain = 0.05; drain *= this.staminaPenalty; this.stamina = Math.max(0, this.stamina - drain * dt); this.staminaCooldown = 2.0; }
     else { if (this.staminaCooldown > 0) this.staminaCooldown -= dt; else { let mult = 1.0; if (this.blood < 70) mult = 0.7; if (this.blood < 40) mult = 0.4; if (this.blood < 15) mult = 0.1; let base = this.baseRecoveryRate; if (this.stance === 'crouch') base *= 1.2; else if (this.stance === 'prone') base *= 1.5; this.stamina += (base * mult) / this.staminaPenalty * dt; } }
     this.stamina = Math.max(0, Math.min(this.maxStamina, this.stamina)); if (this.stance === 'run' && this.stamina <= 0) this.setStance('stand');
   }
 }
+
+// Применяем миксины к прототипу
+applyHealthMixin(Unit.prototype);
+applyCombatMixin(Unit.prototype);
