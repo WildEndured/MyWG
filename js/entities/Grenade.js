@@ -1,6 +1,7 @@
 import { EventBus } from '../core/EventBus.js';
 import { Physics } from '../core/Physics.js';
 import { Explosion } from './Explosion.js';
+import { Fragment } from './Fragment.js';
 import { CONFIG } from '../data/config.js';
 
 export class Grenade {
@@ -8,22 +9,19 @@ export class Grenade {
     this.x = x; this.y = y;
     this.startX = x; this.startY = y;
     this.owner = owner;
-    this.config = config; // из EXPLOSIVES
+    this.config = config;
     
     this.isDead = false;
     this.hasExploded = false;
     this.fuseTimer = config.fuseTime;
     
-    // Физика полета: задаем скорость так, чтобы граната упала примерно в цель
     const dx = targetX - x, dy = targetY - y;
     const dist = Math.hypot(dx, dy);
-    const timeToTarget = Math.min(1.5, dist / 20); // 1.5 сек максимум
+    const timeToTarget = Math.min(1.5, dist / 20);
     
-    // Упрощенная баллистика: vx, vy + гравитация
     this.vx = dx / timeToTarget;
-    this.vy = (dy / timeToTarget) - 0.5 * 9.81 * timeToTarget; // Компенсация гравитации
+    this.vy = (dy / timeToTarget) - 0.5 * 9.81 * timeToTarget;
     
-    // Ограничение дальности
     if (dist > config.throwRange) {
       const scale = config.throwRange / dist;
       this.vx *= scale;
@@ -31,36 +29,31 @@ export class Grenade {
     }
 
     this.prevX = x; this.prevY = y;
-    this.radius = 0.1; // Размер гранаты (для коллизий)
+    this.radius = 0.1;
     this.hasLanded = false;
   }
 
   update(dt, units, obstacles, pathfinder) {
     if (this.isDead) return;
 
-    // Таймер взрыва
     this.fuseTimer -= dt;
     if (this.fuseTimer <= 0 && !this.hasExploded) {
       this._explode(units, obstacles, pathfinder);
       return;
     }
 
-    // Если уже взорвалась — просто ждем смерти (визуал)
     if (this.hasExploded) return;
 
-    // Физика полета (если еще не приземлилась)
     if (!this.hasLanded) {
-      this.vy += 9.81 * dt; // Гравитация
+      this.vy += 9.81 * dt;
       const nextX = this.x + this.vx * dt;
       const nextY = this.y + this.vy * dt;
 
-      // Проверка столкновения со стенами
       if (obstacles) {
         for (const obs of obstacles) {
           for (const seg of obs.segments) {
             if (seg.state === 'rubble') continue;
             if (nextX >= seg.x && nextX <= seg.x + seg.w && nextY >= seg.y && nextY <= seg.y + seg.h) {
-              // Отскок от стены (упрощенно — останавливаемся)
               this.vx *= -0.3;
               this.vy *= -0.3;
               break;
@@ -69,7 +62,6 @@ export class Grenade {
         }
       }
 
-      // Проверка на землю (нижняя граница карты)
       const mapBottom = pathfinder?.worldSize || 1000;
       if (nextY >= mapBottom - 0.2) {
         this.y = mapBottom - 0.2;
@@ -87,7 +79,7 @@ export class Grenade {
 
   _explode(units, obstacles, pathfinder) {
     this.hasExploded = true;
-    this.isDead = true; // Сразу удаляем после взрыва
+    this.isDead = true;
 
     const ex = new Explosion(
       this.x, this.y, 
@@ -96,9 +88,26 @@ export class Grenade {
       this.config.fragmentation, 
       this.owner
     );
-    // Взрыв обрабатывается мгновенно
     ex.update(0.016, units, obstacles, pathfinder);
     
     EventBus.emit('explosion:created', { explosion: ex });
+
+    // НОВОЕ: Создаем осколки конусом
+    const fragCount = CONFIG.FRAGMENTS.COUNT;
+    for (let i = 0; i < fragCount; i++) {
+      const angle = (Math.PI * 2 * i) / fragCount + (Math.random() - 0.5) * 0.3;
+      const speed = CONFIG.FRAGMENTS.SPEED * (0.5 + Math.random() * 0.5);
+      const fragDamage = this.config.baseDamage * CONFIG.FRAGMENTS.DAMAGE_MULT * (0.5 + Math.random() * 0.5);
+      
+      const frag = new Fragment(
+        this.x, this.y,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        fragDamage,
+        this.owner
+      );
+      
+      EventBus.emit('fragment:created', { fragment: frag });
+    }
   }
 }
