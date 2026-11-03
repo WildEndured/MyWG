@@ -7,6 +7,7 @@ import { VISION_CONFIG, AUDIO_CONFIG } from '../data/vision.js';
 import { Physics } from '../core/Physics.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { Bullet } from './Bullet.js';
+import { CONFIG } from '../data/config.js';
 
 export class Unit {
   constructor(x, y, faction = 'player', roleId = 'infantry') {
@@ -18,7 +19,6 @@ export class Unit {
     this.isDead = false;
     this.isUnconscious = false;
 
-    // FIX: клонируем полностью, включая maxHp для подчастей
     this.bodyParts = {};
     for (const [partId, partData] of Object.entries(BODY_PARTS)) {
       this.bodyParts[partId] = {
@@ -26,13 +26,15 @@ export class Unit {
         maxHp: partData.maxHp,
         fatal: !!partData.fatal,
         bleedRate: partData.bleedRate || 0,
+        hitbox: partData.hitbox ? { ...partData.hitbox } : null,
+        stanceScale: partData.stanceScale ? { ...partData.stanceScale } : { stand: 1, crouch: 1, prone: 1 },
         subParts: partData.subParts
           ? partData.subParts.map(s => ({ ...s, maxHp: s.hp }))
           : null,
       };
     }
 
-    this.maxHp = calcMaxTotalHp(this.bodyParts); // FIX: учитываем подчасти
+    this.maxHp = calcMaxTotalHp(this.bodyParts);
     this.hp = this.maxHp;
 
     this.maxBlood = 100;
@@ -50,6 +52,7 @@ export class Unit {
 
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
+    this.maxAimTime = this.weapon.maxAimTime;
 
     this.armor = {};
     let armorWeight = 0;
@@ -58,7 +61,6 @@ export class Unit {
       if (!config) continue;
       const armorClass = ARMOR_CLASSES[config.class];
       armorWeight += config.weight;
-      // FIX: единый объект-броня для всех покрытых зон с покрытием подчастей
       const piece = {
         name: config.name,
         level: armorClass.level,
@@ -68,7 +70,6 @@ export class Unit {
         coveredSubParts: config.coveredSubParts || [],
       };
       for (const zone of config.covers) {
-        // Не перезаписываем более прочную броню
         if (!this.armor[zone] || this.armor[zone].level < piece.level) {
           this.armor[zone] = piece;
         }
@@ -93,7 +94,6 @@ export class Unit {
     this.isArmed = true;
     this.isLimping = false;
     this.aimTime = 0;
-    this.maxAimTime = 2.0;
 
     this.target = null;
     this.isSelected = false;
@@ -108,28 +108,112 @@ export class Unit {
     this.needsRepath = false;
     this.lastTarget = null;
     this.lastHeardNoise = null;
-    this.pendingBullets = []; // FIX: несколько выстрелов за кадр
+    this.pendingBullets = [];
+
+    // FIX: подавление (Волна 1)
+    this.suppression = 0;   // 0..1
+    this.pressedTimer = 0;  // сколько секунд «прижат»
   }
 
   getTotalHp() { return calcTotalHp(this.bodyParts); }
   getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
 
-  takeDamage(amount, hitZone = 'torso', penetrationLevel = 0) {
+  // FIX: подавление (Волна 1)
+  applySuppression(amount) {
+    if (this.isDead) return;
+    this.suppression = Math.min(1, this.suppression + amount);
+    if (this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PANIC && this.stance !== 'prone') {
+      // В панике падает
+      this.setStance('prone');
+    }
+  }
+
+  get isPressed() {
+    return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED;
+  }
+
+  // FIX: фрагментация (Волна 1)
+  applyFragmentation(amount) {
+    if (this.isDead) return;
+    // Распределяем по 2 случайным подчастям торса
+    const torso = this.bodyParts.torso;
+    if (!torso?.subParts) return;
+    for (let i = 0; i < 2; i++) {
+      const sub = torso.subParts[Math.floor(Math.random() * torso.subParts.length)];
+      sub.hp -= amount;
+      if (sub.hp <= 0) { sub.hp = 0; if (sub.fatal) { this._die(); return; } }
+    }
+    this.hp = this.getTotalHp();
+    if (this.hp <= 0) this._die();
+  }
+
+  // FIX: хитбоксы (Волна 1) — raycast по хитбоксам всех частей тела
+  // Возвращает { partId, subPartId, t } или null
+  raycastHit(x1, y1, x2, y2) {
+    let best = null;
+    let bestT = Infinity;
+
+    for (const [partId, part] of Object.entries(this.bodyParts)) {
+      if (!part.hitbox || part.hp <= 0) continue;
+
+      const scale = part.stanceScale[this.stance] ?? 1;
+      // локальные координаты -> мир (поворот на angle)
+      const cos = Math.cos(this.angle), sin = Math.sin(this.angle);
+      const lx = part.hitbox.dx;
+      const ly = part.hitbox.dy;
+      const cx = this.x + lx * cos - ly * sin;
+      const cy = this.y + lx * sin + ly * cos;
+      const r = part.hitbox.r * scale;
+
+      const t = this._rayCircle(x1, y1, x2, y2, cx, cy, r);
+      if (t !== null && t < bestT) {
+        bestT = t;
+        // Выбираем подчасть по весам, но только если она ещё жива
+        let subPartId = null;
+        if (part.subParts) {
+          const alive = part.subParts.filter(s => s.hp > 0);
+          if (alive.length) {
+            const totalW = alive.reduce((s, p) => s + p.weight, 0);
+            let rnd = Math.random() * totalW;
+            for (const s of alive) {
+              rnd -= s.weight;
+              if (rnd <= 0) { subPartId = s.id; break; }
+            }
+          }
+        }
+        best = { partId, subPartId, t: bestT };
+      }
+    }
+    return best;
+  }
+
+  _rayCircle(x1, y1, x2, y2, cx, cy, r) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const fx = x1 - cx, fy = y1 - cy;
+    const a = dx * dx + dy * dy;
+    if (a < 1e-12) return (fx * fx + fy * fy) <= r * r ? 0 : null;
+    const b = 2 * (fx * dx + fy * dy);
+    const c = fx * fx + fy * fy - r * r;
+    let disc = b * b - 4 * a * c;
+    if (disc < 0) return null;
+    disc = Math.sqrt(disc);
+    const t1 = (-b - disc) / (2 * a);
+    const t2 = (-b + disc) / (2 * a);
+    if (t1 >= 0 && t1 <= 1) return t1;
+    if (t2 >= 0 && t2 <= 1) return t2;
+    return null;
+  }
+
+  takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
     if (this.isDead) return;
     let finalDamage = amount;
 
-    // FIX: сначала выбираем подчасть, потом ищем броню по hitZone + subPartId
-    let chosenSub = null;
     const part = this.bodyParts[hitZone];
     if (!part) return;
 
-    if (part.subParts && part.subParts.length > 0) {
-      const r = Math.random() * 100;
-      let acc = 0;
-      for (const sub of part.subParts) {
-        acc += sub.weight;
-        if (r <= acc) { chosenSub = sub; break; }
-      }
+    let chosenSub = null;
+    if (forcedSubPartId && part.subParts) {
+      chosenSub = part.subParts.find(s => s.id === forcedSubPartId) || null;
     }
 
     const armorPiece = findArmorForHit(this.armor, hitZone, chosenSub?.id);
@@ -176,7 +260,6 @@ export class Unit {
       this.weapon.isReloading = false;
     }
 
-    // FIX: пересчитываем hp из подчастей
     this.hp = this.getTotalHp();
     if (this.hp <= 0) this._die();
   }
@@ -203,13 +286,15 @@ export class Unit {
       run: baseSpeeds.run * mult,
       stand: baseSpeeds.stand * mult,
       crouch: baseSpeeds.crouch * mult,
-      prone: baseSpeeds.prone * mult, // FIX: prone тоже учитывает вес
+      prone: baseSpeeds.prone * mult,
     };
   }
 
   setStance(newStance) {
     if (this.isDead || this.stance === newStance) return;
     if (newStance === 'run' && (this.stamina < 10 || this.isLimping || this.isUnconscious)) return;
+    // FIX: подавление мешает встать
+    if (newStance === 'stand' && this.isPressed) return;
     this.stance = newStance;
     this.speed = this.speeds[this.stance];
   }
@@ -245,7 +330,11 @@ export class Unit {
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
-    // Кровотечение
+    // FIX: спад подавления (Волна 1)
+    if (this.suppression > 0) {
+      this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt);
+    }
+
     if (this.bleedingRate > 0 && this.blood > 0) {
       this.blood = Math.max(0, this.blood - this.bleedingRate * dt);
       if (this.blood <= 0) { this._die(); return null; }
@@ -264,7 +353,6 @@ export class Unit {
 
     if (this.tinnitus > 0) this.tinnitus = Math.max(0, this.tinnitus - dt);
 
-    // Слух
     let hearingMult = 1.0;
     const headPart = this.bodyParts.head;
     if (headPart?.subParts) {
@@ -277,7 +365,6 @@ export class Unit {
     if (this.tinnitus > 0) hearingMult -= 0.5;
     this.hearingMultiplier = Math.max(0, hearingMult);
 
-    // FIX: перезарядка не блокирует движение — только стрельбу
     this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
@@ -285,7 +372,6 @@ export class Unit {
     else if (this.target) this.aimTime += dt;
     else this.aimTime = 0;
 
-    // Движение
     if (!this.target && this.isMoving && this.path.length > 0) {
       if (this.pathIndex >= this.path.length) { this.isMoving = false; this.path = []; }
       else {
@@ -299,12 +385,13 @@ export class Unit {
           this.targetAngle = Math.atan2(dy, dx);
           let sp = this.speed;
           if (this.isLimping) sp *= 0.5;
+          // FIX: подавление замедляет
+          if (this.isPressed) sp *= 0.6;
           const stepLen = sp * dt;
           const nx = this.x + (dx / dist) * stepLen;
           const ny = this.y + (dy / dist) * stepLen;
           const obs = this.pathfinder ? this.pathfinder.obstacles : null;
 
-          // FIX: убрано исключение для prone — лежачий тоже сталкивается
           if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) { this.x = nx; this.y = ny; }
           else {
             let slid = false;
@@ -316,7 +403,6 @@ export class Unit {
       }
     }
 
-    // Шум шагов
     if (this.isMoving) {
       const base = AUDIO_CONFIG.stepLoudness[this.stance] || 60;
       const loudness = base + this.totalWeight * AUDIO_CONFIG.weightLoudnessPerKg;
@@ -332,11 +418,9 @@ export class Unit {
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
     this.angle += angleDiff * Math.min(10 * dt, 1);
-    // FIX: нормализация
     if (this.angle > Math.PI) this.angle -= Math.PI * 2;
     if (this.angle < -Math.PI) this.angle += Math.PI * 2;
 
-    // FIX: возвращаем все выпущенные пули за кадр
     const bullets = this.pendingBullets;
     this.pendingBullets = [];
     return bullets.length ? bullets : null;
@@ -361,7 +445,9 @@ export class Unit {
     this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
     this.weapon.updateFireMode(minDist);
 
-    // FIX: убрано Math.random() < 0.7 — темп задаёт только fireInterval
+    // FIX: подавление блокирует стрельбу стоя (Волна 1)
+    if (this.isPressed && this.stance !== 'prone' && this.stance !== 'crouch') return;
+
     if (this.weapon.canFire(currentTime)) {
       const b = this._shoot(currentTime);
       if (b) this.pendingBullets.push(b);
@@ -384,6 +470,11 @@ export class Unit {
     if (this.target.stance === 'prone') spread *= 1.2;
     else if (this.target.stance === 'crouch') spread *= 1.1;
 
+    // FIX: отдача (Волна 1)
+    spread *= this.weapon.getRecoilSpreadMultiplier();
+    // FIX: подавление (Волна 1)
+    spread *= (1 + this.suppression * 1.5);
+
     const aimBonus = Math.min(this.aimTime / this.maxAimTime, 1.0);
     spread *= (1.0 - aimBonus * 0.7);
     spread = Math.max(0.01, Math.min(spread, 20));
@@ -404,18 +495,25 @@ export class Unit {
 
     let tx = this.target.x, ty = this.target.y;
     if (Math.random() >= hitChance) {
-      // FIX: боковое смещение, а не только вдоль линии
       const ang = Math.atan2(ty - this.y, tx - this.x) + (Math.random() - 0.5) * 0.6;
       const missDist = dist + (Math.random() - 0.5) * 60;
       tx = this.x + Math.cos(ang) * missDist;
       ty = this.y + Math.sin(ang) * missDist;
     }
 
+    // FIX: трассер каждый N-й патрон (Волна 1)
+    const isTracer = (this.weapon.shotsFired % CONFIG.BALLISTICS.TRACER_EVERY_N) === 0;
+
     return new Bullet(
       this.x, this.y, tx, ty,
       this.weapon.bulletSpeed, this.weapon.baseDamage,
       this.weapon.damageFalloff, this.weapon.maxFalloffDist,
-      this.weapon.penetration, this
+      this.weapon.penetration, this,
+      {
+        drag: this.weapon.drag,
+        fragmentation: this.weapon.fragmentation,
+        isTracer,
+      }
     );
   }
 
@@ -480,6 +578,16 @@ export class Unit {
       }
     }
     ctx.restore();
+
+    // FIX: индикатор подавления (Волна 1)
+    if (this.suppression > 0.1 && !this.isDead) {
+      const p = screenPos;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - 20, 8, 0, Math.PI * 2 * this.suppression);
+      ctx.strokeStyle = this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED ? '#FF5500' : '#FFAA00';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
 
     if (this.isSelected && !this.isDead) {
       ctx.beginPath();
@@ -552,4 +660,4 @@ export class Unit {
       }
     }
   }
-}
+  }
