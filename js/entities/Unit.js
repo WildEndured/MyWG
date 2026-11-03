@@ -14,9 +14,8 @@ export class Unit {
     this.x = x; this.y = y;
     this.faction = faction;
 
-    // FIX: скорость с инерцией (Волна 2)
     this.vx = 0; this.vy = 0;
-    this.maxSpeed = 0; // выставляется в _calculateSpeeds
+    this.maxSpeed = 0;
 
     this.baseRadius = BASE_HUMAN.baseRadius;
     this.hitRadius = BASE_HUMAN.hitRadius;
@@ -84,16 +83,13 @@ export class Unit {
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
 
-    // FIX: ускорение зависит от веса (Волна 2)
     this.accel = CONFIG.MOVEMENT.ACCEL_BASE / this.staminaPenalty;
     this.decel = CONFIG.MOVEMENT.DECEL_BASE / this.staminaPenalty;
 
     this.stance = 'stand';
     this.speed = this.speeds[this.stance];
     this.maxSpeed = this.speed;
-
-    // FIX: переходы поз (Волна 2)
-    this.stanceTransition = null; // { from, to, timer, total }
+    this.stanceTransition = null;
 
     this.fovAngle = VISION_CONFIG.fovAngle * (Math.PI / 180);
     this.detectRange = VISION_CONFIG.detectRange;
@@ -112,7 +108,7 @@ export class Unit {
     this.path = [];
     this.pathIndex = 0;
     this.isMoving = false;
-    this._wantsToMove = false; // FIX: намерение двигаться (Волна 2)
+    this._wantsToMove = false;
 
     this.angle = 0;
     this.targetAngle = 0;
@@ -123,13 +119,10 @@ export class Unit {
     this.lastHeardNoise = null;
     this.pendingBullets = [];
 
-    // Подавление (Волна 1)
     this.suppression = 0;
-    this.lastSuppressionTime = 0; // FIX: когда последний раз подавляли (Волна 2)
-    this.standLockTimer = 0;      // FIX: нельзя встать (Волна 2)
+    this.lastSuppressionTime = 0;
+    this.standLockTimer = 0;
 
-    // FIX: восприятие (Волна 2)
-    // Map<unitRef, { seen: 0..1, lastX, lastY, lastSeen, angle }>
     this.perception = new Map();
     this._lastScanTime = 0;
     this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
@@ -138,14 +131,12 @@ export class Unit {
   getTotalHp() { return calcTotalHp(this.bodyParts); }
   getMaxTotalHp() { return calcMaxTotalHp(this.bodyParts); }
 
-  // ---------- Подавление ----------
   applySuppression(amount) {
     if (this.isDead) return;
     this.suppression = Math.min(1, this.suppression + amount);
     this.lastSuppressionTime = performance.now() / 1000;
 
-    // FIX: автоприжатие (Волна 2)
-    if (this.stanceTransition) return; // не прерываем переход
+    if (this.stanceTransition) return;
     if (this.suppression >= CONFIG.SUPPRESSION.AUTO_PRONE && this.stance !== 'prone') {
       this._startStanceTransition('prone');
       this.standLockTimer = CONFIG.SUPPRESSION.STAND_LOCK_TIME;
@@ -158,7 +149,6 @@ export class Unit {
     return this.suppression >= CONFIG.SUPPRESSION.THRESHOLD_PRESSED;
   }
 
-  // ---------- Фрагментация ----------
   applyFragmentation(amount) {
     if (this.isDead) return;
     const torso = this.bodyParts.torso;
@@ -172,7 +162,6 @@ export class Unit {
     if (this.hp <= 0) this._die();
   }
 
-  // ---------- Хитбоксы ----------
   raycastHit(x1, y1, x2, y2) {
     let best = null;
     let bestT = Infinity;
@@ -223,11 +212,9 @@ export class Unit {
     return null;
   }
 
-  // ---------- Урон ----------
   takeDamage(amount, hitZone = 'torso', penetrationLevel = 0, forcedSubPartId = null) {
     if (this.isDead) return;
 
-    // FIX: прерывание перехода поз (Волна 2)
     if (CONFIG.STANCE.ABORT_ON_DAMAGE && this.stanceTransition) {
       this.stanceTransition = null;
     }
@@ -317,7 +304,6 @@ export class Unit {
     };
   }
 
-  // ---------- Переходы поз (Волна 2) ----------
   _startStanceTransition(to) {
     const from = this.stance;
     if (from === to) return;
@@ -328,7 +314,7 @@ export class Unit {
 
   setStance(newStance) {
     if (this.isDead || this.stance === newStance) return;
-    if (this.stanceTransition) return; // уже переходит
+    if (this.stanceTransition) return;
     if (newStance === 'run' && (this.stamina < 10 || this.isLimping || this.isUnconscious)) return;
     if (newStance === 'stand' && (this.isPressed || this.standLockTimer > 0)) return;
     this._startStanceTransition(newStance);
@@ -346,7 +332,6 @@ export class Unit {
     }
   }
 
-  // FIX: визуальный прогресс перехода (0..1), для отрисовки
   get stanceTransitionProgress() {
     if (!this.stanceTransition) return 1;
     const t = this.stanceTransition;
@@ -354,7 +339,10 @@ export class Unit {
   }
 
   setPath(path) {
-    if (!path || path.length === 0) { this.isMoving = false; this._wantsToMove = false; this.path = []; return; }
+    if (!path || path.length === 0) {
+      this.isMoving = false; this._wantsToMove = false; this.path = [];
+      return;
+    }
     this.path = path;
     this.pathIndex = 0;
     this.isMoving = true;
@@ -362,8 +350,6 @@ export class Unit {
     this.needsRepath = false;
   }
 
-  // ---------- Восприятие (Волна 2) ----------
-  // Проверяем видимость с учётом направления, LOS, позы цели
   _visibilityCheck(other, obstacles) {
     const dx = other.x - this.x, dy = other.y - this.y;
     const dist = Math.hypot(dx, dy);
@@ -384,16 +370,13 @@ export class Unit {
     if (absAngle > centralHalf) rangeLimit = VISION_CONFIG.peripheralRange;
     if (dist > rangeLimit) return { visible: false, dist, angle: absAngle, central: false };
 
-    // LOS — дорого, проверяем только если потенциально видимо
     if (!Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obstacles)) {
       return { visible: false, dist, angle: absAngle, central: absAngle <= centralHalf };
     }
     return { visible: true, dist, angle: absAngle, central: absAngle <= centralHalf };
   }
 
-  // FIX: обновление восприятия (Волна 2)
   _updatePerception(dt, allUnits, obstacles, now) {
-    // 1. Затухание «seen» для всех, кого помним
     for (const [target, mem] of this.perception) {
       if (target.isDead) { this.perception.delete(target); continue; }
       mem.seen = Math.max(0, mem.seen - CONFIG.PERCEPTION.LOSE_PER_SEC * dt);
@@ -402,7 +385,6 @@ export class Unit {
       }
     }
 
-    // 2. Только раз в scanInterval — полная проверка всех видимых
     if (now - this._lastScanTime < this._scanInterval) return;
     this._lastScanTime = now;
 
@@ -412,13 +394,11 @@ export class Unit {
       const vis = this._visibilityCheck(other, obstacles);
       if (!vis.visible) continue;
 
-      // Скорость заполнения: центральный сектор — быстро, периферия — медленно
       const fillRate = vis.central
         ? 1 / CONFIG.PERCEPTION.CENTRAL_FILL_SEC
         : 1 / CONFIG.PERCEPTION.PERIPHERAL_FILL_SEC;
 
       const mem = this.perception.get(other) || { seen: 0, lastX: other.x, lastY: other.y, lastSeen: now, angle: 0 };
-      // Чем ближе — тем быстрее обнаружение
       const distMult = 1 + (1 - Math.min(1, vis.dist / Math.max(1, this.detectRange))) * 1.0;
       mem.seen = Math.min(1, mem.seen + fillRate * this._scanInterval * distMult);
       mem.lastX = other.x;
@@ -429,7 +409,6 @@ export class Unit {
     }
   }
 
-  // Возвращает лучшую цель (seen > порог), либо null
   _pickEngageTarget() {
     let best = null;
     let bestSeen = CONFIG.PERCEPTION.ENGAGE_THRESHOLD;
@@ -453,11 +432,9 @@ export class Unit {
     return mem ? mem.seen >= CONFIG.PERCEPTION.ENGAGE_THRESHOLD : false;
   }
 
-  // ---------- Главный апдейт ----------
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
-    // Подавление: спад + снятие прижатия
     if (this.suppression > 0) {
       const timeSince = (performance.now() / 1000) - this.lastSuppressionTime;
       if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) {
@@ -466,10 +443,8 @@ export class Unit {
     }
     if (this.standLockTimer > 0) this.standLockTimer -= dt;
 
-    // Переход поз
     this._updateStanceTransition(dt);
 
-    // Кровотечение
     if (this.bleedingRate > 0 && this.blood > 0) {
       this.blood = Math.max(0, this.blood - this.bleedingRate * dt);
       if (this.blood <= 0) { this._die(); return null; }
@@ -487,7 +462,7 @@ export class Unit {
 
     if (this.isUnconscious) {
       this.weapon.update(dt);
-      this._integrateVelocity(dt); // всё равно затухаем
+      this._integrateVelocity(dt);
       return null;
     }
 
@@ -505,22 +480,19 @@ export class Unit {
     if (this.tinnitus > 0) hearingMult -= 0.5;
     this.hearingMultiplier = Math.max(0, hearingMult);
 
-    // Восприятие
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
     this._updatePerception(dt, allUnits, obs, currentTime);
 
     this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
 
-    // aimTime
     if (this.isMoving || this._wantsToMove) this.aimTime = 0;
     else if (this.target) this.aimTime += dt;
     else this.aimTime = 0;
 
-    // Движение с инерцией
+    // FIX: только один блок движения — с инерцией
     this._updateMovement(dt);
 
-    // Шум шагов
     if (this.isMoving) {
       const base = AUDIO_CONFIG.stepLoudness[this.stance] || 60;
       const loudness = base + this.totalWeight * AUDIO_CONFIG.weightLoudnessPerKg;
@@ -532,7 +504,6 @@ export class Unit {
 
     this._updateStamina(dt);
 
-    // Поворот
     let angleDiff = this.targetAngle - this.angle;
     while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
     while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
@@ -545,28 +516,35 @@ export class Unit {
     return bullets.length ? bullets : null;
   }
 
-  // FIX: движение с ускорением и инерцией (Волна 2)
+  // FIX: движение с инерцией — единственный источник изменения x/y
   _updateMovement(dt) {
-    // Целевая скорость
     let targetSpeedX = 0, targetSpeedY = 0;
     let wantMove = false;
 
-    if (this._wantsToMove && this.path.length > 0 && !this.target) {
-      if (this.pathIndex >= this.path.length) {
-        this.isMoving = false; this._wantsToMove = false; this.path = [];
+    if (this._wantsToMove) {
+      if (this.path.length === 0) {
+        // Путь пуст, но намерение есть — запросить репас
+        if (this.lastTarget) this.needsRepath = true;
+        else this._wantsToMove = false;
+      } else if (this.pathIndex >= this.path.length) {
+        this.isMoving = false;
+        this._wantsToMove = false;
+        this.path = [];
       } else {
         const p = this.path[this.pathIndex];
         const dx = p.x - this.x, dy = p.y - this.y;
         const dist = Math.hypot(dx, dy);
         if (dist < 0.5) {
           this.pathIndex++;
-          if (this.pathIndex >= this.path.length) { this.isMoving = false; this._wantsToMove = false; this.path = []; }
+          if (this.pathIndex >= this.path.length) {
+            this.isMoving = false; this._wantsToMove = false; this.path = [];
+          }
         } else {
           this.targetAngle = Math.atan2(dy, dx);
           let maxSp = this.speeds[this.stance];
           if (this.isLimping) maxSp *= 0.5;
           if (this.isPressed) maxSp *= CONFIG.SUPPRESSION.PRESSED_MOVE_MULT;
-          if (this.stanceTransition) maxSp *= 0.3; // медленно на переходе
+          if (this.stanceTransition) maxSp *= 0.3;
           targetSpeedX = (dx / dist) * maxSp;
           targetSpeedY = (dy / dist) * maxSp;
           wantMove = true;
@@ -576,7 +554,6 @@ export class Unit {
 
     this.isMoving = wantMove;
 
-    // Ускорение / торможение
     const ax = targetSpeedX - this.vx;
     const ay = targetSpeedY - this.vy;
     const accel = wantMove ? this.accel : this.decel;
@@ -604,27 +581,25 @@ export class Unit {
     if (Physics.isPositionFree(nx, ny, this.baseRadius, obs)) {
       this.x = nx; this.y = ny;
     } else {
-      // Скольжение по оси
       let slid = false;
       if (Physics.isPositionFree(nx, this.y, this.baseRadius, obs)) { this.x = nx; slid = true; this.vy *= 0.3; }
       else if (Physics.isPositionFree(this.x, ny, this.baseRadius, obs)) { this.y = ny; slid = true; this.vx *= 0.3; }
       if (!slid) {
         this.vx = 0; this.vy = 0;
-        this.isMoving = false; this._wantsToMove = false; this.path = []; this.needsRepath = true;
+        // FIX: не сбрасываем _wantsToMove — путь будет перестроен
+        this.isMoving = false;
+        this.needsRepath = true;
       }
     }
   }
 
   _updateCombat(dt, allUnits, currentTime) {
-    // FIX: цель из восприятия (Волна 2)
     this.target = this._pickEngageTarget();
     if (!this.target) return;
 
     const mem = this.perception.get(this.target);
     const targetDist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
-    // Если давно не видели — идём к последней позиции, не стреляем
-    const now = currentTime;
-    const stale = mem && (now - mem.lastSeen) > 2.0;
+    const stale = mem && (currentTime - mem.lastSeen) > 2.0;
 
     this.targetAngle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
     this.weapon.updateFireMode(targetDist);
@@ -647,7 +622,6 @@ export class Unit {
     let spread = this.weapon.spreadBase * (dist / 100);
 
     if (this.isLimping) spread *= 2.0;
-    // FIX: движение через скорость (Волна 2)
     const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand));
     spread *= (1 + speedRatio * 3);
     if (this.stamina < 20) spread *= 1.5;
@@ -669,11 +643,8 @@ export class Unit {
     EventBus.emit(EVENTS.UNIT_SHOOT, {
       x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y, isMuzzleFlash: true,
     });
-
     EventBus.emit(EVENTS.WORLD_NOISE, {
-      x: this.x, y: this.y,
-      loudness: this.weapon.loudness,
-      source: this, isGunshot: true,
+      x: this.x, y: this.y, loudness: this.weapon.loudness, source: this, isGunshot: true,
     });
 
     this.tinnitus = 1.0;
@@ -728,13 +699,10 @@ export class Unit {
     const screenPos = camera.worldToScreen(this.x, this.y);
     const color = this.isDead ? '#444' : (this.faction === 'player' ? '#4285F4' : '#EA4335');
 
-    // FIX: визуальный прогресс перехода (Волна 2)
     let visualStance = this.stance;
-    let transitionT = 1;
     if (this.stanceTransition) {
-      transitionT = this.stanceTransitionProgress;
-      // Между «from» и «to»: плавное изменение размера
-      visualStance = transitionT < 0.5 ? this.stanceTransition.from : this.stanceTransition.to;
+      const t = this.stanceTransitionProgress;
+      visualStance = t < 0.5 ? this.stanceTransition.from : this.stanceTransition.to;
     }
 
     ctx.save();
@@ -747,12 +715,7 @@ export class Unit {
       const offsetForward = 0.2 * camera.zoom;
 
       ctx.beginPath();
-      ctx.ellipse(
-        offsetForward, 0,
-        Math.max(3, bodyLength / 2),
-        Math.max(2, bodyWidth / 2),
-        0, 0, Math.PI * 2
-      );
+      ctx.ellipse(offsetForward, 0, Math.max(3, bodyLength / 2), Math.max(2, bodyWidth / 2), 0, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.lineWidth = 1;
@@ -787,7 +750,6 @@ export class Unit {
     }
     ctx.restore();
 
-    // Индикатор подавления
     if (this.suppression > 0.1 && !this.isDead) {
       ctx.beginPath();
       ctx.arc(screenPos.x, screenPos.y - 20, 8, 0, Math.PI * 2 * this.suppression);
@@ -796,7 +758,6 @@ export class Unit {
       ctx.stroke();
     }
 
-    // FIX: индикатор перехода поз (Волна 2)
     if (this.stanceTransition) {
       const w = 24, h = 3;
       const x = screenPos.x - w / 2;
@@ -878,4 +839,4 @@ export class Unit {
       }
     }
   }
- }
+}
