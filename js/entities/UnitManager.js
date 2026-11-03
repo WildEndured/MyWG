@@ -3,12 +3,15 @@ import { Unit } from './Unit.js';
 import { Pathfinder } from '../core/Pathfinder.js';
 import { Physics } from '../core/Physics.js';
 import { CONFIG } from '../data/config.js';
+import { CaptureZone } from './CaptureZone.js';
 
 export class UnitManager {
   constructor() {
     this.units = []; this.selectedUnits = []; this.bullets = []; this.pathfinder = new Pathfinder(100, 1); this.camera = null;
     this._isSearchingPath = false; this.tracers = []; this.flashes = []; this.decals = []; this.currentTime = 0;
     this.playerFaction = 'player'; this.playerTeamId = 'team1'; this.gameMode = 'attack'; this.mapSize = 100;
+    
+    this.captureZone = null;
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -35,13 +38,11 @@ export class UnitManager {
   update(dt) {
     this.currentTime += dt;
     
-    // Формируем "картину мира" для ИИ
-    const worldState = {
-      time: this.currentTime,
-      mapSize: this.mapSize,
-      pathfinder: this.pathfinder,
-      units: this.units
-    };
+    if (this.captureZone) {
+      this.captureZone.update(dt, this.units);
+    }
+
+    const worldState = { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units, zone: this.captureZone };
 
     for (const unit of this.units) {
       const bullets = unit.update(dt, this.units, this.currentTime, worldState);
@@ -92,7 +93,6 @@ export class UnitManager {
         const path = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
         if (path && path.length > 0) {
           unit.lastTarget = target;
-          // ВАЖНО: Передаем приказ в мозг
           if (unit.brain) unit.brain.setPlayerOrder(path, target);
           else unit.setPath(path);
         }
