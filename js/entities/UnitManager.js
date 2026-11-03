@@ -7,11 +7,12 @@ import { CaptureZone } from './CaptureZone.js';
 import { Explosion } from './Explosion.js';
 import { Debris } from './Debris.js';
 import { DustCloud } from './DustCloud.js';
+import { Fragment } from './Fragment.js';
 
 export class UnitManager {
   constructor() {
     this.units = []; this.selectedUnits = []; this.bullets = []; this.pathfinder = new Pathfinder(100, 1); this.camera = null;
-    this._isSearchingPath = false; this.tracers = []; this.flashes = []; this.decals = []; this.currentTime = 0;
+    this._isSearchingPath = false; this.flashes = []; this.decals = []; this.currentTime = 0;
     this.playerFaction = 'player'; this.playerTeamId = 'team1'; this.gameMode = 'attack'; this.mapSize = 100;
     
     this.captureZone = null;
@@ -19,12 +20,20 @@ export class UnitManager {
     this.explosions = [];
     this.debris = [];
     this.dust = [];
-    this.grenades = []; // НОВОЕ: Летящие гранаты
+    this.grenades = [];
+    this.fragments = []; // НОВОЕ: Осколки
+    this.tracerTrails = []; // НОВОЕ: Следы трассеров
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
       EventBus.on(EVENTS.UNIT_SHOOT, (data) => { 
-        this.tracers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: 0.05 }); 
+        // Создаем летящий трассер, а не просто линию
+        this.tracerTrails.push({
+          x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
+          life: CONFIG.TRACER.TRAIL_LENGTH,
+          maxLife: CONFIG.TRACER.TRAIL_LENGTH,
+          progress: 0 // 0..1 (летит от ствола к цели)
+        });
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
         this.shells.push({ x: data.x1 + (Math.random()-0.5)*0.5, y: data.y1 + (Math.random()-0.5)*0.5, life: 30.0 });
       }),
@@ -39,15 +48,17 @@ export class UnitManager {
         }
       }),
       EventBus.on('dust:spawn', (data) => { this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration)); }),
-      EventBus.on('explosion:created', (data) => { this.explosions.push(data.explosion); }) // Для гранат
+      EventBus.on('explosion:created', (data) => { this.explosions.push(data.explosion); }),
+      EventBus.on('fragment:created', (data) => { this.fragments.push(data.fragment); }) // НОВОЕ
     ];
   }
 
   destroy() { 
     for (const unsub of this._unsubs) unsub(); 
     this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; 
-    this.tracers = []; this.flashes = []; this.decals = []; this.shells = []; 
+    this.flashes = []; this.decals = []; this.shells = []; 
     this.explosions = []; this.debris = []; this.dust = []; this.grenades = [];
+    this.fragments = []; this.tracerTrails = [];
   }
   
   setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
@@ -99,6 +110,7 @@ export class UnitManager {
     this._resolveCollisions();
     for (let i = this.units.length - 1; i >= 0; i--) if (this.units[i].isDead) this.removeUnit(this.units[i]);
     
+    // Пули
     for (let i = this.bullets.length - 1; i >= 0; i--) { const b = this.bullets[i]; b.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (b.isDead) this.bullets.splice(i, 1); }
     
     // Гранаты
@@ -106,6 +118,13 @@ export class UnitManager {
       const g = this.grenades[i];
       g.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
       if (g.isDead) this.grenades.splice(i, 1);
+    }
+
+    // Осколки
+    for (let i = this.fragments.length - 1; i >= 0; i--) {
+      const f = this.fragments[i];
+      f.update(dt, this.units, this.pathfinder.obstacles);
+      if (f.isDead) this.fragments.splice(i, 1);
     }
 
     // Взрывы
@@ -129,7 +148,18 @@ export class UnitManager {
       if (d.isDead) this.dust.splice(i, 1);
     }
 
-    for (let i = this.tracers.length - 1; i >= 0; i--) { this.tracers[i].life -= dt; if (this.tracers[i].life <= 0) this.tracers.splice(i, 1); }
+    // Трассеры (летящие и следы)
+    for (let i = this.tracerTrails.length - 1; i >= 0; i--) {
+      const t = this.tracerTrails[i];
+      t.life -= dt;
+      if (t.life <= 0) this.tracerTrails.splice(i, 1);
+      else {
+        // Трассер летит от ствола к цели
+        t.progress += dt * 10; // Скорость полета визуала
+        if (t.progress > 1) t.progress = 1;
+      }
+    }
+
     for (let i = this.flashes.length - 1; i >= 0; i--) { this.flashes[i].life -= dt; if (this.flashes[i].life <= 0) this.flashes.splice(i, 1); }
     for (let i = this.decals.length - 1; i >= 0; i--) { const d = this.decals[i]; d.age += dt; if (d.age >= d.ttl) this.decals.splice(i, 1); }
     for (let i = this.shells.length - 1; i >= 0; i--) { this.shells[i].life -= dt; if (this.shells[i].life <= 0) this.shells.splice(i, 1); }
