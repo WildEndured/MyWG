@@ -14,25 +14,27 @@ class AudioManagerClass {
     this.isReady = true;
   }
 
-  // Выстрел с задержкой
   playGunshot(x, y, camera, loudness) {
     if (!this.isReady || !this.ctx) return;
     if (this.ctx.state === 'suspended') this.ctx.resume();
 
-    // Вычисляем расстояние от камеры до выстрела
     const dx = x - camera.x;
     const dy = y - camera.y;
     const dist = Math.hypot(dx, dy);
-
-    // Задержка = расстояние / скорость звука
+    
+    // Задержка звука (скорость 343 м/с)
     const delay = dist / CONFIG.AUDIO.SPEED_OF_SOUND;
-    // Затухание (чем дальше, тем тише)
-    const volume = Math.min(1, 1.0 / (1 + dist * 0.01)) * (loudness / 1000);
+    
+    // Громкость (падает с расстоянием)
+    let volume = Math.min(1, 1.0 / (1 + dist * 0.01)) * (loudness / 1000);
+    
+    // Глушение через стены (упрощенно: если далеко, звук глушится)
+    if (dist > 50) volume *= CONFIG.AUDIO_WALL_MULT;
 
-    if (volume < 0.01) return; // Слишком далеко, не слышно
+    if (volume < 0.01) return; // Слишком тихо
 
     setTimeout(() => {
-      this._synthGunshot(volume, dx > 0 ? 0.5 : -0.5);
+      this._synthGunshot(volume, dx > 0 ? 0.5 : -0.5); // Панорама
     }, delay * 1000);
   }
 
