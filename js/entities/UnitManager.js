@@ -145,78 +145,6 @@ export class UnitManager {
     }
   }
 
-  draw(ctx, camera) {
-    // СТРАХОВКА: сохраняем контекст на входе
-    ctx.save(); 
-    
-    this._drawDecals(ctx, camera);
-    this._drawObstacles(ctx, camera);
-
-    const sorted = [...this.units].sort((a, b) => a.y - b.y);
-    for (const u of sorted) u.draw(ctx, camera);
-    for (const b of this.bullets) b.draw(ctx, camera);
-
-    ctx.lineWidth = 1.5;
-    for (const t of this.tracers) {
-      const p1 = camera.worldToScreen(t.x1, t.y1);
-      const p2 = camera.worldToScreen(t.x2, t.y2);
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.strokeStyle = `rgba(255, 255, 0, ${Math.max(0, t.life * 20)})`;
-      ctx.stroke();
-    }
-    for (const f of this.flashes) {
-      const p = camera.worldToScreen(f.x, f.y);
-      const radius = (1.0 - f.life / 0.05) * 20;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255, 200, 0, ${Math.max(0, f.life / 0.05)})`;
-      ctx.fill();
-    }
-
-    // СТРАХОВКА: восстанавливаем контекст на выходе
-    ctx.restore(); 
-  }
-
-  _drawDecals(ctx, camera) {
-    for (const d of this.decals) {
-      const p = camera.worldToScreen(d.x, d.y);
-      const r = d.r * camera.zoom;
-      const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3));
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`;
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(p.x + r * 0.4, p.y + r * 0.2, Math.max(0.5, r * 0.5), 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(90, 5, 5, ${d.alpha * 0.6 * fade})`;
-      ctx.fill();
-    }
-  }
-
-  _spawnTestObstacles(mapSize, enabled = true) {
-    this.pathfinder.clearObstacles();
-    if (!enabled) return;
-    const c = mapSize / 2;
-    this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood');
-    this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete');
-    this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags');
-  }
-
-  _drawObstacles(ctx, camera) {
-    ctx.lineWidth = 1;
-    for (const obs of this.pathfinder.obstacles) {
-      const tl = camera.worldToScreen(obs.x, obs.y);
-      const br = camera.worldToScreen(obs.x + obs.w, obs.y + obs.h);
-      const colorMap = { wood: '#8B5A2B', sandbags: '#C2B280', concrete: '#777', steel: '#889', brick: '#a55' };
-      ctx.fillStyle = colorMap[obs.materialId] || '#555';
-      ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-      ctx.strokeStyle = '#000';
-      ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-    }
-  }
-
   handleTap({ x, y }) {
     if (this._isSearchingPath) return;
     if (this.playerFaction === null) return;
@@ -279,8 +207,6 @@ export class UnitManager {
         if (path && path.length > 0) {
           unit.lastTarget = target;
           unit.setPath(path);
-        } else {
-          console.warn("No path found for unit", unit.roleId);
         }
       });
     } finally {
