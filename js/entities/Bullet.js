@@ -4,14 +4,14 @@ import { CONFIG } from '../data/config.js';
 
 export class Bullet {
   constructor(x, y, targetX, targetY, speed, baseDamage, damageFalloff, maxFalloffDist, penetration, owner, opts = {}) {
-    this.x = x; this.y = y; this.prevX = x; this.prevY = y;
-    this.traveled = 0;
+    this.x = x; this.y = y; this.prevX = x; this.prevY = y; this.traveled = 0;
     const dx = targetX - x, dy = targetY - y, dist = Math.hypot(dx, dy);
     const nx = dist > 0 ? dx / dist : 0, ny = dist > 0 ? dy / dist : 0;
     this.speed = speed; this.vx = nx * speed; this.vy = ny * speed; this.initialSpeed = speed;
     this.baseDamage = baseDamage; this.damageFalloff = damageFalloff; this.maxFalloffDist = maxFalloffDist;
     this.penetration = penetration; this.drag = opts.drag ?? CONFIG.BALLISTICS.DRAG_COEFF;
-    this.fragmentation = opts.fragmentation ?? 0; this.impulse = opts.impulse ?? 0; // Импульс
+    this.fragmentation = opts.fragmentation ?? 0; this.impulse = opts.impulse ?? 0;
+    this.woundingMult = opts.woundingMult ?? 1.0; this.overpenetration = opts.overpenetration ?? 0;
     this.isTracer = !!opts.isTracer; this.owner = owner; this.isDead = false;
     this.life = 0; this.maxLife = 3.0; this.hasRicocheted = false;
   }
@@ -27,23 +27,20 @@ export class Bullet {
     this.vx *= dragFactor; this.vy *= dragFactor;
     const nextX = this.x + this.vx * dt, nextY = this.y + this.vy * dt;
 
-    // СТЕНЫ И РАЗРУШЕНИЕ
     if (obstacles) {
       for (const obs of obstacles) {
         if (nextX < obs.x || nextX > obs.x + obs.w || nextY < obs.y || nextY > obs.y + obs.h) continue;
         const wallThickness = this._thicknessAlong(obs);
         const requiredBr = getRequiredBr(obs.materialId, wallThickness);
 
-        // Урон стене
         obs.hp -= this.baseDamage * (this.penetration / requiredBr);
-        if (obs.hp <= 0) {
-          pathfinder.removeObstacle(obs);
-          EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'wall_break' });
-        }
+        if (obs.hp <= 0) { pathfinder.removeObstacle(obs); EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'wall_break' }); }
 
         if (this.penetration >= requiredBr) {
-          this.baseDamage *= 0.7; this.penetration -= requiredBr * 0.5;
-          this.vx *= 0.6; this.vy *= 0.6;
+          // НОВОЕ: Потеря энергии и кувыркание после стены
+          this.baseDamage *= 0.4;
+          this.penetration = Math.max(0, this.penetration - requiredBr);
+          this.vx *= 0.5; this.vy *= 0.5; // Резкое падение скорости
           EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'wall' });
           break;
         } else {
@@ -62,16 +59,13 @@ export class Bullet {
       }
     }
 
-    // ЮНИТЫ
     for (const unit of allUnits) {
       if (!unit || unit.isDead) continue;
       if (this.owner && unit.faction === this.owner.faction) continue;
       const hit = unit.raycastHit ? unit.raycastHit(this.x, this.y, nextX, nextY) : null;
       if (hit) {
-        this.isDead = true;
-        const finalDamage = this._calculateDamage();
+        const finalDamage = this._calculateDamage() * this.woundingMult;
         
-        // Импульс сбивает с ног / отталкивает
         if (this.impulse > 0) {
           const speed = Math.hypot(this.vx, this.vy);
           unit.vx += (this.vx / speed) * this.impulse;
@@ -80,6 +74,16 @@ export class Bullet {
 
         unit.takeDamage(finalDamage, hit.partId, this.penetration, hit.subPartId);
         EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'blood', amount: finalDamage, unit, hitZone: hit.partId });
+        EventBus.emit(EVENTS.SHELL_EJECT, { x: this.x, y: this.y }); // Гильза (условно)
+
+        // НОВОЕ: Overpenetration (пробитие насквозь)
+        if (this.overpenetration > 0 && Math.random() < this.overpenetration) {
+          this.baseDamage *= 0.6;
+          this.penetration = Math.max(0, this.penetration - 2);
+          this.isDead = false; // Продолжаем полет
+        } else {
+          this.isDead = true;
+        }
 
         if (this.fragmentation > 0 && Math.random() < this.fragmentation) {
           unit.applyFragmentation(finalDamage * 0.4);
@@ -92,6 +96,14 @@ export class Bullet {
     this.prevX = this.x; this.prevY = this.y; this.x = nextX; this.y = nextY;
   }
 
+  _calculateDamage() {
+    let dmg = this.baseDamage * (0.8 + Math.random() * 0.4);
+    const speedRatio = Math.hypot(this.vx, this.vy) / this.initialSpeed;
+    const t = Math.min(1, this.traveled / this.maxFalloffDist);
+    dmg *= (1.0 - t * this.damageFalloff) * (0.7 + 0.3 * speedRatio);
+    return Math.max(0, Math.round(dmg));
+  }
+  // ... (остальные методы: _incidenceAngle, _thicknessAlong, _reflectFromBox)
   _incidenceAngle(obs) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - obs.x), dr = Math.abs(cx - (obs.x + obs.w));
@@ -103,7 +115,6 @@ export class Bullet {
     const dot = (this.vx / speed) * nx + (this.vy / speed) * ny;
     return Math.acos(Math.max(-1, Math.min(1, -dot))) * 180 / Math.PI;
   }
-
   _thicknessAlong(obs) {
     let tmin = 0, tmax = Infinity;
     const dirs = [[this.vx, obs.x, obs.x + obs.w, this.x], [this.vy, obs.y, obs.y + obs.h, this.y]];
@@ -113,7 +124,6 @@ export class Bullet {
     }
     return Math.max(0, tmax - tmin);
   }
-
   _reflectFromBox(obs) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - obs.x), dr = Math.abs(cx - (obs.x + obs.w));
@@ -122,13 +132,5 @@ export class Bullet {
     if (m === dl || m === dr) this.vx = -this.vx; else this.vy = -this.vy;
     this.vx += (Math.random() - 0.5) * 0.1 * Math.hypot(this.vx, this.vy);
     this.vy += (Math.random() - 0.5) * 0.1 * Math.hypot(this.vx, this.vy);
-  }
-
-  _calculateDamage() {
-    let dmg = this.baseDamage * (0.8 + Math.random() * 0.4);
-    const speedRatio = Math.hypot(this.vx, this.vy) / this.initialSpeed;
-    const t = Math.min(1, this.traveled / this.maxFalloffDist);
-    dmg *= (1.0 - t * this.damageFalloff) * (0.7 + 0.3 * speedRatio);
-    return Math.max(0, Math.round(dmg));
   }
 }
