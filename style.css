@@ -1,14 +1,35 @@
+/* ==========================================================
+   MyWG - War Simulator
+   Стили HUD, стартового экрана, кнопок, индикаторов
+   ========================================================== */
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
+  /* HUD */
   --hud-bg: rgba(30, 34, 40, 0.85);
   --hud-bg-active: rgba(80, 150, 255, 0.8);
   --hud-border: rgba(255, 255, 255, 0.15);
   --hud-radius: 8px;
+
+  /* Шрифт */
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Команды */
   --team1: #4285F4;
   --team2: #EA4335;
+  --spectator: #9aa0a6;
+
+  /* Акценты */
+  --accent-blue: #5096ff;
+  --accent-lightblue: #8ab4f8;
+  --accent-yellow: #F4B400;
+  --accent-orange: #FF8C00;
+  --accent-red: #EA4335;
+  --accent-green: #0F9D58;
 }
+
+/* ================= БАЗА ================= */
 
 html, body {
   width: 100%;
@@ -24,9 +45,18 @@ html, body {
   color: #e8eaed;
 }
 
-#game { display: block; width: 100%; height: 100%; touch-action: none; }
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
 
-/* ================== СТАРТОВЫЙ ЭКРАН ================== */
+/* Скрытый контейнер HUD до старта боя */
+#hud.hidden { display: none; }
+
+/* ================= СТАРТОВЫЙ ЭКРАН ================= */
+
 .screen-overlay {
   position: fixed;
   inset: 0;
@@ -40,6 +70,7 @@ html, body {
   padding-bottom: calc(16px + env(safe-area-inset-bottom));
   transition: opacity 0.25s ease;
 }
+
 .screen-overlay.hidden {
   opacity: 0;
   pointer-events: none;
@@ -60,8 +91,9 @@ html, body {
   font-weight: 800;
   text-align: center;
   letter-spacing: 2px;
-  color: #8ab4f8;
+  color: var(--accent-lightblue);
 }
+
 .screen-subtitle {
   text-align: center;
   font-size: 13px;
@@ -100,27 +132,33 @@ html, body {
   transition: background 0.15s, border-color 0.15s, transform 0.1s;
   touch-action: manipulation;
 }
+
 .opt-btn:hover { background: rgba(55, 60, 70, 0.95); }
 .opt-btn:active { transform: scale(0.97); }
+.opt-btn:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+
 .opt-btn.selected {
   background: rgba(80, 150, 255, 0.25);
-  border-color: #5096ff;
+  border-color: var(--accent-blue);
   color: #fff;
   box-shadow: 0 0 12px rgba(80, 150, 255, 0.3);
 }
+
 .opt-btn[data-value="team1"].selected {
   background: rgba(66, 133, 244, 0.25);
   border-color: var(--team1);
   box-shadow: 0 0 12px rgba(66, 133, 244, 0.4);
 }
+
 .opt-btn[data-value="team2"].selected {
   background: rgba(234, 67, 53, 0.25);
   border-color: var(--team2);
   box-shadow: 0 0 12px rgba(234, 67, 53, 0.4);
 }
+
 .opt-btn[data-value="spectator"].selected {
   background: rgba(154, 160, 166, 0.25);
-  border-color: #9aa0a6;
+  border-color: var(--spectator);
   box-shadow: 0 0 12px rgba(154, 160, 166, 0.3);
 }
 
@@ -130,21 +168,23 @@ html, body {
   margin-top: 8px;
   font: 700 15px/1 var(--font);
   color: #fff;
-  background: linear-gradient(135deg, #5096ff 0%, #2b6fd6 100%);
+  background: linear-gradient(135deg, var(--accent-blue) 0%, #2b6fd6 100%);
   border: none;
   border-radius: var(--hud-radius);
   cursor: pointer;
   transition: opacity 0.15s, transform 0.1s;
 }
+
 .start-btn:active:not(:disabled) { transform: scale(0.98); }
+.start-btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
 .start-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   background: rgba(80, 90, 110, 0.6);
 }
 
-/* ================== HUD ================== */
-#hud.hidden { display: none; }
+/* ================= HUD-ПАНЕЛИ ================= */
 
 .hud-panel {
   position: fixed;
@@ -155,10 +195,26 @@ html, body {
   contain: layout style;
 }
 
-.hud-top-left, .hud-top-right { max-width: 45vw; }
-.hud-top-left { top: 8px; top: calc(8px + env(safe-area-inset-top)); left: 8px; left: calc(8px + env(safe-area-inset-left)); }
-.hud-top-right { top: 8px; top: calc(8px + env(safe-area-inset-top)); right: 8px; right: calc(8px + env(safe-area-inset-right)); justify-content: flex-end; }
+/* Верхние панели */
+.hud-top-left,
+.hud-top-right { max-width: 45vw; }
 
+.hud-top-left {
+  top: 8px;
+  top: calc(8px + env(safe-area-inset-top));
+  left: 8px;
+  left: calc(8px + env(safe-area-inset-left));
+}
+
+.hud-top-right {
+  top: 8px;
+  top: calc(8px + env(safe-area-inset-top));
+  right: 8px;
+  right: calc(8px + env(safe-area-inset-right));
+  justify-content: flex-end;
+}
+
+/* Центральная панель с инфо о бое */
 .hud-top-center {
   top: 8px;
   top: calc(8px + env(safe-area-inset-top));
@@ -174,12 +230,14 @@ html, body {
   white-space: nowrap;
   pointer-events: none;
 }
-#battle-team { color: #8ab4f8; }
-#battle-mode { color: #f4b400; }
+
+#battle-team { color: var(--accent-lightblue); }
+#battle-mode { color: var(--accent-yellow); }
 #battle-team.team1 { color: var(--team1); }
 #battle-team.team2 { color: var(--team2); }
-#battle-team.spectator { color: #9aa0a6; }
+#battle-team.spectator { color: var(--spectator); }
 
+/* Нижняя панель — позы */
 .hud-bottom {
   bottom: 12px;
   bottom: calc(12px + env(safe-area-inset-bottom));
@@ -192,7 +250,10 @@ html, body {
   scrollbar-width: none;
   touch-action: pan-x;
 }
+
 .hud-bottom::-webkit-scrollbar { display: none; }
+
+/* ================= КНОПКИ HUD ================= */
 
 .hud-btn {
   padding: 10px 12px;
@@ -209,25 +270,53 @@ html, body {
   transition: background 0.15s, border-color 0.15s, transform 0.1s;
   flex-shrink: 0;
 }
-.hud-btn:active { transform: scale(0.95); background: rgba(50, 55, 65, 0.9); }
-.hud-btn:focus-visible { outline: 2px solid #5096ff; outline-offset: 2px; }
+
+.hud-btn:hover { background: rgba(45, 50, 60, 0.9); }
+.hud-btn:active {
+  transform: scale(0.95);
+  background: rgba(50, 55, 65, 0.9);
+}
+
+.hud-btn:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
 .hud-btn.active {
   background: var(--hud-bg-active);
-  border-color: #5096ff;
+  border-color: var(--accent-blue);
   color: #fff;
   box-shadow: 0 0 10px rgba(80, 150, 255, 0.3);
 }
+
+/* Специальные состояния кнопок */
+
+/* Пауза — красная */
 #btn-pause.active {
   background: rgba(234, 67, 53, 0.8);
-  border-color: #ea4335;
+  border-color: var(--accent-red);
   box-shadow: 0 0 10px rgba(234, 67, 53, 0.3);
 }
+
+/* Debug — жёлтая */
 #btn-debug.active {
   background: rgba(244, 180, 0, 0.8);
-  border-color: #F4B400;
+  border-color: var(--accent-yellow);
   color: #000;
   box-shadow: 0 0 10px rgba(244, 180, 0, 0.3);
 }
+
+/* Тактическая пауза — голубая */
+#btn-tactical.active {
+  background: rgba(80, 150, 255, 0.8);
+  border-color: var(--accent-lightblue);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(138, 180, 248, 0.5);
+}
+
+/* Позы — активная подсвечена синим (по умолчанию) */
+
+/* ================= ИНДИКАТОР КООРДИНАТ ================= */
 
 #coords {
   position: fixed;
@@ -235,7 +324,7 @@ html, body {
   bottom: calc(70px + env(safe-area-inset-bottom));
   right: 12px;
   right: calc(12px + env(safe-area-inset-right));
-  color: #8ab4f8;
+  color: var(--accent-lightblue);
   font: 13px/1.4 monospace;
   font-variant-numeric: tabular-nums;
   background: rgba(0, 0, 0, 0.6);
@@ -248,14 +337,130 @@ html, body {
   backdrop-filter: blur(4px);
 }
 
-@media (max-width: 400px) {
-  .hud-top-left, .hud-top-right { max-width: calc(50vw - 12px); }
-  .hud-btn { font-size: 12px; padding: 8px 10px; }
-  .screen-card { padding: 20px 16px; }
-  .screen-title { font-size: 24px; }
+/* ================= АДАПТИВ ================= */
+
+@media (max-width: 500px) {
+  .hud-top-left,
+  .hud-top-right {
+    max-width: calc(50vw - 12px);
+  }
+
+  .hud-btn {
+    font-size: 12px;
+    padding: 8px 10px;
+    min-height: 42px;
+    min-width: 42px;
+  }
+
+  .hud-top-center {
+    font-size: 11px;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+
+  .screen-card {
+    padding: 20px 16px;
+  }
+
+  .screen-title {
+    font-size: 24px;
+  }
+
+  .screen-options {
+    gap: 6px;
+  }
+
+  .opt-btn {
+    min-width: 90px;
+    min-height: 44px;
+    font-size: 12px;
+  }
 }
 
+@media (max-width: 360px) {
+  .hud-top-center {
+    /* На очень узких экранах центр может перекрыть верхние панели */
+    top: auto;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  .hud-btn {
+    font-size: 11px;
+    padding: 6px 8px;
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  .opt-btn {
+    min-width: 80px;
+    font-size: 11px;
+  }
+}
+
+/* Ландшафтная ориентация на телефоне */
+@media (max-height: 480px) and (orientation: landscape) {
+  .hud-bottom {
+    bottom: calc(6px + env(safe-area-inset-bottom));
+  }
+
+  #coords {
+    bottom: calc(56px + env(safe-area-inset-bottom));
+  }
+
+  .hud-btn {
+    min-height: 38px;
+    padding: 6px 10px;
+  }
+
+  .screen-card {
+    max-width: 560px;
+    padding: 16px;
+  }
+
+  .screen-title { font-size: 20px; margin-bottom: 4px; }
+  .screen-subtitle { margin-bottom: 12px; }
+  .screen-section { margin-bottom: 12px; }
+  .start-btn { min-height: 44px; }
+}
+
+/* ================= ДОСТУПНОСТЬ ================= */
+
+/* Уважение prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce) {
-  .hud-btn, .opt-btn, .start-btn { transition: none; }
-  .hud-btn:active, .opt-btn:active, .start-btn:active { transform: none; }
+  .hud-btn,
+  .opt-btn,
+  .start-btn,
+  .screen-overlay {
+    transition: none;
+  }
+
+  .hud-btn:active,
+  .opt-btn:active,
+  .start-btn:active {
+    transform: none;
+  }
+}
+
+/* Тёмная тема — на всякий случай */
+@media (prefers-color-scheme: light) {
+  /* Оставляем тёмную — игра всегда тёмная, но явно указываем */
+  :root {
+    color-scheme: dark;
+  }
+}
+
+/* Высококонтрастный режим (Windows HC) */
+@media (forced-colors: active) {
+  .hud-btn,
+  .opt-btn,
+  .start-btn {
+    border: 1px solid CanvasText;
+  }
+
+  .hud-btn.active,
+  .opt-btn.selected {
+    outline: 2px solid Highlight;
+  }
 }
