@@ -86,11 +86,23 @@ export class UnitManager {
         if (Array.isArray(bullets)) this.bullets.push(...bullets);
         else this.bullets.push(bullets);
       }
+
+      // FIX: репас — с fallback на текущую цель
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
-        if (unit.lastTarget) {
-          const newPath = this.pathfinder.findPath(unit.x, unit.y, unit.lastTarget.x, unit.lastTarget.y);
-          unit.setPath(newPath);
+        const target = unit.lastTarget
+          || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
+        if (target) {
+          const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
+          if (newPath && newPath.length > 0) {
+            unit.setPath(newPath);
+          } else {
+            unit._wantsToMove = false;
+            unit.isMoving = false;
+          }
+        } else {
+          unit._wantsToMove = false;
+          unit.isMoving = false;
         }
       }
     }
@@ -278,4 +290,4 @@ export class UnitManager {
       u.setStance(stance);
     }
   }
- }
+}
