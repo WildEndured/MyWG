@@ -4,6 +4,7 @@ import { WEAPONS } from '../data/weapons.js';
 import { ROLES, BASE_HUMAN } from '../data/units.js';
 import { BODY_PARTS } from '../data/health.js';
 import { ARMOR_CONFIGS, ARMOR_CLASSES } from '../data/armor.js';
+import { VISION_CONFIG, AUDIO_CONFIG } from '../data/vision.js';
 import { Physics } from '../core/Physics.js';
 import { EventBus } from '../core/EventBus.js';
 import { Bullet } from './Bullet.js';
@@ -39,12 +40,13 @@ export class Unit {
     this.blood = 100; 
     this.bleedingRate = 0;
 
+    // СТАМИНА
     this.maxStamina = BASE_HUMAN.maxStamina;
     this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate;
     this.staminaCooldown = 0;
     
-    // Роль и Оружие
+    // РОЛЬ И ОРУЖИЕ
     const role = ROLES[roleId] || ROLES['infantry'];
     this.roleId = role.id;
     this.name = role.name;
@@ -52,7 +54,7 @@ export class Unit {
     const weaponConfig = WEAPONS[role.defaultWeapon];
     this.weapon = new Weapon(weaponConfig);
     
-    // Броня
+    // БРОНЯ
     this.armor = {};
     let armorWeight = 0;
     for (const armorId of BASE_HUMAN.defaultArmor) {
@@ -70,7 +72,7 @@ export class Unit {
       }
     }
     
-    // Общий вес и скорости
+    // ВЕС И СКОРОСТЬ
     this.totalWeight = this.weapon.weightLoaded + armorWeight;
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
@@ -78,6 +80,17 @@ export class Unit {
     this.stance = 'stand'; 
     this.speed = this.speeds[this.stance];
     
+    // ЗРЕНИЕ И СЛУХ
+    this.fovAngle = VISION_CONFIG.fovAngle * (Math.PI / 180);
+    this.detectRange = VISION_CONFIG.detectRange;
+    this.identifyRange = VISION_CONFIG.identifyRange;
+    
+    this.hearingLoss = 0;
+    this.tinnitus = 0;
+    this.hearingMultiplier = 1.0;
+    this.lastNoiseTime = 0;
+
+    // СОСТОЯНИЯ
     this.isArmed = true; 
     this.isLimping = false;
     this.aimTime = 0; 
@@ -221,6 +234,25 @@ export class Unit {
     this.path = path; this.pathIndex = 0; this.isMoving = true; this.needsRepath = false;
   }
 
+  canSee(target, obstacles) {
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.hypot(dx, dy);
+    
+    if (dist > this.detectRange) return false;
+    
+    const angleToTarget = Math.atan2(dy, dx);
+    let angleDiff = angleToTarget - this.angle;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+    
+    if (Math.abs(angleDiff) > this.fovAngle / 2) return false;
+    
+    if (!Physics.hasLineOfSight(this.x, this.y, target.x, target.y, obstacles)) return false;
+    
+    return true;
+  }
+
   update(dt, allUnits, currentTime) {
     if (this.isDead) return null;
 
@@ -249,6 +281,24 @@ export class Unit {
       this.weapon.update(dt);
       return null;
     }
+
+    // Слух
+    if (this.tinnitus > 0) {
+      this.tinnitus -= dt;
+      if (this.tinnitus < 0) this.tinnitus = 0;
+    }
+
+    let hearingMultiplier = 1.0;
+    const leftEar = this.bodyParts.head.subParts.find(p => p.id === 'leftEar');
+    const rightEar = this.bodyParts.head.subParts.find(p => p.id === 'rightEar');
+    if (leftEar && leftEar.hp <= 0) hearingMultiplier -= 0.3;
+    if (rightEar && rightEar.hp <= 0) hearingMultiplier -= 0.3;
+    
+    const helmet = this.armor['head'];
+    if (helmet) hearingMultiplier -= 0.2;
+    
+    if (this.tinnitus > 0) hearingMultiplier -= 0.5;
+    this.hearingMultiplier = Math.max(0, hearingMultiplier);
 
     const bullet = this._updateCombat(dt, allUnits, currentTime);
     this.weapon.update(dt);
@@ -294,6 +344,21 @@ export class Unit {
       }
     }
 
+    // Генерация шума
+    if (this.isMoving) {
+      let noiseLevel = AUDIO_CONFIG.stepNoise[this.stance] || 0.5;
+      noiseLevel += this.totalWeight * AUDIO_CONFIG.weightNoiseMultiplier;
+      
+      if (currentTime - this.lastNoiseTime > 1.0) {
+        this.lastNoiseTime = currentTime;
+        EventBus.emit('world:noise', {
+          x: this.x, y: this.y,
+          radius: noiseLevel * 50,
+          source: this
+        });
+      }
+    }
+
     this._updateStamina(dt);
 
     let angleDiff = this.targetAngle - this.angle;
@@ -313,7 +378,8 @@ export class Unit {
       const dist = Math.hypot(other.x - this.x, other.y - this.y);
       if (dist < minDist) {
         const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-        if (Physics.hasLineOfSight(this.x, this.y, other.x, other.y, obs)) {
+        // Теперь проверяем не только линию видимости, но и конус обзора
+        if (this.canSee(other, obs)) {
           minDist = dist; closestEnemy = other;
         }
       }
@@ -344,7 +410,6 @@ export class Unit {
       if (this.isMoving) spread *= 3.0;
       if (this.stamina < 20) spread *= 1.5;
       
-      // Штраф от кровопотери на точность
       if (this.blood < 70) spread *= 1.2;
       if (this.blood < 40) spread *= 1.5;
 
@@ -358,6 +423,16 @@ export class Unit {
       const hitChance = Math.max(0.1, 1 - (spread / 10));
 
       EventBus.emit('unit:shoot', { x1: this.x, y1: this.y, x2: this.target.x, y2: this.target.y });
+      
+      // Шум от выстрела
+      EventBus.emit('world:noise', {
+        x: this.x, y: this.y,
+        radius: AUDIO_CONFIG.gunshotNoise * 10,
+        source: this,
+        isGunshot: true
+      });
+      
+      this.tinnitus = 1.0;
 
       let targetX = this.target.x;
       let targetY = this.target.y;
@@ -398,7 +473,6 @@ export class Unit {
       if (this.staminaCooldown > 0) {
         this.staminaCooldown -= dt;
       } else {
-        // Штраф от кровопотери на восстановление
         let recoveryMult = 1.0;
         if (this.blood < 70) recoveryMult = 0.7;
         if (this.blood < 40) recoveryMult = 0.4;
@@ -508,7 +582,6 @@ export class Unit {
           ctx.fillRect(barX, currentY, barW * reloadProgress, barH);
         }
 
-        // Индикатор кровотечения
         if (this.bleedingRate > 0) {
           ctx.fillStyle = '#EA4335';
           const pulse = Math.sin(performance.now() / 200) * 0.5 + 0.5;
