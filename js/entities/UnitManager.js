@@ -4,11 +4,13 @@ import { Unit } from './Unit.js';
 import { Pathfinder } from '../core/Pathfinder.js';
 import { Physics } from '../core/Physics.js';
 import { CONFIG } from '../data/config.js';
+import { Bullet } from './Bullet.js';
 
 export class UnitManager {
   constructor() {
     this.units = [];
     this.selectedUnits = [];
+    this.bullets = [];
     this.pathfinder = new Pathfinder(100, 1);
     this.camera = null; 
     this._isSearchingPath = false;
@@ -18,9 +20,8 @@ export class UnitManager {
     EventBus.on('input:tap', this.handleTap.bind(this));
     EventBus.on('input:doubleTap', this.handleDoubleTap.bind(this));
     
-    // Слушаем выстрелы для визуализации
     EventBus.on('unit:shoot', ({ x1, y1, x2, y2 }) => {
-      this.tracers.push({ x1, y1, x2, y2, life: 0.1 });
+      this.tracers.push({ x1, y1, x2, y2, life: 0.05 });
     });
   }
 
@@ -38,7 +39,10 @@ export class UnitManager {
     this.currentTime += dt;
 
     for (const unit of this.units) {
-      unit.update(dt, this.units, this.currentTime); 
+      const bullet = unit.update(dt, this.units, this.currentTime); 
+      if (bullet) {
+        this.bullets.push(bullet);
+      }
       
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false;
@@ -50,6 +54,14 @@ export class UnitManager {
     }
     
     this._resolveCollisions();
+
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      const b = this.bullets[i];
+      b.update(dt, this.units, this.pathfinder.obstacles);
+      if (b.isDead) {
+        this.bullets.splice(i, 1);
+      }
+    }
 
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       this.tracers[i].life -= dt;
@@ -80,6 +92,10 @@ export class UnitManager {
       unit.draw(ctx, camera);
     }
 
+    for (const b of this.bullets) {
+      b.draw(ctx, camera);
+    }
+
     ctx.lineWidth = 1.5;
     for (const t of this.tracers) {
       const p1 = camera.worldToScreen(t.x1, t.y1);
@@ -88,7 +104,7 @@ export class UnitManager {
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
-      ctx.strokeStyle = `rgba(255, 255, 0, ${t.life * 10})`;
+      ctx.strokeStyle = `rgba(255, 255, 0, ${t.life * 20})`;
       ctx.stroke();
     }
   }
@@ -180,7 +196,7 @@ export class UnitManager {
     const freeTarget = this.pathfinder.findNearestFreePoint(tx, ty);
     
     const count = this.selectedUnits.length;
-    const spacing = CONFIG.FORMATION.SPACING; // Берем из конфига
+    const spacing = CONFIG.FORMATION.SPACING;
 
     this.selectedUnits.forEach((unit, index) => {
       if (unit.isDead) return;
@@ -231,4 +247,4 @@ export class UnitManager {
       }
     }
   }
-    }
+}
