@@ -6,23 +6,24 @@ export const WEAPONS = {
     name: 'АК-74',
     caliber: '5.45×39',
     weightEmpty: 3.3,
-    weightLoaded: 3.6,
-    rpm: 650,                 // Темп стрельбы
-    bulletSpeed: 900,         // Начальная скорость (м/с)
-    effectiveRange: 440,      // Эффективная дальность (м)
-    maxRange: 3150,           // Максимальная дальность (м)
-    magazineCapacity: 30,     // Емкость магазина
-    damage: 25,               // Урон (условный)
+    weightLoaded: 3.6, // Вес с полным магазином
+    rpm: 650,
+    bulletSpeed: 900,
+    effectiveRange: 440,
+    maxRange: 3150,
+    magazineCapacity: 30,
+    damage: 25,
     fireModes: ['single', 'auto'],
-    spreadBase: 0.3,          // Базовый разброс
-    reloadTime: 2.5           // Время перезарядки (сек)
+    spreadBase: 0.3,
+    reloadTime: 2.5
   },
   
-  // Задел на будущее
   pkm: {
     id: 'pkm',
     name: 'ПКМ',
     caliber: '7.62×54R',
+    weightEmpty: 9.0,
+    weightLoaded: 12.5, // С коробом на 100 патронов
     rpm: 650,
     bulletSpeed: 825,
     effectiveRange: 1000,
