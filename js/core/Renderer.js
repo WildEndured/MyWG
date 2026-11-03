@@ -16,33 +16,16 @@ export class Renderer {
     const sortedUnits = [...unitManager.units].sort((a, b) => a.y - b.y);
     for (const unit of sortedUnits) if (camera.isPointVisible(unit.x, unit.y, 200)) Renderer.drawUnit(ctx, camera, unit);
 
-    Renderer.drawGrenades(ctx, camera, unitManager.grenades); // Гранаты
+    // Трассеры (летящие)
+    Renderer.drawTracers(ctx, camera, unitManager.tracerTrails);
+
     Renderer.drawBullets(ctx, camera, unitManager.bullets);
-    Renderer.drawEffects(ctx, camera, unitManager.tracers, unitManager.flashes);
+    Renderer.drawEffects(ctx, camera, unitManager.flashes);
+    Renderer.drawGrenades(ctx, camera, unitManager.grenades);
     Renderer.drawExplosions(ctx, camera, unitManager.explosions);
+    Renderer.drawFragments(ctx, camera, unitManager.fragments);
     Renderer.drawDebris(ctx, camera, unitManager.debris);
     Renderer.drawDust(ctx, camera, unitManager.dust);
-  }
-
-  static drawGrenades(ctx, camera, grenades) {
-    if (!grenades) return;
-    for (const g of grenades) {
-      if (!camera.isPointVisible(g.x, g.y, 50)) continue;
-      const p = camera.worldToScreen(g.x, g.y);
-      const r = Math.max(2, 3 * camera.zoom / 8);
-      
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = g.hasExploded ? '#FF5500' : '#2A2A2A';
-      ctx.fill();
-      
-      if (g.fuseTimer < 1.0 && !g.hasExploded) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y - r * 2, r * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#FF0000';
-        ctx.fill();
-      }
-    }
   }
 
   static drawZone(ctx, camera, zone) {
@@ -172,18 +155,81 @@ export class Renderer {
     }
   }
 
-  static drawBullets(ctx, camera, bullets) {
-    for (const b of bullets) {
-      if (b.isDead || !camera.isPointVisible(b.x, b.y, 50)) continue;
-      if (b.isTracer) { const p1 = camera.worldToScreen(b.prevX, b.prevY); const p2 = camera.worldToScreen(b.x, b.y); ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.strokeStyle = b.hasRicocheted ? '#FF00FF' : 'rgba(255, 220, 80, 0.9)'; ctx.lineWidth = 1.5; ctx.stroke(); }
-      const p = camera.worldToScreen(b.x, b.y); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, 1.6 * (camera.zoom / 8)), 0, Math.PI * 2); ctx.fillStyle = b.hasRicocheted ? '#FF00FF' : (b.isTracer ? '#FFD34D' : '#FFFF88'); ctx.fill();
+  static drawTracers(ctx, camera, tracerTrails) {
+    if (!tracerTrails) return;
+    for (const t of tracerTrails) {
+      const p1 = camera.worldToScreen(t.x1, t.y1);
+      const p2 = camera.worldToScreen(t.x2, t.y2);
+      
+      // Летящий трассер (от ствола к цели)
+      const cx = p1.x + (p2.x - p1.x) * t.progress;
+      const cy = p1.y + (p2.y - p1.y) * t.progress;
+      
+      // След (линия от ствола до текущей точки)
+      const trailAlpha = t.life / t.maxLife;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(cx, cy);
+      ctx.strokeStyle = `rgba(255, 220, 80, ${trailAlpha * 0.5})`;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      
+      // Сама точка трассера
+      if (t.progress < 1) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 200, ${trailAlpha})`;
+        ctx.fill();
+      }
     }
   }
 
-  static drawEffects(ctx, camera, tracers, flashes) {
-    ctx.lineWidth = 1.5;
-    for (const t of tracers) { const p1 = camera.worldToScreen(t.x1, t.y1); const p2 = camera.worldToScreen(t.x2, t.y2); ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.strokeStyle = `rgba(255, 255, 0, ${Math.max(0, t.life * 20)})`; ctx.stroke(); }
+  static drawBullets(ctx, camera, bullets) {
+    for (const b of bullets) {
+      if (b.isDead || !camera.isPointVisible(b.x, b.y, 50)) continue;
+      const p = camera.worldToScreen(b.x, b.y); 
+      ctx.beginPath(); 
+      ctx.arc(p.x, p.y, Math.max(1.2, 1.6 * (camera.zoom / 8)), 0, Math.PI * 2); 
+      ctx.fillStyle = b.hasRicocheted ? '#FF00FF' : '#FFFF88'; 
+      ctx.fill();
+    }
+  }
+
+  static drawFragments(ctx, camera, fragments) {
+    if (!fragments) return;
+    for (const f of fragments) {
+      if (!camera.isPointVisible(f.x, f.y, 30)) continue;
+      const p = camera.worldToScreen(f.x, f.y);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1, 1.5 * camera.zoom / 8), 0, Math.PI * 2);
+      ctx.fillStyle = '#FF8800'; // Оранжевые осколки
+      ctx.fill();
+    }
+  }
+
+  static drawEffects(ctx, camera, flashes) {
     for (const f of flashes) { const p = camera.worldToScreen(f.x, f.y); const radius = (1.0 - f.life / 0.05) * 20; ctx.beginPath(); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2); ctx.fillStyle = `rgba(255, 200, 0, ${Math.max(0, f.life / 0.05)})`; ctx.fill(); }
+  }
+
+  static drawGrenades(ctx, camera, grenades) {
+    if (!grenades) return;
+    for (const g of grenades) {
+      if (!camera.isPointVisible(g.x, g.y, 50)) continue;
+      const p = camera.worldToScreen(g.x, g.y);
+      const r = Math.max(2, 3 * camera.zoom / 8);
+      
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = g.hasExploded ? '#FF5500' : '#2A2A2A';
+      ctx.fill();
+      
+      if (g.fuseTimer < 1.0 && !g.hasExploded) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - r * 2, r * 0.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#FF0000';
+        ctx.fill();
+      }
+    }
   }
 
   static drawExplosions(ctx, camera, explosions) {
