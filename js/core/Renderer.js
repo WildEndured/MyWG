@@ -127,6 +127,22 @@ export class Renderer {
       ctx.arc(screenPos.x, screenPos.y, ringR + 4, 0, Math.PI * 2); ctx.strokeStyle = '#F4B400'; ctx.lineWidth = 2; ctx.stroke();
     }
 
+    // НОВОЕ: Индикатор высоты
+    if (!unit.isDead && unit.pathfinder && unit.pathfinder.heightMap) {
+      const h = unit.pathfinder.getHeight(unit.x, unit.y);
+      if (h > 0.5) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`▲${h.toFixed(1)}м`, screenPos.x, screenPos.y - 35);
+      } else if (h < -0.5) {
+        ctx.fillStyle = 'rgba(255, 200, 100, 0.9)';
+        ctx.font = 'bold 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`▼${Math.abs(h).toFixed(1)}м`, screenPos.x, screenPos.y - 35);
+      }
+    }
+
     if (!unit.isDead) {
       const barW = Math.max(20, unit.baseRadius * camera.zoom * 2); const barH = 3; const barX = screenPos.x - barW / 2; let y = screenPos.y - (unit.baseRadius * camera.zoom) - 12;
 
