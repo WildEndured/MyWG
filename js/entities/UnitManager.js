@@ -107,13 +107,18 @@ export class UnitManager {
     return { x: desiredX, y: desiredY };
   }
 
+  // ОБНОВЛЕНО: Генерация рельефа и стен
   _spawnTestObstacles(mapSize, enabled = true) { 
-    this.pathfinder.clearObstacles(); if (!enabled) return; 
+    this.pathfinder.clearObstacles(); 
+    if (!enabled) return; 
+    
+    // 1. Генерируем высоты (холмы, окопы)
+    this.pathfinder.generateTerrain();
+    
     const c = mapSize / 2; 
-    this.pathfinder.addObstacle(c - 10, c - 20, 1, 40, 'wood'); 
-    this.pathfinder.addObstacle(c + 10, c - 20, 1, 40, 'concrete'); 
+    // 2. Добавляем стены для укрытия
     this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); 
-    this.pathfinder.addObstacle(c - 5, c + 10, 10, 1, 'brick');
+    this.pathfinder.addObstacle(c + 15, c - 5, 10, 2, 'sandbags'); 
   }
 
   isPlayerControllable(unit) { if (!unit || unit.isDead) return false; if (this.playerFaction === null) return false; return unit.faction === this.playerFaction; }
@@ -142,53 +147,34 @@ export class UnitManager {
         }
       }
       
-      // НОВОЕ: Умный поиск пути (если путь заблокирован)
       if (unit.needsRepath && !unit.isDead) {
         unit.needsRepath = false; 
         const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
-        
-        if (target) {
-          const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y);
-          if (newPath && newPath.length > 0) {
-            unit.setPath(newPath);
-          } else {
-            // Если прямой путь не найден — ищем обход (ближайшую свободную точку к цели)
-            const freeTarget = this.pathfinder.findNearestFreePoint(target.x, target.y);
-            const altPath = this.pathfinder.findPath(unit.x, unit.y, freeTarget.x, freeTarget.y);
-            if (altPath && altPath.length > 0) unit.setPath(altPath);
-            else { unit._wantsToMove = false; unit.isMoving = false; unit.lastTarget = null; }
-          }
-        } else {
-          unit._wantsToMove = false;
-          unit.isMoving = false;
+        if (target) { 
+          const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y); 
+          if (newPath && newPath.length > 0) unit.setPath(newPath); 
+          else { unit._wantsToMove = false; unit.isMoving = false; unit.lastTarget = null; } 
         }
+        else { unit._wantsToMove = false; unit.isMoving = false; }
       }
       
       if (unit.bleedingRate > 0 && Math.random() < 0.05 * dt) {
         this.decals.push({ x: unit.x + (Math.random()-0.5)*1, y: unit.y + (Math.random()-0.5)*1, r: 0.2 + Math.random()*0.3, alpha: 0.8, ttl: 15.0, age: 0 });
       }
 
-      // НОВОЕ: Подбор оружия (если юнит достиг трупа)
       if (unit.brain && unit.brain.currentGoal === 'pickup') {
         let deadUnit = null;
         for (const other of this.units) {
-          if (other.isDead && Math.hypot(other.x - unit.x, other.y - unit.y) < 2.0) {
+          if (other.isDead && other.weapon && Math.hypot(other.x - unit.x, other.y - unit.y) < 2.0) {
             deadUnit = other; break;
           }
         }
         if (deadUnit) {
-          // Подбираем оружие
-          unit.weapon = deadUnit.weapon;
-          unit.maxAimTime = unit.weapon.maxAimTime;
-          unit.roleId = deadUnit.roleId; // Меняем роль
-          unit.name = deadUnit.name;
-          unit.rank = deadUnit.rank;
-          deadUnit.weapon = null; // Убираем с трупа
+          unit.pickupWeapon(deadUnit);
           unit.brain.currentGoal = 'idle';
         }
       }
 
-      // Доклад командиру
       if (unit.squad && unit.squad.leader !== unit) {
         for (const [enemy, mem] of unit.perception) {
           if (mem.seen > 0.8) {
@@ -284,4 +270,4 @@ export class UnitManager {
 
   selectUnits(units) { const set = Array.isArray(units) ? units : []; for (const u of this.units) u.isSelected = false; this.selectedUnits = set.filter(u => this.isPlayerControllable(u) || this.playerFaction === null); for (const u of this.selectedUnits) u.isSelected = true; EventBus.emit(EVENTS.UNITS_SELECTED, this.selectedUnits); }
   setSelectedStance(stance) { for (const u of this.selectedUnits) { if (u.isDead) continue; u.setStance(stance); } }
-  }
+}
