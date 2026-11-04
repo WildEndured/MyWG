@@ -51,14 +51,14 @@ export class Bullet {
       this.vx += (Math.random() - 0.5) * wobble * dt * 10;
       this.vy += (Math.random() - 0.5) * wobble * dt * 10;
     }
-    
+
     const mapBottom = pathfinder?.worldSize || 1000;
     if (this.vy > 0 && this.y > mapBottom - 1) {
       const floorMat = env.FLOOR_MATERIAL || 'dirt';
       let ricochetChance = 0.3;
       if (floorMat === 'water') ricochetChance = 0.8;
       else if (floorMat === 'concrete') ricochetChance = 0.4;
-      
+
       if (Math.random() < ricochetChance) {
         this.y = mapBottom - 1;
         this.vy = -this.vy * 0.3;
@@ -74,6 +74,7 @@ export class Bullet {
 
     const nextX = this.x + this.vx * dt, nextY = this.y + this.vy * dt;
 
+    // Рельеф
     if (pathfinder && pathfinder.heightMap) {
       const terrainZ = pathfinder.getHeight(nextX, nextY);
       const bulletZ = this.startZ - (this.traveled / this.maxFalloffDist) * 0.5;
@@ -84,27 +85,27 @@ export class Bullet {
       }
     }
 
+    // Стены
     if (obstacles) {
       for (const obs of obstacles) {
         for (const seg of obs.segments) {
           if (seg.state === 'rubble') continue;
           if (nextX < seg.x || nextX > seg.x + seg.w || nextY < seg.y || nextY > seg.y + seg.h) continue;
-          
+
           const wallThickness = seg.w;
           const requiredBr = getRequiredBr(obs.materialId, wallThickness);
 
-          // НОВОЕ: Деформация стали
           if (obs.materialId === 'steel' && this.baseDamage > 30) {
             pathfinder.damageSegment(obs, nextX, nextY, this.baseDamage * 0.5);
           } else {
             pathfinder.damageSegment(obs, nextX, nextY, this.baseDamage * (this.penetration / requiredBr));
           }
-          
+
           if (obs.matData.destructionType === 'shatter' || obs.matData.destructionType === 'chip') {
-             EventBus.emit('debris:spawn', { x: nextX, y: nextY, count: 3, material: obs.materialId, owner: this.owner });
+            EventBus.emit('debris:spawn', { x: nextX, y: nextY, count: 3, material: obs.materialId, owner: this.owner });
           }
           if (seg.state === 'rubble' || seg.state === 'breached') {
-             EventBus.emit('dust:spawn', { x: nextX, y: nextY, radius: 3, duration: 3.0 });
+            EventBus.emit('dust:spawn', { x: nextX, y: nextY, radius: 3, duration: 3.0 });
           }
 
           if (this.penetration >= requiredBr) {
@@ -112,14 +113,18 @@ export class Bullet {
             this.penetration = Math.max(0, this.penetration - requiredBr);
             this.vx *= 0.5; this.vy *= 0.5;
             EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'wall' });
+            // продолжаем полёт — пробой
             break;
           } else {
             if (!this.hasRicocheted && (obs.materialId === 'steel' || obs.materialId === 'concrete')) {
               if (this._incidenceAngle(seg) < 20) {
-                this._reflectFromBox(seg); this.hasRicocheted = true;
-                this.baseDamage *= 0.5; this.vx *= 0.7; this.vy *= 0.7;
+                this._reflectFromBox(seg);
+                this.hasRicocheted = true;
+                this.baseDamage *= 0.5;
+                this.vx *= 0.7; this.vy *= 0.7;
                 EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'ricochet' });
-                break;
+                // FIX: выходим полностью — иначе двойной рикошет в другом obstacle
+                return;
               }
             }
             this.isDead = true;
@@ -130,30 +135,36 @@ export class Bullet {
       }
     }
 
+    // Юниты
     for (const unit of allUnits) {
       if (!unit || unit.isDead) continue;
       if (this.owner && unit.faction === this.owner.faction) continue;
       const hit = unit.raycastHit ? unit.raycastHit(this.x, this.y, nextX, nextY) : null;
       if (hit) {
         const finalDamage = this._calculateDamage() * this.woundingMult;
-        
+
         if (this.impulse > 0) {
-          const speed = Math.hypot(this.vx, this.vy);
+          const speed = Math.hypot(this.vx, this.vy) || 1;
           unit.vx += (this.vx / speed) * this.impulse;
           unit.vy += (this.vy / speed) * this.impulse;
         }
 
         const incidenceAngle = Math.abs(Math.atan2(this.vy, this.vx) * 180 / Math.PI);
         unit.takeDamage(finalDamage, hit.partId, this.penetration, hit.subPartId, incidenceAngle);
-        
+
         EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'blood', amount: finalDamage, unit, hitZone: hit.partId });
-        EventBus.emit(EVENTS.SHELL_EJECT, { x: this.x, y: this.y });
 
         if (this.overpenetration > 0 && Math.random() < this.overpenetration) {
-          this.baseDamage *= 0.6; this.penetration = Math.max(0, this.penetration - 2); this.isDead = false;
-        } else { this.isDead = true; }
+          this.baseDamage *= 0.6;
+          this.penetration = Math.max(0, this.penetration - 2);
+          this.isDead = false;
+        } else {
+          this.isDead = true;
+        }
 
-        if (this.fragmentation > 0 && Math.random() < this.fragmentation) unit.applyFragmentation(finalDamage * 0.4);
+        if (this.fragmentation > 0 && Math.random() < this.fragmentation) {
+          unit.applyFragmentation(finalDamage * 0.4);
+        }
         return;
       }
     }
@@ -164,12 +175,12 @@ export class Bullet {
 
   _calculateDamage() {
     let dmg = this.baseDamage * (0.8 + Math.random() * 0.4);
-    const speedRatio = Math.hypot(this.vx, this.vy) / this.initialSpeed;
+    const speedRatio = Math.hypot(this.vx, this.vy) / (this.initialSpeed || 1);
     const t = Math.min(1, this.traveled / this.maxFalloffDist);
     dmg *= (1.0 - t * this.damageFalloff) * (0.7 + 0.3 * speedRatio);
     return Math.max(0, Math.round(dmg));
   }
-  
+
   _incidenceAngle(seg) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - seg.x), dr = Math.abs(cx - (seg.x + seg.w));
@@ -181,7 +192,7 @@ export class Bullet {
     const dot = (this.vx / speed) * nx + (this.vy / speed) * ny;
     return Math.acos(Math.max(-1, Math.min(1, -dot))) * 180 / Math.PI;
   }
-  
+
   _reflectFromBox(seg) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - seg.x), dr = Math.abs(cx - (seg.x + seg.w));
