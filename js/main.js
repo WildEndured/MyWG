@@ -5,6 +5,7 @@ import { TimeManager } from './core/TimeManager.js';
 import { GameMap } from './world/map.js';
 import { UnitManager } from './entities/UnitManager.js';
 import { Unit } from './entities/Unit.js';
+import { Mission } from './entities/Mission.js';
 import { CONFIG } from './data/config.js';
 import { Debug } from './core/Debug.js';
 import { Renderer } from './core/Renderer.js';
@@ -35,12 +36,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const input = new Input(canvas, camera);
   const unitManager = new UnitManager();
   unitManager.camera = camera;
+  
+  window.__CONFIG = CONFIG;
 
   window.__TimeManager = TimeManager;
   let lastTime = performance.now();
   let rafId = 0;
   let gameStarted = false;
   let lastTapWorld = { x: 0, y: 0 };
+  let currentMission = null;
 
   function updateStartButton() { if (btnStart) btnStart.disabled = !(selection.team !== null && selection.mode !== null); }
   function bindOptionGroup(groupId, key) { const group = document.getElementById(groupId); if (!group) return; group.querySelectorAll('.opt-btn').forEach(btn => { btn.addEventListener('click', (e) => { e.preventDefault(); group.querySelectorAll('.opt-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); selection[key] = btn.dataset.value; updateStartButton(); }); }); }
@@ -48,85 +52,126 @@ document.addEventListener('DOMContentLoaded', () => {
   bindOptionGroup('opt-team', 'team');
   bindOptionGroup('opt-mode', 'mode');
 
-  if (btnStart) { btnStart.addEventListener('click', () => { if (btnStart.disabled) return; if (window.AudioManager) AudioManager.init(); startBattle(selection.team, selection.mode); }); }
+  if (btnStart) { 
+    btnStart.addEventListener('click', () => { 
+      if (btnStart.disabled) return; 
+      if (window.AudioManager) AudioManager.init(); 
+      startBattle(selection.team, selection.mode); 
+    }); 
+  }
 
   function startBattle(teamId, modeId) {
-    const team = TEAM_INFO[teamId], mode = MODE_INFO[modeId]; if (!team || !mode) return;
-    gameStarted = true; if (startScreen) startScreen.classList.add('hidden'); if (hud) hud.classList.remove('hidden');
-    unitManager.playerFaction = team.player ? team.faction : null; unitManager.playerTeamId = team.id; unitManager.gameMode = mode.id;
-    if (battleTeamEl) { battleTeamEl.textContent = team.name; battleTeamEl.className = team.id; } if (battleModeEl) battleModeEl.textContent = mode.name;
-    setMapSize(100); lastTime = performance.now();
+    const team = TEAM_INFO[teamId], mode = MODE_INFO[modeId]; 
+    if (!team || !mode) return;
+    
+    gameStarted = true; 
+    if (startScreen) startScreen.classList.add('hidden'); 
+    if (hud) hud.classList.remove('hidden');
+    
+    unitManager.playerFaction = team.player ? team.faction : null; 
+    unitManager.playerTeamId = team.id; 
+    unitManager.gameMode = mode.id;
+    
+    if (battleTeamEl) { battleTeamEl.textContent = team.name; battleTeamEl.className = team.id; } 
+    if (battleModeEl) battleModeEl.textContent = mode.name;
+    
+    // Загрузка миссии
+    const missionId = mode.id === 'attack' ? 'capture_bridge' : 'defend_village';
+    currentMission = new Mission(missionId);
+    
+    resize();
+    currentMission.load(unitManager, map, camera);
+    camera.clampTo(map.size, map.size);
+    
+    lastTime = performance.now();
   }
 
-  function resize() { const dpr = Math.min(window.devicePixelRatio || 1, 2); const w = window.innerWidth, h = window.innerHeight; canvas.style.width = w + 'px'; canvas.style.height = h + 'px'; canvas.width = Math.floor(w * dpr); canvas.height = Math.floor(h * dpr); camera.setDpr(dpr); camera.clampTo(map.size, map.size); }
+  function resize() { 
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); 
+    const w = window.innerWidth, h = window.innerHeight; 
+    canvas.style.width = w + 'px'; 
+    canvas.style.height = h + 'px'; 
+    canvas.width = Math.floor(w * dpr); 
+    canvas.height = Math.floor(h * dpr); 
+    camera.setDpr(dpr); 
+    camera.clampTo(map.size, map.size); 
+  }
+
+  // Обработчики событий миссии
+  EventBus.on('mission:victory', (data) => {
+    console.log('[Mission] VICTORY:', data.mission.name);
+    showMissionEnd('ПОБЕДА!', '#0F9D58');
+  });
+
+  EventBus.on('mission:defeat', (data) => {
+    console.log('[Mission] DEFEAT:', data.reason);
+    showMissionEnd('ПОРАЖЕНИЕ', '#EA4335');
+  });
+
+  EventBus.on('mission:reinforcement', (data) => {
+    console.log(`[Mission] Reinforcement: ${data.count} ${data.faction}`);
+  });
+
+  function showMissionEnd(text, color) {
+    const endScreen = document.createElement('div');
+    endScreen.style.cssText = `
+      position: fixed; inset: 0; background: rgba(0,0,0,0.8); 
+      display: flex; align-items: center; justify-content: center; 
+      z-index: 200; font-family: system-ui, sans-serif;
+    `;
+    endScreen.innerHTML = `
+      <div style="text-align: center;">
+        <h1 style="color: ${color}; font-size: 64px; margin: 0;">${text}</h1>
+        <p style="color: #fff; font-size: 18px; margin: 20px 0;">${currentMission ? currentMission.name : ''}</p>
+        <button id="btn-restart" style="
+          padding: 15px 40px; font-size: 18px; font-weight: bold;
+          background: #4285F4; color: #fff; border: none; 
+          border-radius: 8px; cursor: pointer; margin-top: 20px;
+        ">Начать заново</button>
+      </div>
+    `;
+    document.body.appendChild(endScreen);
+    
+    document.getElementById('btn-restart').addEventListener('click', () => {
+      endScreen.remove();
+      startBattle(selection.team, selection.mode);
+    });
+  }
+
+  EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => { 
+    if (!source || !loudness) return; 
+    for (const unit of unitManager.units) { 
+      if (unit.isDead || unit.faction === source.faction) continue; 
+      const dist = Math.max(0.5, Math.hypot(unit.x - x, unit.y - y)); 
+      if (loudness / Math.sqrt(dist) * unit.hearingMultiplier >= 10) {
+        unit.lastHeardNoise = { x, y, loudness, time: performance.now() };
+      } 
+    } 
+  });
   
-  function setMapSize(meters) {
-    map.setSize(meters); input.setWorldSize(meters); unitManager.setWorldSize(meters); camera.fit(meters, meters); camera.clampTo(meters, meters);
-    document.querySelectorAll('.hud-top-left button[data-size]').forEach(b => b.classList.toggle('active', Number(b.dataset.size) === meters));
+  EventBus.on(EVENTS.INPUT_TAP, (data) => { 
+    if (coordsDiv) coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`; 
+    lastTapWorld.x = data.x; 
+    lastTapWorld.y = data.y; 
+  });
 
-    const center = meters / 2;
-    const offset = meters * 0.15;
-    let zoneX = unitManager.gameMode === 'attack' ? center + offset : center;
-    let zoneY = center;
-    let initialOwner = unitManager.gameMode === 'attack' ? 'enemy' : 'player';
-    if (unitManager.playerTeamId === 'team2') initialOwner = initialOwner === 'player' ? 'enemy' : 'player';
-
-    unitManager.captureZone = new CaptureZone(zoneX, zoneY, meters * 0.1, initialOwner);
-    spawnInitialUnits(meters);
-  }
-
-  function spawnInitialUnits(mapSize) {
-    unitManager.units = []; unitManager.selectedUnits = []; unitManager.bullets = []; unitManager.flashes = []; unitManager.decals = []; unitManager.shells = []; unitManager.explosions = []; unitManager.grenades = [];
-    unitManager.fragments = []; unitManager.tracerTrails = []; unitManager.squads = [];
-    
-    if (typeof unitManager._spawnTestObstacles === 'function') unitManager._spawnTestObstacles(mapSize, true);
-
-    const center = mapSize / 2, offset = mapSize * 0.15, mode = unitManager.gameMode || 'attack', playerTeam = unitManager.playerTeamId || 'team1';
-    
-    const spawnSquad = (baseX, baseY, faction) => {
-      const roles = [
-        'squad_leader', 'machine_gunner', 'grenadier', 'grenadier_help',
-        'senior_rifleman', 'rifleman', 'rifleman', 'rifleman',
-        'driver', 'gunner'
-      ];
-      const squadUnits = [];
-      roles.forEach((roleId, index) => {
-        const row = Math.floor(index / 5);
-        const col = index % 5;
-        const dx = baseX + (col - 2) * 2.0;
-        const dy = baseY + row * 2.0;
-        const p = unitManager.getSafeSpawnPoint(dx, dy);
-        const unit = new Unit(Math.max(0, Math.min(mapSize, p.x)), Math.max(0, Math.min(mapSize, p.y)), faction, roleId);
-        unitManager.addUnit(unit);
-        squadUnits.push(unit);
-      });
-      // СОЗДАЁМ ОТРЯД
-      unitManager.createSquad(squadUnits, faction);
-    };
-
-    if (mode === 'attack') {
-      spawnSquad(center - offset * 2, center, 'player');
-      spawnSquad(center + offset * 2, center, 'enemy');
-    } else {
-      spawnSquad(center, center, 'player');
-      spawnSquad(center - offset * 2.5, center, 'enemy');
-    }
-
-    if (playerTeam === 'team2') for (const u of unitManager.units) u.faction = u.faction === 'player' ? 'enemy' : 'player';
-  }
-
-  EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => { if (!source || !loudness) return; for (const unit of unitManager.units) { if (unit.isDead || unit.faction === source.faction) continue; const dist = Math.max(0.5, Math.hypot(unit.x - x, unit.y - y)); if (loudness / Math.sqrt(dist) * unit.hearingMultiplier >= 10) unit.lastHeardNoise = { x, y, loudness, time: performance.now() }; } });
-  EventBus.on(EVENTS.INPUT_TAP, (data) => { if (coordsDiv) coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`; lastTapWorld.x = data.x; lastTapWorld.y = data.y; });
-
-  document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => { btn.addEventListener('click', () => { if (!gameStarted) return; const meters = Number(btn.dataset.size); if (meters !== map.size && unitManager.units.some(u => !u.isDead) && !confirm('Сменить карту? Текущий бой будет сброшен.')) return; setMapSize(meters); }); });
-  const fitBtn = document.getElementById('fit'); if (fitBtn) fitBtn.addEventListener('click', () => { camera.fit(map.size, map.size); camera.clampTo(map.size, map.size); });
+  const fitBtn = document.getElementById('fit'); 
+  if (fitBtn) fitBtn.addEventListener('click', () => { camera.fit(map.size, map.size); camera.clampTo(map.size, map.size); });
 
   const stanceButtons = { 'btn-stand': 'stand', 'btn-run': 'run', 'btn-crouch': 'crouch', 'btn-prone': 'prone' };
   function updateStanceUI(active) { for (const [id, stance] of Object.entries(stanceButtons)) { const btn = document.getElementById(id); if (btn) btn.classList.toggle('active', stance === active); } }
-  for (const [id, stance] of Object.entries(stanceButtons)) { const btn = document.getElementById(id); if (btn) btn.addEventListener('click', () => { unitManager.setSelectedStance(stance); updateStanceUI(stance); }); }
+  for (const [id, stance] of Object.entries(stanceButtons)) { 
+    const btn = document.getElementById(id); 
+    if (btn) btn.addEventListener('click', () => { 
+      unitManager.setSelectedStance(stance); 
+      updateStanceUI(stance); 
+    }); 
+  }
   updateStanceUI('stand');
 
-  const btnBandage = document.getElementById('btn-bandage'); const btnTourniquet = document.getElementById('btn-tourniquet'); const btnClearMalfunction = document.getElementById('btn-clear-malfunction');
+  const btnBandage = document.getElementById('btn-bandage'); 
+  const btnTourniquet = document.getElementById('btn-tourniquet'); 
+  const btnClearMalfunction = document.getElementById('btn-clear-malfunction');
   if (btnBandage) btnBandage.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.bleedingRate > 0) u.applyBandage('torso', true); } });
   if (btnTourniquet) btnTourniquet.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.bleedingRate > 0) u.applyTourniquet('leftLeg', true); } });
   if (btnClearMalfunction) btnClearMalfunction.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.weapon.isJammed || u.weapon.isMisfired) u.weapon.clearMalfunction(); } });
@@ -161,40 +206,69 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnOrderRetreat = document.getElementById('btn-order-retreat');
 
   if (btnOrderAdvance) btnOrderAdvance.addEventListener('click', () => {
-    for (const squad of unitManager.squads) {
-      if (squad.faction === unitManager.playerFaction) squad.order = 'advance';
-    }
+    for (const squad of unitManager.squads) if (squad.faction === unitManager.playerFaction) squad.order = 'advance';
   });
   if (btnOrderHold) btnOrderHold.addEventListener('click', () => {
-    for (const squad of unitManager.squads) {
-      if (squad.faction === unitManager.playerFaction) squad.order = 'hold';
-    }
+    for (const squad of unitManager.squads) if (squad.faction === unitManager.playerFaction) squad.order = 'hold';
   });
   if (btnOrderRetreat) btnOrderRetreat.addEventListener('click', () => {
-    for (const squad of unitManager.squads) {
-      if (squad.faction === unitManager.playerFaction) squad.order = 'retreat';
+    for (const squad of unitManager.squads) if (squad.faction === unitManager.playerFaction) squad.order = 'retreat';
+  });
+
+  const tacticalBtn = document.getElementById('btn-tactical'); 
+  if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
+  
+  window.addEventListener('keydown', (e) => { 
+    if (e.key === CONFIG.TACTICAL_PAUSE.KEY && gameStarted) { 
+      e.preventDefault(); 
+      TimeManager.toggleTacticalPause(); 
+    } 
+  });
+  
+  const pauseBtn = document.getElementById('btn-pause'); 
+  if (pauseBtn) pauseBtn.addEventListener('click', () => TimeManager.togglePause());
+  
+  [1, 2, 4].forEach(s => { 
+    const b = document.getElementById(`btn-speed-${s}`); 
+    if (b) b.addEventListener('click', () => TimeManager.setTimeScale(s)); 
+  });
+
+  EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused, isTacticalPause }) => {
+    document.querySelectorAll('.time-btn').forEach(btn => { 
+      if (btn.id === 'btn-debug' || btn.id === 'btn-tactical') return; 
+      btn.classList.remove('active'); 
+    });
+    if (isTacticalPause) { 
+      document.getElementById('btn-tactical')?.classList.add('active'); 
+      document.getElementById('btn-pause')?.classList.remove('active'); 
+    } else if (isPaused) { 
+      document.getElementById('btn-pause')?.classList.add('active'); 
+      document.getElementById('btn-tactical')?.classList.remove('active'); 
+    } else { 
+      document.getElementById(`btn-speed-${scale}`)?.classList.add('active'); 
+      document.getElementById('btn-tactical')?.classList.remove('active'); 
     }
   });
 
-  const tacticalBtn = document.getElementById('btn-tactical'); if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
-  window.addEventListener('keydown', (e) => { if (e.key === CONFIG.TACTICAL_PAUSE.KEY && gameStarted) { e.preventDefault(); TimeManager.toggleTacticalPause(); } });
-  const pauseBtn = document.getElementById('btn-pause'); if (pauseBtn) pauseBtn.addEventListener('click', () => TimeManager.togglePause());
-  [1, 2, 4].forEach(s => { const b = document.getElementById(`btn-speed-${s}`); if (b) b.addEventListener('click', () => TimeManager.setTimeScale(s)); });
-
-  EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused, isTacticalPause }) => {
-    document.querySelectorAll('.time-btn').forEach(btn => { if (btn.id === 'btn-debug' || btn.id === 'btn-tactical') return; btn.classList.remove('active'); });
-    if (isTacticalPause) { document.getElementById('btn-tactical')?.classList.add('active'); document.getElementById('btn-pause')?.classList.remove('active'); }
-    else if (isPaused) { document.getElementById('btn-pause')?.classList.add('active'); document.getElementById('btn-tactical')?.classList.remove('active'); }
-    else { document.getElementById(`btn-speed-${scale}`)?.classList.add('active'); document.getElementById('btn-tactical')?.classList.remove('active'); }
-  });
-
-  const debugBtn = document.getElementById('btn-debug'); function syncDebugButton() { if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled); }
+  const debugBtn = document.getElementById('btn-debug'); 
+  function syncDebugButton() { if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled); }
   if (debugBtn) { debugBtn.addEventListener('click', () => { Debug.setEnabled(!Debug.isEnabled); syncDebugButton(); }); }
   EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
   // ПАНЕЛЬ ЮНИТА
-  const unitPanel = document.getElementById('unit-panel'); const tabButtons = document.querySelectorAll('.unit-tab'); const tabContents = document.querySelectorAll('.tab-content');
-  tabButtons.forEach(btn => { btn.addEventListener('click', () => { tabButtons.forEach(b => b.classList.remove('active')); tabContents.forEach(c => c.classList.remove('active')); btn.classList.add('active'); const target = document.getElementById(`tab-${btn.dataset.tab}`); if (target) target.classList.add('active'); }); });
+  const unitPanel = document.getElementById('unit-panel'); 
+  const tabButtons = document.querySelectorAll('.unit-tab'); 
+  const tabContents = document.querySelectorAll('.tab-content');
+  
+  tabButtons.forEach(btn => { 
+    btn.addEventListener('click', () => { 
+      tabButtons.forEach(b => b.classList.remove('active')); 
+      tabContents.forEach(c => c.classList.remove('active')); 
+      btn.classList.add('active'); 
+      const target = document.getElementById(`tab-${btn.dataset.tab}`); 
+      if (target) target.classList.add('active'); 
+    }); 
+  });
 
   function updateUnitPanel(unit) {
     if (!unit) return;
@@ -238,30 +312,73 @@ document.addEventListener('DOMContentLoaded', () => {
     const medEl = document.getElementById('info-med-progress'); if (medEl) { if (unit.medical.isApplying) medEl.classList.remove('hidden'); else medEl.classList.add('hidden'); }
   }
 
-  EventBus.on(EVENTS.UNITS_SELECTED, (units) => { if (units.length === 1) { unitPanel.classList.remove('hidden'); updateUnitPanel(units[0]); } else unitPanel.classList.add('hidden'); });
-  function updatePanelLoop() { if (!unitPanel.classList.contains('hidden') && unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (!u.isDead) updateUnitPanel(u); } requestAnimationFrame(updatePanelLoop); }
+  EventBus.on(EVENTS.UNITS_SELECTED, (units) => { 
+    if (units.length === 1) { unitPanel.classList.remove('hidden'); updateUnitPanel(units[0]); } 
+    else unitPanel.classList.add('hidden'); 
+  });
+  
+  function updatePanelLoop() { 
+    if (!unitPanel.classList.contains('hidden') && unitManager.selectedUnits.length === 1) { 
+      const u = unitManager.selectedUnits[0]; 
+      if (!u.isDead) updateUnitPanel(u); 
+    } 
+    requestAnimationFrame(updatePanelLoop); 
+  }
   updatePanelLoop();
 
   function frame(now) {
-    const realDt = (now - lastTime) / 1000; lastTime = now;
+    const realDt = (now - lastTime) / 1000; 
+    lastTime = now;
+    
     if (gameStarted) {
-      let dt = TimeManager.getScaledDt(realDt); dt = Math.min(dt, CONFIG.MAX_DT);
-      if (dt > 0) { try { unitManager.update(dt); } catch (err) { console.error('[Game] update error:', err); } }
-      if (!Number.isFinite(camera.zoom) || !Number.isFinite(camera.x) || !Number.isFinite(camera.y)) camera.fit(map.size, map.size);
+      let dt = TimeManager.getScaledDt(realDt); 
+      dt = Math.min(dt, CONFIG.MAX_DT);
+      
+      if (dt > 0) { 
+        try { 
+          unitManager.update(dt); 
+          if (currentMission) currentMission.update(dt, unitManager);
+        } catch (err) { console.error('[Game] update error:', err); } 
+      }
+      
+      if (!Number.isFinite(camera.zoom) || !Number.isFinite(camera.x) || !Number.isFinite(camera.y)) {
+        camera.fit(map.size, map.size);
+      }
+      
       Debug.update(realDt);
 
-      const dpr = camera.dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const dpr = camera.dpr; 
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      
       try {
         Renderer.draw(ctx, camera, map, unitManager);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
-        if (TimeManager.isTacticalPause) { ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; ctx.fillRect(0, 0, camera.vw, camera.vh); ctx.fillStyle = '#8ab4f8'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.fillText('ТАКТИЧЕСКАЯ ПАУЗА — приказы разрешены', camera.vw / 2, 40); ctx.restore(); }
-      } catch (err) { console.error('[Game] draw error:', err); }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
+        Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
+        
+        if (TimeManager.isTacticalPause) { 
+          ctx.save(); 
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
+          ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; 
+          ctx.fillRect(0, 0, camera.vw, camera.vh); 
+          ctx.fillStyle = '#8ab4f8'; 
+          ctx.font = 'bold 16px monospace'; 
+          ctx.textAlign = 'center'; 
+          ctx.fillText('ТАКТИЧЕСКАЯ ПАУЗА — приказы разрешены', camera.vw / 2, 40); 
+          ctx.restore(); 
+        }
+      } catch (err) { 
+        console.error('[Game] draw error:', err); 
+      }
     }
     rafId = requestAnimationFrame(frame);
   }
 
   window.addEventListener('beforeunload', () => { cancelAnimationFrame(rafId); input.destroy(); unitManager.destroy(); Debug.destroy(); });
-  window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+  window.addEventListener('resize', resize); 
+  window.addEventListener('orientationchange', () => setTimeout(resize, 100));
   document.addEventListener('visibilitychange', () => { if (document.hidden && !TimeManager.isPaused && !TimeManager.isTacticalPause) TimeManager.togglePause(); });
-  resize(); lastTime = performance.now(); rafId = requestAnimationFrame(frame);
+  
+  resize(); 
+  lastTime = performance.now(); 
+  rafId = requestAnimationFrame(frame);
 });
