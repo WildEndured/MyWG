@@ -6,11 +6,24 @@ export class GameMap {
     this.size = 100;
     this.cellSize = CONFIG.GRID_MINOR;
     this.majorStep = CONFIG.GRID_MAJOR;
+
+    // Кэш высот
+    this._heightCanvas = null;
+    this._heightCtx = null;
+    this._heightCacheKey = '';
+    this._heightGridVersion = -1;
   }
 
   setSize(meters) {
     if (!Number.isFinite(meters) || meters <= 0) return;
+    if (this.size === meters) return;
     this.size = meters;
+    this._invalidateHeightCache();
+  }
+
+  _invalidateHeightCache() {
+    this._heightCacheKey = '';
+    this._heightGridVersion = -1;
   }
 
   draw(ctx) {
@@ -51,19 +64,65 @@ export class GameMap {
 
   _drawHeights(ctx, pathfinder) {
     const cam = this.camera;
+    const dpr = cam.dpr;
+    const vw = cam.vw;
+    const vh = cam.vh;
+
+    // Проверка валидности
+    if (!Number.isFinite(vw) || !Number.isFinite(vh) || vw <= 0 || vh <= 0) return;
+
+    // Ключ кэша: всё, что влияет на картинку высот
+    const gridVersion = pathfinder._gridVersion || 0;
+    const key = `${cam.zoom.toFixed(3)}|${Math.round(cam.x * 2)}|${Math.round(cam.y * 2)}|${this.size}|${gridVersion}|${vw}|${vh}|${dpr}`;
+
+    if (this._heightCacheKey === key && this._heightCanvas && this._heightCtx) {
+      ctx.drawImage(this._heightCanvas, 0, 0, vw, vh);
+      return;
+    }
+
+    // Пересоздаём canvas только при смене размеров
+    const needW = Math.max(1, Math.floor(vw * dpr));
+    const needH = Math.max(1, Math.floor(vh * dpr));
+    if (!this._heightCanvas) {
+      this._heightCanvas = document.createElement('canvas');
+      this._heightCtx = this._heightCanvas.getContext('2d');
+    }
+    if (this._heightCanvas.width !== needW || this._heightCanvas.height !== needH) {
+      this._heightCanvas.width = needW;
+      this._heightCanvas.height = needH;
+    }
+
+    const hctx = this._heightCtx;
+    hctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    hctx.clearRect(0, 0, vw, vh);
+
+    this._renderHeightsTo(hctx, pathfinder);
+
+    // Блитим в основной canvas
+    ctx.drawImage(this._heightCanvas, 0, 0, vw, vh);
+
+    this._heightCacheKey = key;
+    this._heightGridVersion = gridVersion;
+  }
+
+  _renderHeightsTo(ctx, pathfinder) {
+    const cam = this.camera;
     const cellSize = pathfinder.cellSize;
     const wTL = cam.screenToWorld(0, 0);
     const wBR = cam.screenToWorld(cam.vw, cam.vh);
-    
+
     const startX = Math.max(0, Math.floor(wTL.x / cellSize));
     const endX = Math.min(pathfinder.cols, Math.ceil(wBR.x / cellSize));
     const startY = Math.max(0, Math.floor(wTL.y / cellSize));
     const endY = Math.min(pathfinder.rows, Math.ceil(wBR.y / cellSize));
 
+    if (endX <= startX || endY <= startY) return;
+
     // 1. Цвет высот
     for (let gy = startY; gy < endY; gy++) {
+      const rowBase = gy * pathfinder.cols;
       for (let gx = startX; gx < endX; gx++) {
-        const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
+        const h = pathfinder.heightMap[rowBase + gx];
         if (h === 0) continue;
 
         const p = cam.worldToScreen(gx * cellSize, gy * cellSize);
@@ -85,8 +144,9 @@ export class GameMap {
 
     // 2. Тени
     for (let gy = startY; gy < endY; gy++) {
+      const rowBase = gy * pathfinder.cols;
       for (let gx = startX; gx < endX; gx++) {
-        const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
+        const h = pathfinder.heightMap[rowBase + gx];
         if (h <= 0) continue;
         const southH = (gy + 1 < pathfinder.rows) ? pathfinder.heightMap[(gy + 1) * pathfinder.cols + gx] : 0;
         if (southH < h) {
@@ -99,20 +159,21 @@ export class GameMap {
       }
     }
 
-    // 3. Этажи (многоуровневые здания)
+    // 3. Этажи
     if (pathfinder.floorMap) {
       for (let gy = startY; gy < endY; gy++) {
+        const rowBase = gy * pathfinder.cols;
         for (let gx = startX; gx < endX; gx++) {
-          const floor = pathfinder.floorMap[gy * pathfinder.cols + gx];
+          const floor = pathfinder.floorMap[rowBase + gx];
           if (floor === 0) continue;
-          
+
           const p = cam.worldToScreen(gx * cellSize, gy * cellSize);
           const size = cellSize * cam.zoom;
-          
+
           const alpha = Math.min(0.3, floor * 0.15);
           ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
           ctx.fillRect(p.x, p.y, size + 1, size + 1);
-          
+
           ctx.strokeStyle = `rgba(200, 200, 255, ${alpha * 2})`;
           ctx.lineWidth = 1;
           ctx.strokeRect(p.x, p.y, size, size);
@@ -127,10 +188,11 @@ export class GameMap {
       ctx.beginPath();
 
       for (let gy = startY; gy < endY; gy++) {
+        const rowBase = gy * pathfinder.cols;
         for (let gx = startX; gx < endX; gx++) {
-          const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
+          const h = pathfinder.heightMap[rowBase + gx];
           if (h === 0) continue;
-          const hRight = (gx + 1 < pathfinder.cols) ? pathfinder.heightMap[gy * pathfinder.cols + gx + 1] : 0;
+          const hRight = (gx + 1 < pathfinder.cols) ? pathfinder.heightMap[rowBase + gx + 1] : 0;
           const hDown = (gy + 1 < pathfinder.rows) ? pathfinder.heightMap[(gy + 1) * pathfinder.cols + gx] : 0;
 
           if (Math.abs(h - hRight) > 0.1) {
