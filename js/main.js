@@ -77,27 +77,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function spawnInitialUnits(mapSize) {
     unitManager.units = []; unitManager.selectedUnits = []; unitManager.bullets = []; unitManager.flashes = []; unitManager.decals = []; unitManager.shells = []; unitManager.explosions = []; unitManager.grenades = [];
-    unitManager.fragments = []; unitManager.tracerTrails = [];
+    unitManager.fragments = []; unitManager.tracerTrails = []; unitManager.squads = [];
     
     if (typeof unitManager._spawnTestObstacles === 'function') unitManager._spawnTestObstacles(mapSize, true);
 
     const center = mapSize / 2, offset = mapSize * 0.15, mode = unitManager.gameMode || 'attack', playerTeam = unitManager.playerTeamId || 'team1';
     
-    // СПАВН ОТДЕЛЕНИЯ (10 ролей)
     const spawnSquad = (baseX, baseY, faction) => {
       const roles = [
         'squad_leader', 'machine_gunner', 'grenadier', 'grenadier_help',
         'senior_rifleman', 'rifleman', 'rifleman', 'rifleman',
         'driver', 'gunner'
       ];
+      const squadUnits = [];
       roles.forEach((roleId, index) => {
         const row = Math.floor(index / 5);
         const col = index % 5;
         const dx = baseX + (col - 2) * 2.0;
         const dy = baseY + row * 2.0;
         const p = unitManager.getSafeSpawnPoint(dx, dy);
-        unitManager.addUnit(new Unit(Math.max(0, Math.min(mapSize, p.x)), Math.max(0, Math.min(mapSize, p.y)), faction, roleId));
+        const unit = new Unit(Math.max(0, Math.min(mapSize, p.x)), Math.max(0, Math.min(mapSize, p.y)), faction, roleId);
+        unitManager.addUnit(unit);
+        squadUnits.push(unit);
       });
+      // СОЗДАЁМ ОТРЯД
+      unitManager.createSquad(squadUnits, faction);
     };
 
     if (mode === 'attack') {
@@ -150,6 +154,27 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // ПРИКАЗЫ ОТРЯДА
+  const btnOrderAdvance = document.getElementById('btn-order-advance');
+  const btnOrderHold = document.getElementById('btn-order-hold');
+  const btnOrderRetreat = document.getElementById('btn-order-retreat');
+
+  if (btnOrderAdvance) btnOrderAdvance.addEventListener('click', () => {
+    for (const squad of unitManager.squads) {
+      if (squad.faction === unitManager.playerFaction) squad.order = 'advance';
+    }
+  });
+  if (btnOrderHold) btnOrderHold.addEventListener('click', () => {
+    for (const squad of unitManager.squads) {
+      if (squad.faction === unitManager.playerFaction) squad.order = 'hold';
+    }
+  });
+  if (btnOrderRetreat) btnOrderRetreat.addEventListener('click', () => {
+    for (const squad of unitManager.squads) {
+      if (squad.faction === unitManager.playerFaction) squad.order = 'retreat';
+    }
+  });
 
   const tacticalBtn = document.getElementById('btn-tactical'); if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
   window.addEventListener('keydown', (e) => { if (e.key === CONFIG.TACTICAL_PAUSE.KEY && gameStarted) { e.preventDefault(); TimeManager.toggleTacticalPause(); } });
