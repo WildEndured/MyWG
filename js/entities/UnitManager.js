@@ -25,6 +25,7 @@ export class UnitManager {
     this.fragments = [];
     this.tracerTrails = [];
     this.squads = [];
+    this.fires = []; // НОВОЕ: Огонь
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -48,7 +49,10 @@ export class UnitManager {
       }),
       EventBus.on('dust:spawn', (data) => { this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration)); }),
       EventBus.on('explosion:created', (data) => { this.explosions.push(data.explosion); }),
-      EventBus.on('fragment:created', (data) => { this.fragments.push(data.fragment); })
+      EventBus.on('fragment:created', (data) => { this.fragments.push(data.fragment); }),
+      EventBus.on('fire:spawn', (data) => {
+        this.fires.push({ x: data.x, y: data.y, radius: data.radius, duration: data.duration, age: 0 });
+      })
     ];
   }
 
@@ -57,7 +61,7 @@ export class UnitManager {
     this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; 
     this.flashes = []; this.decals = []; this.shells = []; 
     this.explosions = []; this.debris = []; this.dust = []; this.grenades = [];
-    this.fragments = []; this.tracerTrails = []; this.squads = [];
+    this.fragments = []; this.tracerTrails = []; this.squads = []; this.fires = [];
   }
   
   setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
@@ -82,10 +86,7 @@ export class UnitManager {
       let isFree = true;
       for (const u of this.units) {
         if (u.isDead) continue;
-        if (Math.hypot(u.x - desiredX, u.y - desiredY) < radius * 2.5) {
-          isFree = false;
-          break;
-        }
+        if (Math.hypot(u.x - desiredX, u.y - desiredY) < radius * 2.5) { isFree = false; break; }
       }
       if (!isFree) {
         for (let r = 1; r < 20; r += 1) {
@@ -107,22 +108,16 @@ export class UnitManager {
     return { x: desiredX, y: desiredY };
   }
 
-  // ОБНОВЛЕНО: Генерация рельефа и дополнительных высот
   _spawnTestObstacles(mapSize, enabled = true) { 
     this.pathfinder.clearObstacles(); 
     if (!enabled) return; 
-    
-    // 1. Генерация рельефа (холмы, окопы)
     this.pathfinder.generateTerrain();
     
     const c = mapSize / 2;
-    
-    // 2. Добавляем стены для укрытия
     this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); 
     this.pathfinder.addObstacle(c + 15, c - 5, 10, 2, 'sandbags'); 
 
-    // 3. Дополнительные высоты (ручное управление)
-    // Высокий холм на юге (радиус 8, высота 4)
+    // Высокий холм на юге
     for (let dy = -8; dy <= 8; dy++) {
       for (let dx = -8; dx <= 8; dx++) {
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -137,7 +132,7 @@ export class UnitManager {
       }
     }
     
-    // Глубокий окоп на западе (радиус 6, глубина -2)
+    // Глубокий окоп на западе
     for (let dy = -6; dy <= 6; dy++) {
       for (let dx = -6; dx <= 6; dx++) {
         const dist = Math.sqrt(dx * dx + dy * dy);
@@ -238,15 +233,38 @@ export class UnitManager {
       if (ex.isDead) this.explosions.splice(i, 1);
     }
 
+    // Огонь
+    for (let i = this.fires.length - 1; i >= 0; i--) {
+      const f = this.fires[i];
+      f.age += dt;
+      if (f.age >= f.duration) { this.fires.splice(i, 1); continue; }
+      
+      // Огонь наносит урон
+      for (const unit of this.units) {
+        if (unit.isDead) continue;
+        const dist = Math.hypot(unit.x - f.x, unit.y - f.y);
+        if (dist < f.radius) unit.takeDamage(5 * dt, 'torso', 0, null);
+      }
+    }
+
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i];
       d.update(dt, this.units, this.pathfinder.obstacles);
       if (d.isDead) this.debris.splice(i, 1);
     }
 
+    // Динамическая пыль (сдувается ветром)
+    const env = CONFIG.ENVIRONMENT;
     for (let i = this.dust.length - 1; i >= 0; i--) {
       const d = this.dust[i];
       d.update(dt);
+      
+      if (env.WIND_SPEED > 0) {
+        const windRad = env.WIND_ANGLE * Math.PI / 180;
+        d.x += Math.cos(windRad) * env.WIND_SPEED * dt * 0.5;
+        d.y += Math.sin(windRad) * env.WIND_SPEED * dt * 0.5;
+      }
+      
       if (d.isDead) this.dust.splice(i, 1);
     }
 
