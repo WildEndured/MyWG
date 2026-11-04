@@ -1,5 +1,4 @@
 import { EventBus } from '../core/EventBus.js';
-import { Physics } from '../core/Physics.js';
 import { Explosion } from './Explosion.js';
 import { Fragment } from './Fragment.js';
 import { CONFIG } from '../data/config.js';
@@ -10,20 +9,20 @@ export class Grenade {
     this.startX = x; this.startY = y;
     this.owner = owner;
     this.config = config;
-    
+
     this.isDead = false;
     this.hasExploded = false;
     this.fuseTimer = config.fuseTime;
-    
+
     const dx = targetX - x, dy = targetY - y;
     const dist = Math.hypot(dx, dy);
-    const timeToTarget = Math.min(1.5, dist / 20);
-    
+    const timeToTarget = Math.min(1.5, Math.max(0.1, dist / 20));
+
     this.vx = dx / timeToTarget;
     this.vy = (dy / timeToTarget) - 0.5 * 9.81 * timeToTarget;
-    
+
     if (dist > config.throwRange) {
-      const scale = config.throwRange / dist;
+      const scale = config.throwRange / Math.max(0.1, dist);
       this.vx *= scale;
       this.vy *= scale;
     }
@@ -82,23 +81,23 @@ export class Grenade {
     this.isDead = true;
 
     const ex = new Explosion(
-      this.x, this.y, 
-      this.config.blastRadius, 
-      this.config.baseDamage, 
-      this.config.fragmentation, 
+      this.x, this.y,
+      this.config.blastRadius,
+      this.config.baseDamage,
+      this.config.fragmentation,
       this.owner
     );
-    ex.update(0.016, units, obstacles, pathfinder);
-    
+    // FIX: dt=0 — чтобы визуальный слой Explosion не тикал дважды
+    ex.update(0, units, obstacles, pathfinder);
+
     EventBus.emit('explosion:created', { explosion: ex });
 
-    // НОВОЕ: Создаем осколки конусом
     const fragCount = CONFIG.FRAGMENTS.COUNT;
     for (let i = 0; i < fragCount; i++) {
       const angle = (Math.PI * 2 * i) / fragCount + (Math.random() - 0.5) * 0.3;
       const speed = CONFIG.FRAGMENTS.SPEED * (0.5 + Math.random() * 0.5);
       const fragDamage = this.config.baseDamage * CONFIG.FRAGMENTS.DAMAGE_MULT * (0.5 + Math.random() * 0.5);
-      
+
       const frag = new Fragment(
         this.x, this.y,
         Math.cos(angle) * speed,
@@ -106,7 +105,7 @@ export class Grenade {
         fragDamage,
         this.owner
       );
-      
+
       EventBus.emit('fragment:created', { fragment: frag });
     }
   }
