@@ -42,7 +42,7 @@ export class Input {
   _bind() {
     const c = this.canvas;
 
-    // --- МЫШЬ ---
+    // МЫШЬ
     this._bound.mousedown = (e) => {
       if (e.button === 0) {
         this._pointerState = {
@@ -58,6 +58,7 @@ export class Input {
     c.addEventListener('mousedown', this._bound.mousedown);
 
     this._bound.mousemove = (e) => {
+      // Панорамирование ПКМ
       if (this.pointers.has('mouse-right')) {
         const prev = this.pointers.get('mouse-right');
         this.camera.x -= (e.clientX - prev.x) / this.camera.zoom;
@@ -65,7 +66,7 @@ export class Input {
         this._clampCamera();
         this.pointers.set('mouse-right', { x: e.clientX, y: e.clientY });
       }
-      // FIX: панорамирование ЛКМ по сдвигу мыши
+      // Панорамирование ЛКМ
       if (this._pointerState.isDown && this._pointerState.id === 'mouse') {
         const dx = e.clientX - this._pointerState.startX;
         const dy = e.clientY - this._pointerState.startY;
@@ -93,12 +94,13 @@ export class Input {
 
     this._bound.wheel = (e) => {
       e.preventDefault();
-      this.camera.zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
-      this._clampCamera();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      this.camera.zoomAt(e.clientX, e.clientY, factor);
+      this._clampCamera(); // ВАЖНО: ограничение после зума
     };
     c.addEventListener('wheel', this._bound.wheel, { passive: false });
 
-    // --- ТАЧ ---
+    // ТАЧ
     this._bound.touchstart = (e) => {
       e.preventDefault();
       for (const t of e.changedTouches) {
