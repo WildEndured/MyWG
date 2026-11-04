@@ -2,6 +2,7 @@ import { EventBus, EVENTS } from '../core/EventBus.js';
 import { Unit } from './Unit.js';
 import { CaptureZone } from './CaptureZone.js';
 import { MISSIONS } from '../data/missions.js';
+import { CONFIG } from '../data/config.js';
 
 export class Mission {
   constructor(configId, mapSize = 100) {
@@ -21,71 +22,75 @@ export class Mission {
   load(unitManager, map, camera) {
     const cfg = this.config;
     const size = this.mapSize;
-    
+
     // 1. Сброс
     unitManager.reset();
-    
+
     // 2. Pathfinder
     unitManager.setWorldSize(size);
-    
+
     // 3. Карта
     map.setSize(size);
-    
-    // 4. Погода
-    if (cfg.weather) {
-      const CONFIG = window.__CONFIG;
-      if (CONFIG && CONFIG.ENVIRONMENT) {
-        CONFIG.ENVIRONMENT.WIND_SPEED = cfg.weather.windSpeed || 0;
-        CONFIG.ENVIRONMENT.WIND_ANGLE = cfg.weather.windAngle || 0;
-        CONFIG.ENVIRONMENT.TEMPERATURE = cfg.weather.temperature || 20;
-      }
+
+    // 4. Погода — через прямой импорт CONFIG
+    if (cfg.weather && CONFIG.ENVIRONMENT) {
+      CONFIG.ENVIRONMENT.WIND_SPEED = cfg.weather.windSpeed || 0;
+      CONFIG.ENVIRONMENT.WIND_ANGLE = cfg.weather.windAngle || 0;
+      CONFIG.ENVIRONMENT.TEMPERATURE = cfg.weather.temperature || 20;
     }
-    
+
     // 5. Зоны
     this.zones = [];
     for (const zoneConfig of cfg.zones) {
       const zoneX = zoneConfig.xRel * size;
       const zoneY = zoneConfig.yRel * size;
       const zoneRadius = zoneConfig.radiusRel * size;
-      this.zones.push(new CaptureZone(zoneX, zoneY, zoneRadius, this.type === 'defense' ? 'player' : 'enemy'));
+      this.zones.push(new CaptureZone(zoneX, zoneY, zoneRadius, this.type === 'defense' ? 'player' : 'enemy', size));
     }
     unitManager.captureZone = this.zones[0];
-    
+
     // 6. Рельеф
     this._setupObstaclesAndTerrain(unitManager, size);
-    
+
     // 7. Спавн
     this._spawnSquad(unitManager, cfg.playerSquad.spawnXRel * size, cfg.playerSquad.spawnYRel * size, 'player', size);
     this._spawnSquad(unitManager, cfg.enemySquad.spawnXRel * size, cfg.enemySquad.spawnYRel * size, 'enemy', size);
-    
-    // 8. Камера — ПОСЛЕДНЕЙ
-    if (camera) { camera.fit(size, size); camera.clampTo(size, size); }
+
+    // 8. Камера — последней
+    if (camera) {
+      camera.worldSize = size;
+      camera.fit(size, size);
+      camera.clampTo(size, size);
+    }
   }
 
   _setupObstaclesAndTerrain(unitManager, size) {
     unitManager.pathfinder.clearObstacles();
     const center = size / 2;
-    
+
     if (this.id === 'capture_bridge') {
       const riverWidth = size * 0.05;
       for (let dy = 0; dy < size; dy += 1) {
         for (let dx = -riverWidth; dx < riverWidth; dx++) unitManager.pathfinder.setHeight(center + dx, dy, -2.0);
       }
-      
+
       const bankWidth = size * 0.07;
       for (let dy = 0; dy < size; dy += 1) {
         for (let dx = riverWidth; dx < riverWidth + bankWidth; dx++) {
           const factor = 1 - (dx - riverWidth) / bankWidth;
           const h = factor * 1.5;
-          if (h > 0) { unitManager.pathfinder.setHeight(center + dx, dy, h); unitManager.pathfinder.setHeight(center - dx, dy, h); }
+          if (h > 0) {
+            unitManager.pathfinder.setHeight(center + dx, dy, h);
+            unitManager.pathfinder.setHeight(center - dx, dy, h);
+          }
         }
       }
-      
+
       const bridgeLength = size * 0.06;
       for (let dy = -bridgeLength; dy < bridgeLength; dy++) {
         for (let dx = -riverWidth; dx < riverWidth; dx++) unitManager.pathfinder.setHeight(center + dx, center + dy, 0);
       }
-      
+
       const wallSize = size * 0.02;
       unitManager.pathfinder.addObstacle(center - riverWidth * 1.2, center - wallSize * 4, wallSize, wallSize * 2, 'sandbags');
       unitManager.pathfinder.addObstacle(center + riverWidth * 1.2, center - wallSize * 4, wallSize, wallSize * 2, 'sandbags');
@@ -99,12 +104,12 @@ export class Mission {
           if (dist < hillRadius) unitManager.pathfinder.setHeight(center + dx, center + dy, (1 - dist / hillRadius) * 2);
         }
       }
-      
+
       const houseSize = size * 0.04;
       unitManager.pathfinder.addObstacle(center - size * 0.1, center - houseSize, houseSize, houseSize, 'brick');
       unitManager.pathfinder.addObstacle(center + size * 0.06, center - houseSize, houseSize, houseSize, 'brick');
       unitManager.pathfinder.addObstacle(center - houseSize / 2, center + size * 0.06, houseSize * 1.5, houseSize * 0.8, 'wood');
-      
+
       const trenchRadius = size * 0.25;
       for (let dy = -trenchRadius; dy < trenchRadius; dy += 1) {
         for (let dx = -trenchRadius; dx < trenchRadius; dx += 1) {
@@ -119,18 +124,23 @@ export class Mission {
     const roles = ['squad_leader', 'machine_gunner', 'grenadier', 'grenadier_help', 'senior_rifleman', 'rifleman', 'rifleman', 'rifleman', 'driver', 'gunner'];
     const units = [];
     const spacing = mapSize * 0.025;
-    
+
+    if (!Number.isFinite(baseX) || !Number.isFinite(baseY)) {
+      console.warn('[Mission] Invalid spawn base, using center');
+      baseX = mapSize / 2;
+      baseY = mapSize / 2;
+    }
+
     roles.forEach((roleId, index) => {
       const row = Math.floor(index / 5);
       const col = index % 5;
       const dx = baseX + (col - 2) * spacing;
       const dy = baseY + row * spacing;
       const p = unitManager.getSafeSpawnPoint(dx, dy, 1.0, true);
-      
-      // Защита от спавна за границей
-      const finalX = Math.max(5, Math.min(mapSize - 5, p.x));
-      const finalY = Math.max(5, Math.min(mapSize - 5, p.y));
-      
+
+      const finalX = Math.max(5, Math.min(mapSize - 5, Number.isFinite(p.x) ? p.x : baseX));
+      const finalY = Math.max(5, Math.min(mapSize - 5, Number.isFinite(p.y) ? p.y : baseY));
+
       const unit = new Unit(finalX, finalY, faction, roleId);
       unitManager.addUnit(unit);
       units.push(unit);
@@ -149,8 +159,13 @@ export class Mission {
         if (!zone) continue;
         if (zone.owner === 'player') {
           obj.progress += dt;
-          if (obj.progress >= obj.time) { obj.completed = true; this._checkVictory(); }
-        } else obj.progress = Math.max(0, obj.progress - dt * 0.5);
+          if (obj.progress >= obj.time) {
+            obj.completed = true;
+            this._checkVictory();
+          }
+        } else {
+          obj.progress = Math.max(0, obj.progress - dt * 0.5);
+        }
       }
     }
 
@@ -158,13 +173,19 @@ export class Mission {
       for (let i = 0; i < this.config.triggers.length; i++) {
         const trigger = this.config.triggers[i];
         if (this.triggeredEvents.has(i)) continue;
-        if (this.timeElapsed >= trigger.time) { this.triggeredEvents.add(i); this._executeTrigger(trigger, world); }
+        if (this.timeElapsed >= trigger.time) {
+          this.triggeredEvents.add(i);
+          this._executeTrigger(trigger, world);
+        }
       }
     }
 
     this._checkDefeat(world);
     if (this.config.timeLimit && this.timeElapsed >= this.config.timeLimit) {
-      if (this.status === 'active') { this.status = 'defeat'; EventBus.emit('mission:defeat', { mission: this, reason: 'time' }); }
+      if (this.status === 'active') {
+        this.status = 'defeat';
+        EventBus.emit('mission:defeat', { mission: this, reason: 'time' });
+      }
     }
   }
 
@@ -172,12 +193,14 @@ export class Mission {
     if (trigger.type === 'reinforcement') {
       const unitManager = world.unitManager;
       if (!unitManager) return;
+      if (!Array.isArray(trigger.roles) || trigger.roles.length === 0) return;
+
       const mapSize = this.mapSize;
       const units = [];
       const spawnX = trigger.spawnXRel * mapSize;
       const spawnY = trigger.spawnYRel * mapSize;
       const spacing = mapSize * 0.025;
-      
+
       for (let i = 0; i < trigger.roles.length; i++) {
         const dx = spawnX + (i % 5 - 2) * spacing;
         const dy = spawnY + Math.floor(i / 5) * spacing;
@@ -194,12 +217,20 @@ export class Mission {
   }
 
   _checkVictory() {
-    if (this.objectives.every(o => o.completed)) { this.status = 'victory'; EventBus.emit('mission:victory', { mission: this }); }
+    if (this.objectives.every(o => o.completed)) {
+      this.status = 'victory';
+      EventBus.emit('mission:victory', { mission: this });
+    }
   }
 
   _checkDefeat(world) {
-    const playerUnits = world.units ? world.units.filter(u => u.faction === 'player' && !u.isDead) : [];
-    if (playerUnits.length === 0 && this.status === 'active') { this.status = 'defeat'; EventBus.emit('mission:defeat', { mission: this, reason: 'units_dead' }); }
+    if (!world.units) return;
+    // Сдавшиеся в плен — не считаются "боеспособными"
+    const aliveFighters = world.units.filter(u => u.faction === 'player' && !u.isDead && !u.isSurrendered);
+    if (aliveFighters.length === 0 && this.status === 'active') {
+      this.status = 'defeat';
+      EventBus.emit('mission:defeat', { mission: this, reason: 'units_dead' });
+    }
   }
 
   getObjectiveText() {
