@@ -8,13 +8,14 @@ import { Physics } from '../core/Physics.js';
 import { EventBus, EVENTS } from '../core/EventBus.js';
 import { CONFIG } from '../data/config.js';
 import { Brain } from '../core/Brain.js';
+import { Grenade } from './Grenade.js';
 
-// Импорт миксинов (методы добавятся в прототип)
+// Импорт миксинов
 import { applyHealthMixin } from './UnitHealth.js';
 import { applyCombatMixin } from './UnitCombat.js';
 
 export class Unit {
-  constructor(x, y, faction = 'player', roleId = 'infantry') {
+  constructor(x, y, faction = 'player', roleId = 'rifleman') {
     this.x = Number.isFinite(x) ? x : 50; this.y = Number.isFinite(y) ? y : 50; this.faction = faction;
     this.vx = 0; this.vy = 0; this.maxSpeed = 0;
     this.baseRadius = BASE_HUMAN.baseRadius; this.hitRadius = BASE_HUMAN.hitRadius;
@@ -39,8 +40,19 @@ export class Unit {
     this.maxStamina = BASE_HUMAN.maxStamina; this.stamina = this.maxStamina;
     this.baseRecoveryRate = BASE_HUMAN.baseRecoveryRate; this.staminaCooldown = 0;
 
-    const role = ROLES[roleId] || ROLES['infantry']; this.roleId = role.id; this.name = role.name;
-    const weaponConfig = WEAPONS[role.defaultWeapon]; this.weapon = new Weapon(weaponConfig); this.maxAimTime = this.weapon.maxAimTime;
+    // РОЛЬ И ИЕРАРХИЯ
+    const role = ROLES[roleId] || ROLES['rifleman']; 
+    this.roleId = role.id; 
+    this.name = role.name;
+    this.rank = role.rank || 1;
+
+    const weaponConfig = WEAPONS[role.defaultWeapon]; 
+    this.weapon = new Weapon(weaponConfig); 
+    this.maxAimTime = this.weapon.maxAimTime;
+    this.activeWeaponId = role.defaultWeapon;
+
+    // Запасное оружие (для гранатометчика)
+    this.secondaryWeaponConfig = role.secondaryWeapon ? WEAPONS[role.secondaryWeapon] : null;
 
     this.armor = {}; let armorWeight = 0;
     for (const armorId of BASE_HUMAN.defaultArmor) {
@@ -60,7 +72,10 @@ export class Unit {
     const medWeight = this.medical.bandage * CONFIG.MEDICAL.BANDAGE_WEIGHT + this.medical.tourniquet * CONFIG.MEDICAL.TOURNIQUET_WEIGHT;
     const ammoWeight = this.weapon.getTotalAmmoWeight();
     const grenadeWeight = this.grenades * 0.3;
-    this.totalWeight = this.weapon.weightLoaded + armorWeight + medWeight + ammoWeight + grenadeWeight;
+    let weaponWeight = this.weapon.weightLoaded;
+    if (this.secondaryWeaponConfig) weaponWeight += this.secondaryWeaponConfig.weightEmpty;
+    
+    this.totalWeight = weaponWeight + armorWeight + medWeight + ammoWeight + grenadeWeight;
     
     this.staminaPenalty = Math.max(1.0, this.totalWeight / 10.0);
     this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, this.totalWeight);
@@ -110,12 +125,27 @@ export class Unit {
   get stanceTransitionProgress() { if (!this.stanceTransition) return 1; const t = this.stanceTransition; return 1 - Math.max(0, t.timer / t.total); }
   setPath(path) { if (!path || path.length === 0) { this.isMoving = false; this._wantsToMove = false; this.path = []; return; } this.path = path; this.pathIndex = 0; this.isMoving = true; this._wantsToMove = true; this.needsRepath = false; }
 
+  // Переключение оружия
+  switchWeapon() {
+    if (!this.secondaryWeaponConfig) return false;
+    
+    if (this.activeWeaponId === 'rpg7') {
+      this.weapon = new Weapon(this.secondaryWeaponConfig);
+      this.activeWeaponId = 'ak74';
+    } else {
+      this.weapon = new Weapon(WEAPONS['rpg7']);
+      this.activeWeaponId = 'rpg7';
+    }
+    this.maxAimTime = this.weapon.maxAimTime;
+    return true;
+  }
+
   update(dt, allUnits, currentTime, worldState) {
     if (this.isDead) return null;
     if (this.suppression > 0) { const timeSince = (performance.now() / 1000) - this.lastSuppressionTime; if (timeSince > CONFIG.SUPPRESSION.CLEAR_TIME) this.suppression = Math.max(0, this.suppression - CONFIG.SUPPRESSION.DECAY_PER_SEC * dt); }
     if (this.standLockTimer > 0) this.standLockTimer -= dt;
     this._updateStanceTransition(dt);
-    this._updateHealthAndMedical(dt, currentTime); // Миксин
+    this._updateHealthAndMedical(dt, currentTime);
 
     if (this.isUnconscious) { this.weapon.update(dt); this._integrateVelocity(dt); return null; }
     if (this.tinnitus > 0) this.tinnitus = Math.max(0, this.tinnitus - dt);
@@ -133,9 +163,9 @@ export class Unit {
     this.hearingMultiplier = Math.max(0, hearingMult);
 
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-    this._updatePerception(dt, allUnits, obs, currentTime); // Миксин
+    this._updatePerception(dt, allUnits, obs, currentTime);
     if (this.brain && worldState) this.brain.update(dt, worldState);
-    this._updateCombat(dt, allUnits, currentTime, worldState); // Миксин
+    this._updateCombat(dt, allUnits, currentTime, worldState);
     this.weapon.update(dt);
 
     if (this.isMoving || this._wantsToMove) this.aimTime = 0;
@@ -205,6 +235,6 @@ export class Unit {
   }
 }
 
-// Применяем миксины к прототипу
+// Применяем миксины
 applyHealthMixin(Unit.prototype);
 applyCombatMixin(Unit.prototype);
