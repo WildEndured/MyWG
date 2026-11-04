@@ -4,6 +4,10 @@ class AudioManagerClass {
   constructor() {
     this.ctx = null;
     this.isReady = false;
+    this.noiseBuffer = null;
+    this.activeVoices = 0;
+    this.maxVoices = 6;
+    this.masterGain = null;
   }
 
   init() {
@@ -11,14 +15,26 @@ class AudioManagerClass {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
     this.ctx = new AudioContext();
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = 0.8;
+    this.masterGain.connect(this.ctx.destination);
+    this._buildNoiseBuffer();
     this.isReady = true;
   }
 
-  // FIX: устойчиво к camera === undefined, NaN координатам и отсутствию ctx
-  playGunshot(x, y, camera, loudness) {
-    if (!this.isReady || !this.ctx) return;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  _buildNoiseBuffer() {
+    // 0.15 сек шума — переиспользуем для всех выстрелов
+    const sr = this.ctx.sampleRate;
+    const len = Math.floor(sr * 0.15);
+    const buf = this.ctx.createBuffer(1, len, sr);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1);
+    this.noiseBuffer = buf;
+  }
 
+  playGunshot(x, y, camera, loudness) {
+    if (!this.isReady || !this.ctx || !this.noiseBuffer) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     if (this.ctx.state === 'suspended') this.ctx.resume();
 
     const cx = (camera && Number.isFinite(camera.x)) ? camera.x : 0;
@@ -27,48 +43,43 @@ class AudioManagerClass {
     const dy = y - cy;
     const dist = Math.hypot(dx, dy);
 
-    // Задержка звука (скорость 343 м/с)
-    const delay = dist / CONFIG.AUDIO.SPEED_OF_SOUND;
-
-    // Громкость
-    let volume = Math.min(1, 1.0 / (1 + dist * 0.01)) * (loudness / 1000);
+    let volume = Math.min(1, 1.0 / (1 + dist * 0.02)) * Math.min(1, loudness / 1000);
     if (dist > 50) volume *= CONFIG.AUDIO_WALL_MULT;
-    if (!Number.isFinite(volume)) volume = 0.1;
-    if (volume < 0.01) return;
+    if (!Number.isFinite(volume) || volume < 0.05) return;
 
-    setTimeout(() => {
-      try {
-        this._synthGunshot(volume, dx > 0 ? 0.5 : -0.5);
-      } catch (e) {
-        // не роняем игру из-за звука
-      }
-    }, Math.max(0, delay) * 1000);
-  }
+    // Лимит голосов
+    if (this.activeVoices >= this.maxVoices) return;
 
-  _synthGunshot(volume, pan) {
-    if (!this.ctx) return;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuffer;
 
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(150, this.ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.1);
+      // Низкочастотный "удар" выстрела
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 800 + volume * 1200;
 
-    gain.gain.setValueAtTime(volume, this.ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+      const gain = this.ctx.createGain();
+      const t0 = this.ctx.currentTime;
+      gain.gain.setValueAtTime(volume * 0.5, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.12);
 
-    osc.connect(gain);
-    if (panner) {
-      panner.pan.setValueAtTime(pan, this.ctx.currentTime);
-      gain.connect(panner);
-      panner.connect(this.ctx.destination);
-    } else {
-      gain.connect(this.ctx.destination);
+      const panner = this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : null;
+      if (panner) panner.pan.value = Math.max(-1, Math.min(1, dx / Math.max(20, Math.abs(dx) + Math.abs(dy))));
+
+      src.connect(filter);
+      filter.connect(gain);
+      if (panner) { gain.connect(panner); panner.connect(this.masterGain); }
+      else gain.connect(this.masterGain);
+
+      src.start(t0);
+      src.stop(t0 + 0.15);
+
+      this.activeVoices++;
+      src.onended = () => { this.activeVoices = Math.max(0, this.activeVoices - 1); };
+    } catch (e) {
+      // не роняем игру
     }
-
-    osc.start();
-    osc.stop(this.ctx.currentTime + 0.2);
   }
 }
 
