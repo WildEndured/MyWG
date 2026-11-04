@@ -37,6 +37,10 @@ export class UnitManager {
     this.squads = [];
     this.fires = [];
 
+    // Spatial hash для коллизий (пересоздаётся в _resolveCollisions)
+    this._collisionGrid = null;
+    this._collisionCellSize = 4;
+
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)),
       EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -86,7 +90,7 @@ export class UnitManager {
         this.fires.push({ x: data.x, y: data.y, radius: data.radius, duration: data.duration, age: 0 });
       }),
       EventBus.on(EVENTS.EXPLOSION, () => {
-        // зарезервировано для UI/эффектов
+        // зарезервировано
       }),
     ];
   }
@@ -114,6 +118,7 @@ export class UnitManager {
     this.fires = [];
     this.currentTime = 0;
     this.captureZone = null;
+    this._collisionGrid = null;
   }
 
   setWorldSize(size) {
@@ -240,7 +245,6 @@ export class UnitManager {
         }
       }
 
-      // Кровь — по накопителю
       if (unit.bleedingRate > 0) {
         unit._bleedAccum = (unit._bleedAccum || 0) + unit.bleedingRate * dt;
         while (unit._bleedAccum > 0.3) {
@@ -358,19 +362,56 @@ export class UnitManager {
   }
 
   _resolveCollisions() {
-    // Быстрая проверка AABB перед Physics.resolveUnitCollision
-    const n = this.units.length;
-    for (let i = 0; i < n; i++) {
-      const u1 = this.units[i];
+    const cellSize = this._collisionCellSize;
+    const grid = new Map();
+
+    const toKey = (cx, cy) => cx * 100000 + cy;
+
+    // 1. Раскладываем живых юнитов по бакетам
+    for (const u of this.units) {
+      if (u.isDead) continue;
+      const cx = Math.floor(u.x / cellSize);
+      const cy = Math.floor(u.y / cellSize);
+      const key = toKey(cx, cy);
+      let bucket = grid.get(key);
+      if (!bucket) { bucket = []; grid.set(key, bucket); }
+      bucket.push(u);
+    }
+
+    // 2. Для каждого юнита — проверяем соседние 9 бакетов (включая свой)
+    const checkedPairs = new Set();
+    for (const u1 of this.units) {
       if (u1.isDead) continue;
-      for (let j = i + 1; j < n; j++) {
-        const u2 = this.units[j];
-        if (u2.isDead) continue;
-        const minDist = u1.baseRadius + u2.baseRadius;
-        const dx = u2.x - u1.x, dy = u2.y - u1.y;
-        // Ранний выход, если далеко
-        if (Math.abs(dx) > minDist || Math.abs(dy) > minDist) continue;
-        Physics.resolveUnitCollision(u1, u2, this.pathfinder.obstacles);
+      const cx = Math.floor(u1.x / cellSize);
+      const cy = Math.floor(u1.y / cellSize);
+
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const bucket = grid.get(toKey(cx + dx, cy + dy));
+          if (!bucket) continue;
+
+          for (const u2 of bucket) {
+            if (u2 === u1 || u2.isDead) continue;
+
+            // Чтобы не проверять пару дважды
+            const a = u1.id ?? u1._uid;
+            const b = u2.id ?? u2._uid;
+            if (a !== undefined && b !== undefined) {
+              const pairKey = a < b ? `${a}_${b}` : `${b}_${a}`;
+              if (checkedPairs.has(pairKey)) continue;
+              checkedPairs.add(pairKey);
+            } else {
+              // fallback без id — сравниваем по ссылке, обрабатываем только один порядок
+              if (this.units.indexOf(u1) > this.units.indexOf(u2)) continue;
+            }
+
+            const minDist = u1.baseRadius + u2.baseRadius;
+            const ddx = u2.x - u1.x, ddy = u2.y - u1.y;
+            if (Math.abs(ddx) > minDist || Math.abs(ddy) > minDist) continue;
+
+            Physics.resolveUnitCollision(u1, u2, this.pathfinder.obstacles);
+          }
+        }
       }
     }
   }
