@@ -16,9 +16,9 @@ export class Renderer {
     const sortedUnits = [...unitManager.units].sort((a, b) => a.y - b.y);
     for (const unit of sortedUnits) if (camera.isPointVisible(unit.x, unit.y, 200)) Renderer.drawUnit(ctx, camera, unit);
 
-    // Трассеры (летящие)
-    Renderer.drawTracers(ctx, camera, unitManager.tracerTrails);
+    Renderer.drawSquads(ctx, camera, unitManager.squads);
 
+    Renderer.drawTracers(ctx, camera, unitManager.tracerTrails);
     Renderer.drawBullets(ctx, camera, unitManager.bullets);
     Renderer.drawEffects(ctx, camera, unitManager.flashes);
     Renderer.drawGrenades(ctx, camera, unitManager.grenades);
@@ -26,6 +26,35 @@ export class Renderer {
     Renderer.drawFragments(ctx, camera, unitManager.fragments);
     Renderer.drawDebris(ctx, camera, unitManager.debris);
     Renderer.drawDust(ctx, camera, unitManager.dust);
+  }
+
+  static drawSquads(ctx, camera, squads) {
+    if (!squads) return;
+    for (const squad of squads) {
+      if (!squad.leader || squad.leader.isDead) continue;
+      const leaderPos = camera.worldToScreen(squad.leader.x, squad.leader.y);
+      
+      // Индикатор морали над лидером
+      const barW = 40, barH = 4;
+      const barX = leaderPos.x - barW / 2;
+      const barY = leaderPos.y - 30;
+      
+      ctx.fillStyle = '#333'; 
+      ctx.fillRect(barX, barY, barW, barH);
+      
+      let color = '#0F9D58';
+      if (squad.morale < 0.3) color = '#EA4335';
+      else if (squad.morale < 0.6) color = '#F4B400';
+      
+      ctx.fillStyle = color;
+      ctx.fillRect(barX, barY, barW * squad.morale, barH);
+      
+      // Иконка лидера (звезда)
+      ctx.fillStyle = '#F4B400';
+      ctx.beginPath();
+      ctx.arc(leaderPos.x, leaderPos.y - 40, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   static drawZone(ctx, camera, zone) {
@@ -161,11 +190,9 @@ export class Renderer {
       const p1 = camera.worldToScreen(t.x1, t.y1);
       const p2 = camera.worldToScreen(t.x2, t.y2);
       
-      // Летящий трассер (от ствола к цели)
       const cx = p1.x + (p2.x - p1.x) * t.progress;
       const cy = p1.y + (p2.y - p1.y) * t.progress;
       
-      // След (линия от ствола до текущей точки)
       const trailAlpha = t.life / t.maxLife;
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
@@ -174,7 +201,6 @@ export class Renderer {
       ctx.lineWidth = 1.5;
       ctx.stroke();
       
-      // Сама точка трассера
       if (t.progress < 1) {
         ctx.beginPath();
         ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
@@ -202,7 +228,7 @@ export class Renderer {
       const p = camera.worldToScreen(f.x, f.y);
       ctx.beginPath();
       ctx.arc(p.x, p.y, Math.max(1, 1.5 * camera.zoom / 8), 0, Math.PI * 2);
-      ctx.fillStyle = '#FF8800'; // Оранжевые осколки
+      ctx.fillStyle = '#FF8800';
       ctx.fill();
     }
   }
