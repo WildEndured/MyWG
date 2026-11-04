@@ -307,8 +307,17 @@ export class Unit {
   _integrateVelocity(dt) {
     const sp = Math.hypot(this.vx, this.vy); 
     if (sp < CONFIG.MOVEMENT.STOP_EPS) { this.vx = 0; this.vy = 0; return; }
+    
+    // Ограничение максимальной скорости (защита от вылета за карту)
+    const maxSpeed = 20;
+    if (sp > maxSpeed) {
+      this.vx = (this.vx / sp) * maxSpeed;
+      this.vy = (this.vy / sp) * maxSpeed;
+    }
+
     const nx = this.x + this.vx * dt, ny = this.y + this.vy * dt;
     if (!Number.isFinite(nx) || !Number.isFinite(ny)) { this.vx = 0; this.vy = 0; return; }
+    
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
     if (Physics.isPositionFree(nx, ny, this.baseRadius * 0.8, obs)) { 
       this.x = nx; this.y = ny; 
