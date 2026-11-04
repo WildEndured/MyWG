@@ -1,4 +1,5 @@
 import { Bullet } from './Bullet.js';
+import { Rocket } from './Rocket.js';
 import { Grenade } from './Grenade.js';
 import { Explosion } from './Explosion.js';
 import { EXPLOSIVES } from '../data/weapons.js';
@@ -33,7 +34,6 @@ export function applyCombatMixin(UnitProto) {
     }
 
     const effectiveRange = this.detectRange + heightBonus;
-
     if (dist > effectiveRange) return { visible: false, dist, angle: 0, central: false };
 
     const angleToTarget = Math.atan2(dy, dx);
@@ -172,7 +172,6 @@ export function applyCombatMixin(UnitProto) {
     if (this.isLimping) spread *= 2.0;
     const speedRatio = Math.min(1, Math.hypot(this.vx, this.vy) / Math.max(0.1, this.speeds.stand));
     spread *= (1 + speedRatio * 3);
-
     if (this.stamina < 20) spread *= 1.5;
     if (this.blood < 70) spread *= 1.2;
     if (this.blood < 40) spread *= 1.5;
@@ -188,7 +187,6 @@ export function applyCombatMixin(UnitProto) {
     spread = Math.max(0.01, Math.min(spread, 20));
     const hitChance = Math.max(0.1, 1 - (spread / 10));
 
-    // FIX: camera через window.__camera, чтобы не падало
     const cam = (typeof window !== 'undefined') ? window.__camera : null;
     AudioManager.playGunshot(this.x, this.y, cam, this.weapon.loudness);
 
@@ -204,11 +202,17 @@ export function applyCombatMixin(UnitProto) {
       ty = this.y + Math.sin(ang) * missDist;
     }
 
-    // FIX: РПГ — это взрыв, а не пуля
+    // РПГ — летящая ракета
     if (this.weapon.isExplosive) {
       const cfg = EXPLOSIVES.grenade_rpg;
-      const expl = new Explosion(tx, ty, cfg.blastRadius, cfg.baseDamage, cfg.fragmentation, this);
-      this.pendingExplosions.push(expl);
+      const rocket = new Rocket(this.x, this.y, tx, ty, this, {
+        ...cfg,
+        initialSpeed: cfg.initialSpeed || 80,
+        acceleration: cfg.acceleration || 200,
+        maxSpeed: cfg.maxSpeed || 250,
+        maxLife: cfg.maxLife || 5.0
+      });
+      this.pendingExplosions.push(rocket);
       return null;
     }
 
