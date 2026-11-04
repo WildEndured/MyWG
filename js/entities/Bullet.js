@@ -14,6 +14,7 @@ export class Bullet {
     this.woundingMult = opts.woundingMult ?? 1.0; this.overpenetration = opts.overpenetration ?? 0;
     this.stability = opts.stability ?? 0.9;
     this.mass = opts.mass ?? 0.005;
+    this.startZ = opts.startZ ?? 1.2; // НОВОЕ: высота пули
     this.isTracer = !!opts.isTracer; this.owner = owner; this.isDead = false;
     this.life = 0; this.maxLife = 3.0; this.hasRicocheted = false;
   }
@@ -24,44 +25,43 @@ export class Bullet {
     this.life += dt;
     if (this.life > this.maxLife) { this.isDead = true; return; }
 
-    // 1. ГРАВИТАЦИЯ
+    // Гравитация
     this.vy += CONFIG.BALLISTICS.GRAVITY * dt;
 
-    // 2. ВЕТЕР (боковой снос)
+    // Ветер
     const env = CONFIG.ENVIRONMENT;
     if (env.WIND_SPEED > 0) {
       const windRad = env.WIND_ANGLE * Math.PI / 180;
       const windVx = Math.cos(windRad) * env.WIND_SPEED;
       const windVy = Math.sin(windRad) * env.WIND_SPEED;
-      // Пуля увлекается ветром (упрощенно)
       this.vx += (windVx - this.vx * 0.01) * 0.02 * dt;
       this.vy += (windVy - this.vy * 0.01) * 0.02 * dt;
     }
 
-    // 3. ПЛОТНОСТЬ ВОЗДУХА (температура + высота)
+    // Плотность воздуха
     const tempK = 273.15 + env.TEMPERATURE;
     const densityRatio = (288.15 / tempK) * (1 - 0.0000226 * env.ALTITUDE);
     const airDensity = CONFIG.BALLISTICS.AIR_DENSITY_SEA_LEVEL * Math.max(0.1, densityRatio);
     const dragFactor = Math.exp(-this.drag * airDensity * dt);
     this.vx *= dragFactor; this.vy *= dragFactor;
 
-    // 4. КОРИОЛИС (отклонение на больших дистанциях)
+    // Кориолис
     const latRad = env.LATITUDE * Math.PI / 180;
     const coriolisAccel = 2 * CONFIG.BALLISTICS.CORIOLIS_OMEGA * Math.sin(latRad);
     this.vx += coriolisAccel * this.vy * dt * 0.01;
 
-    // 5. СТАБИЛИЗАЦИЯ ПУЛИ (кувыркание)
+    // Стабилизация
     if (this.stability < 0.9) {
       const wobble = (1 - this.stability) * 0.5;
       this.vx += (Math.random() - 0.5) * wobble * dt * 10;
       this.vy += (Math.random() - 0.5) * wobble * dt * 10;
     }
     
-    // 6. РИКОШЕТ ОТ ПОЛА (с учетом материала)
+    // Рикошет от пола
     const mapBottom = pathfinder?.worldSize || 1000;
     if (this.vy > 0 && this.y > mapBottom - 1) {
       const floorMat = env.FLOOR_MATERIAL || 'dirt';
-      let ricochetChance = 0.3; // по умолчанию земля
+      let ricochetChance = 0.3;
       if (floorMat === 'water') ricochetChance = 0.8;
       else if (floorMat === 'concrete') ricochetChance = 0.4;
       
@@ -80,7 +80,20 @@ export class Bullet {
 
     const nextX = this.x + this.vx * dt, nextY = this.y + this.vy * dt;
 
-    // 7. СТЕНЫ
+    // НОВОЕ: Проверка рельефа (пуля врезается в холм)
+    if (pathfinder && pathfinder.heightMap) {
+      const terrainZ = pathfinder.getHeight(nextX, nextY);
+      // Упрощенная высота пули (снижается с дистанцией)
+      const bulletZ = this.startZ - (this.traveled / this.maxFalloffDist) * 0.5;
+      
+      if (bulletZ < terrainZ) {
+        this.isDead = true;
+        EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'terrain' });
+        return;
+      }
+    }
+
+    // Стены
     if (obstacles) {
       for (const obs of obstacles) {
         for (const seg of obs.segments) {
@@ -122,7 +135,7 @@ export class Bullet {
       }
     }
 
-    // 8. ЮНИТЫ
+    // Юниты
     for (const unit of allUnits) {
       if (!unit || unit.isDead) continue;
       if (this.owner && unit.faction === this.owner.faction) continue;
@@ -162,6 +175,7 @@ export class Bullet {
     dmg *= (1.0 - t * this.damageFalloff) * (0.7 + 0.3 * speedRatio);
     return Math.max(0, Math.round(dmg));
   }
+  
   _incidenceAngle(seg) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - seg.x), dr = Math.abs(cx - (seg.x + seg.w));
@@ -173,6 +187,7 @@ export class Bullet {
     const dot = (this.vx / speed) * nx + (this.vy / speed) * ny;
     return Math.acos(Math.max(-1, Math.min(1, -dot))) * 180 / Math.PI;
   }
+  
   _reflectFromBox(seg) {
     const cx = this.prevX, cy = this.prevY;
     const dl = Math.abs(cx - seg.x), dr = Math.abs(cx - (seg.x + seg.w));
