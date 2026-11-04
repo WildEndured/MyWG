@@ -81,6 +81,20 @@ export function applyCombatMixin(UnitProto) {
   UnitProto._updateCombat = function(dt, allUnits, currentTime, worldState) {
     this.target = this._pickEngageTarget(); if (!this.target) return;
     
+    // НОВОЕ: Граната в укрытие (если враг за стеной и близко)
+    if (this.grenades > 0 && this.target) {
+      const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
+      const hasLOS = Physics.hasLineOfSight(this.x, this.y, this.target.x, this.target.y, this.pathfinder?.obstacles);
+      
+      // Если враг близко, но не виден (за стеной) — кидаем гранату
+      if (!hasLOS && dist < 25 && dist > 5) {
+        if (Math.random() < 0.1) { // 10% шанс за кадр (чтобы не спамить)
+          this.throwGrenade(this.target.x, this.target.y, worldState);
+          return;
+        }
+      }
+    }
+
     if (this.weapon.ammo <= 0 && this.weapon.reserveMagazines <= 0 && this.grenades > 0) {
       const dist = Math.hypot(this.target.x - this.x, this.target.y - this.y);
       if (dist < 30) this.throwGrenade(this.target.x, this.target.y, worldState);
