@@ -4,13 +4,14 @@ import { CaptureZone } from './CaptureZone.js';
 import { MISSIONS } from '../data/missions.js';
 
 export class Mission {
-  constructor(configId) {
+  constructor(configId, mapSize = 100) {
     this.config = MISSIONS[configId];
     if (!this.config) throw new Error(`Mission ${configId} not found`);
     
     this.id = this.config.id;
     this.name = this.config.name;
     this.type = this.config.type;
+    this.mapSize = mapSize; // НОВОЕ: размер карты
     this.timeElapsed = 0;
     this.status = 'active';
     
@@ -24,8 +25,10 @@ export class Mission {
 
   load(unitManager, map, camera) {
     const cfg = this.config;
-    map.setSize(cfg.mapSize);
-    unitManager.setWorldSize(cfg.mapSize);
+    const size = this.mapSize;
+    
+    map.setSize(size);
+    unitManager.setWorldSize(size);
     
     if (cfg.weather) {
       const CONFIG = window.__CONFIG;
@@ -36,6 +39,7 @@ export class Mission {
       }
     }
     
+    // Очистка
     unitManager.units = [];
     unitManager.selectedUnits = [];
     unitManager.squads = [];
@@ -48,81 +52,106 @@ export class Mission {
     unitManager.debris = [];
     unitManager.dust = [];
     unitManager.decals = [];
+    unitManager.fires = [];
     
+    // Зоны (пересчёт из процентов в координаты)
     this.zones = [];
     for (const zoneConfig of cfg.zones) {
-      const zone = new CaptureZone(zoneConfig.x, zoneConfig.y, zoneConfig.radius, this.type === 'defense' ? 'player' : 'enemy');
+      const zoneX = zoneConfig.xRel * size;
+      const zoneY = zoneConfig.yRel * size;
+      const zoneRadius = zoneConfig.radiusRel * size;
+      
+      const zone = new CaptureZone(
+        zoneX, zoneY, zoneRadius,
+        this.type === 'defense' ? 'player' : 'enemy'
+      );
       this.zones.push(zone);
     }
     unitManager.captureZone = this.zones[0];
     
-    // НОВОЕ: Генерация рельефа под миссию
-    this._setupObstaclesAndTerrain(unitManager, cfg);
+    // Генерация рельефа (пропорционально)
+    this._setupObstaclesAndTerrain(unitManager, size);
     
-    this._spawnSquad(unitManager, cfg.playerSquad, 'player', cfg.mapSize);
-    this._spawnSquad(unitManager, cfg.enemySquad, 'enemy', cfg.mapSize);
+    // Спавн отрядов (пересчёт из процентов)
+    const playerX = cfg.playerSquad.spawnXRel * size;
+    const playerY = cfg.playerSquad.spawnYRel * size;
+    this._spawnSquad(unitManager, playerX, playerY, 'player', size);
     
-    if (camera) camera.fit(cfg.mapSize, cfg.mapSize);
+    const enemyX = cfg.enemySquad.spawnXRel * size;
+    const enemyY = cfg.enemySquad.spawnYRel * size;
+    this._spawnSquad(unitManager, enemyX, enemyY, 'enemy', size);
+    
+    if (camera) camera.fit(size, size);
   }
 
-  _setupObstaclesAndTerrain(unitManager, cfg) {
+  _setupObstaclesAndTerrain(unitManager, size) {
     unitManager.pathfinder.clearObstacles();
-    const center = cfg.mapSize / 2;
+    const center = size / 2;
+    
+    // Масштабирование: 1 единица на карте 100 = X на карте 1000
+    const scale = size / 100;
     
     if (this.id === 'capture_bridge') {
-      // МОСТ: река по центру (окопы), берега — стены
-      // Река (глубокий окоп) шириной 10 м по центру
-      for (let dy = -cfg.mapSize / 2; dy < cfg.mapSize / 2; dy += 1) {
-        for (let dx = -5; dx < 5; dx++) {
-          unitManager.pathfinder.setHeight(center + dx, center + dy, -2.0);
+      // Река (глубокий окоп) шириной 10% от карты
+      const riverWidth = size * 0.05;
+      for (let dy = 0; dy < size; dy += 1) {
+        for (let dx = -riverWidth; dx < riverWidth; dx++) {
+          unitManager.pathfinder.setHeight(center + dx, dy, -2.0);
         }
       }
       
-      // Берега (холмы) — по 5 м с каждой стороны реки
-      for (let dy = -cfg.mapSize / 2; dy < cfg.mapSize / 2; dy += 1) {
-        for (let dx = 5; dx < 12; dx++) {
-          const h = 1.0 - (dx - 5) * 0.15;
+      // Берега (холмы)
+      const bankWidth = size * 0.07;
+      for (let dy = 0; dy < size; dy += 1) {
+        for (let dx = riverWidth; dx < riverWidth + bankWidth; dx++) {
+          const factor = 1 - (dx - riverWidth) / bankWidth;
+          const h = factor * 1.5;
           if (h > 0) {
-            unitManager.pathfinder.setHeight(center + dx, center + dy, h);
-            unitManager.pathfinder.setHeight(center - dx, center + dy, h);
+            unitManager.pathfinder.setHeight(center + dx, dy, h);
+            unitManager.pathfinder.setHeight(center - dx, dy, h);
           }
         }
       }
       
       // Мост (проходимая зона) — снимаем окоп в центре
-      for (let dy = -3; dy < 3; dy++) {
-        for (let dx = -5; dx < 5; dx++) {
+      const bridgeWidth = size * 0.03;
+      const bridgeLength = size * 0.06;
+      for (let dy = -bridgeLength; dy < bridgeLength; dy++) {
+        for (let dx = -riverWidth; dx < riverWidth; dx++) {
           unitManager.pathfinder.setHeight(center + dx, center + dy, 0);
         }
       }
       
       // Стены (укрытия у моста)
-      unitManager.pathfinder.addObstacle(center - 6, center - 8, 2, 4, 'sandbags');
-      unitManager.pathfinder.addObstacle(center + 4, center - 8, 2, 4, 'sandbags');
-      unitManager.pathfinder.addObstacle(center - 6, center + 4, 2, 4, 'sandbags');
-      unitManager.pathfinder.addObstacle(center + 4, center + 4, 2, 4, 'sandbags');
+      const wallSize = size * 0.02;
+      unitManager.pathfinder.addObstacle(center - riverWidth * 1.2, center - wallSize * 4, wallSize, wallSize * 2, 'sandbags');
+      unitManager.pathfinder.addObstacle(center + riverWidth * 1.2, center - wallSize * 4, wallSize, wallSize * 2, 'sandbags');
+      unitManager.pathfinder.addObstacle(center - riverWidth * 1.2, center + wallSize * 2, wallSize, wallSize * 2, 'sandbags');
+      unitManager.pathfinder.addObstacle(center + riverWidth * 1.2, center + wallSize * 2, wallSize, wallSize * 2, 'sandbags');
     } else if (this.id === 'defend_village') {
-      // ДЕРЕВНЯ: холм в центре, дома на склонах
-      // Холм (радиус 20, высота 2)
-      for (let dy = -20; dy < 20; dy += 1) {
-        for (let dx = -20; dx < 20; dx += 1) {
+      // Холм в центре (радиус 20% от карты)
+      const hillRadius = size * 0.2;
+      for (let dy = -hillRadius; dy < hillRadius; dy += 1) {
+        for (let dx = -hillRadius; dx < hillRadius; dx += 1) {
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 20) {
-            unitManager.pathfinder.setHeight(center + dx, center + dy, (1 - dist / 20) * 2);
+          if (dist < hillRadius) {
+            unitManager.pathfinder.setHeight(center + dx, center + dy, (1 - dist / hillRadius) * 2);
           }
         }
       }
       
-      // Дома (стены) на холме
-      unitManager.pathfinder.addObstacle(center - 10, center - 5, 4, 4, 'brick');
-      unitManager.pathfinder.addObstacle(center + 6, center - 5, 4, 4, 'brick');
-      unitManager.pathfinder.addObstacle(center - 2, center + 6, 6, 3, 'wood');
+      // Дома (кирпич) на холме
+      const houseSize = size * 0.04;
+      unitManager.pathfinder.addObstacle(center - size * 0.1, center - houseSize, houseSize, houseSize, 'brick');
+      unitManager.pathfinder.addObstacle(center + size * 0.06, center - houseSize, houseSize, houseSize, 'brick');
+      unitManager.pathfinder.addObstacle(center - houseSize / 2, center + size * 0.06, houseSize * 1.5, houseSize * 0.8, 'wood');
       
-      // Окопы у подножия холма
-      for (let dy = -25; dy < 25; dy += 1) {
-        for (let dx = -25; dx < 25; dx += 1) {
+      // Окопы у подножия
+      const trenchRadius = size * 0.25;
+      for (let dy = -trenchRadius; dy < trenchRadius; dy += 1) {
+        for (let dx = -trenchRadius; dx < trenchRadius; dx += 1) {
           const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > 20 && dist < 25) {
+          if (dist > hillRadius && dist < trenchRadius) {
             unitManager.pathfinder.setHeight(center + dx, center + dy, -0.8);
           }
         }
@@ -130,15 +159,18 @@ export class Mission {
     }
   }
 
-  _spawnSquad(unitManager, squadConfig, faction, mapSize) {
+  _spawnSquad(unitManager, baseX, baseY, faction, mapSize) {
     const roles = ['squad_leader', 'machine_gunner', 'grenadier', 'grenadier_help', 'senior_rifleman', 'rifleman', 'rifleman', 'rifleman', 'driver', 'gunner'];
     const units = [];
+    
+    // Масштабируем отступы (2.5 м на карте 100 = 2.5% от карты)
+    const spacing = mapSize * 0.025;
     
     roles.forEach((roleId, index) => {
       const row = Math.floor(index / 5);
       const col = index % 5;
-      const dx = squadConfig.spawnX + (col - 2) * 2.5;
-      const dy = squadConfig.spawnY + row * 2.5;
+      const dx = baseX + (col - 2) * spacing;
+      const dy = baseY + row * spacing;
       
       const p = unitManager.getSafeSpawnPoint(dx, dy, 1.0, true);
       const unit = new Unit(Math.max(2, Math.min(mapSize - 2, p.x)), Math.max(2, Math.min(mapSize - 2, p.y)), faction, roleId);
@@ -192,10 +224,20 @@ export class Mission {
     if (trigger.type === 'reinforcement') {
       const unitManager = world.unitManager;
       if (!unitManager) return;
-      const mapSize = this.config.mapSize;
+      const mapSize = this.mapSize;
       const units = [];
-      for (const roleId of trigger.roles) {
-        const p = unitManager.getSafeSpawnPoint(trigger.spawnX + (Math.random() - 0.5) * 5, trigger.spawnY + (Math.random() - 0.5) * 5, 1.0, true);
+      
+      // Пересчёт координат из процентов
+      const spawnX = trigger.spawnXRel * mapSize;
+      const spawnY = trigger.spawnYRel * mapSize;
+      const spacing = mapSize * 0.025;
+      
+      for (let i = 0; i < trigger.roles.length; i++) {
+        const roleId = trigger.roles[i];
+        const dx = spawnX + (i % 5 - 2) * spacing;
+        const dy = spawnY + Math.floor(i / 5) * spacing;
+        
+        const p = unitManager.getSafeSpawnPoint(dx + (Math.random() - 0.5) * spacing, dy + (Math.random() - 0.5) * spacing, 1.0, true);
         const unit = new Unit(Math.max(2, Math.min(mapSize - 2, p.x)), Math.max(2, Math.min(mapSize - 2, p.y)), trigger.faction, roleId);
         unitManager.addUnit(unit);
         units.push(unit);
