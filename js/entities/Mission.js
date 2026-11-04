@@ -89,15 +89,19 @@ export class Mission {
     
     const units = [];
     roles.forEach((roleId, index) => {
+      // Распределяем в 2 ряда по 5 человек
       const row = Math.floor(index / 5);
       const col = index % 5;
-      const dx = squadConfig.spawnX + (col - 2) * 2.0;
-      const dy = squadConfig.spawnY + row * 2.0;
+      // Увеличиваем отступ между юнитами до 2.5 метров
+      const dx = squadConfig.spawnX + (col - 2) * 2.5;
+      const dy = squadConfig.spawnY + row * 2.5;
       
-      const p = unitManager.getSafeSpawnPoint(dx, dy);
+      // Ищем безопасную точку с учетом других юнитов
+      const p = unitManager.getSafeSpawnPoint(dx, dy, 1.0, true);
+      
       const unit = new Unit(
-        Math.max(0, Math.min(mapSize, p.x)),
-        Math.max(0, Math.min(mapSize, p.y)),
+        Math.max(2, Math.min(mapSize - 2, p.x)), // Отступ от краев карты
+        Math.max(2, Math.min(mapSize - 2, p.y)),
         faction, roleId
       );
       unitManager.addUnit(unit);
@@ -141,8 +145,6 @@ export class Mission {
         const zone = this.zones[obj.zoneId];
         if (!zone) continue;
         
-        // Для capture: зона должна быть у игрока
-        // Для hold: зона уже у игрока, нужно удержать
         const playerHolds = zone.owner === 'player';
         
         if (playerHolds) {
@@ -152,7 +154,7 @@ export class Mission {
             this._checkVictory();
           }
         } else {
-          obj.progress = Math.max(0, obj.progress - dt * 0.5); // Медленно откатывается
+          obj.progress = Math.max(0, obj.progress - dt * 0.5);
         }
       }
     }
@@ -193,11 +195,12 @@ export class Mission {
       for (const roleId of trigger.roles) {
         const p = unitManager.getSafeSpawnPoint(
           trigger.spawnX + (Math.random() - 0.5) * 5,
-          trigger.spawnY + (Math.random() - 0.5) * 5
+          trigger.spawnY + (Math.random() - 0.5) * 5,
+          1.0, true
         );
         const unit = new Unit(
-          Math.max(0, Math.min(mapSize, p.x)),
-          Math.max(0, Math.min(mapSize, p.y)),
+          Math.max(2, Math.min(mapSize - 2, p.x)),
+          Math.max(2, Math.min(mapSize - 2, p.y)),
           trigger.faction, roleId
         );
         unitManager.addUnit(unit);
@@ -227,7 +230,6 @@ export class Mission {
     }
   }
 
-  // Для UI: получить описание цели
   getObjectiveText() {
     for (const obj of this.objectives) {
       if (!obj.completed) {
