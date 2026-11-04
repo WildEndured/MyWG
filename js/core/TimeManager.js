@@ -5,8 +5,13 @@ class TimeManagerClass {
     this.timeScale = 1.0;
     this._prevScale = 1.0;
     this.isPaused = false;
-    // FIX: тактическая пауза (Волна 2)
     this.isTacticalPause = false;
+
+    // Фиксированный шаг
+    this.FIXED_DT = 1 / 60;
+    this._accumulator = 0;
+    this._maxStepsPerFrame = 4; // защита от "спирали смерти"
+    this.alpha = 0; // для интерполяции (0..1)
   }
 
   setTimeScale(scale) {
@@ -23,7 +28,6 @@ class TimeManagerClass {
     else this.setTimeScale(0);
   }
 
-  // FIX: тактическая пауза (Волна 2)
   toggleTacticalPause() {
     this.isTacticalPause = !this.isTacticalPause;
     EventBus.emit(EVENTS.TIME_CHANGED, {
@@ -33,11 +37,39 @@ class TimeManagerClass {
     });
   }
 
+  // Старое API — оставлено для совместимости
   getScaledDt(realDt) {
-    if (this.isPaused) return 0;
-    if (this.isTacticalPause) return 0; // симуляция стоит
+    if (this.isPaused || this.isTacticalPause) return 0;
     const capped = Math.min(realDt, 0.1);
     return capped * this.timeScale;
+  }
+
+  // Новое API: фиксированный шаг с аккумулятором.
+  // stepFn(dt) вызывается фиксированное число раз.
+  // Возвращает число шагов.
+  stepFixed(realDt, stepFn) {
+    if (this.isPaused || this.isTacticalPause) {
+      this.alpha = 0;
+      return 0;
+    }
+
+    const scaled = Math.min(realDt, 0.1) * this.timeScale;
+    this._accumulator += scaled;
+
+    let steps = 0;
+    while (this._accumulator >= this.FIXED_DT && steps < this._maxStepsPerFrame) {
+      stepFn(this.FIXED_DT);
+      this._accumulator -= this.FIXED_DT;
+      steps++;
+    }
+
+    // Если накопилось слишком много — сбрасываем (чтобы не залипало)
+    if (this._accumulator > this.FIXED_DT * this._maxStepsPerFrame) {
+      this._accumulator = 0;
+    }
+
+    this.alpha = this._accumulator / this.FIXED_DT;
+    return steps;
   }
 
   reset() {
@@ -45,6 +77,8 @@ class TimeManagerClass {
     this._prevScale = 1.0;
     this.isPaused = false;
     this.isTacticalPause = false;
+    this._accumulator = 0;
+    this.alpha = 0;
   }
 }
 
