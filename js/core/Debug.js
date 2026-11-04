@@ -8,15 +8,12 @@ class DebugClass {
     this.frames = 0;
     this.fpsAccum = 0;
 
-    // Профайлер
-    this._timers = new Map();      // name -> массив последних значений
-    this._currentStart = new Map(); // name -> timestamp
+    this._timers = new Map();
+    this._currentStart = new Map();
     this._maxSamples = 60;
 
-    // Счётчики (сумма за последние 1 сек)
-    this._counters = new Map();     // name -> текущее значение
-    this._countersSnapshot = new Map(); // name -> значение на конец сек
-    this._counterAccum = 0;
+    this._counters = new Map();
+    this._countersSnapshot = new Map();
 
     this._onKeyDown = (e) => {
       if (e.key === '`' || e.key === 'F1') {
@@ -35,7 +32,6 @@ class DebugClass {
     EventBus.emit(EVENTS.DEBUG_TOGGLED, this.isEnabled);
   }
 
-  // Замер: Debug.start('name'); ...; Debug.end('name');
   start(name) {
     if (!this.isEnabled) return;
     this._currentStart.set(name, performance.now());
@@ -54,7 +50,6 @@ class DebugClass {
     if (arr.length > this._maxSamples) arr.shift();
   }
 
-  // Учётчик: Debug.count('name');
   count(name) {
     if (!this.isEnabled) return;
     this._counters.set(name, (this._counters.get(name) || 0) + 1);
@@ -77,8 +72,6 @@ class DebugClass {
       this.fps = Math.round(this.frames / this.fpsAccum);
       this.frames = 0;
       this.fpsAccum = 0;
-
-      // Снимок счётчиков и сброс
       this._countersSnapshot = new Map(this._counters);
       this._counters.clear();
     }
@@ -90,7 +83,7 @@ class DebugClass {
     const vw = camera.vw;
     const vh = camera.vh;
 
-    // Сетка A*
+    // Сетка A* — БАТЧИНГ
     if (pathfinder) {
       const cellSize = pathfinder.cellSize;
       const wTL = camera.screenToWorld(0, 0);
@@ -99,47 +92,50 @@ class DebugClass {
       const endX = Math.min(pathfinder.cols, Math.ceil(wBR.x / cellSize));
       const startY = Math.max(0, Math.floor(wTL.y / cellSize));
       const endY = Math.min(pathfinder.rows, Math.ceil(wBR.y / cellSize));
+      const size = cellSize * camera.zoom;
+
       ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+      ctx.beginPath();
       for (let gy = startY; gy < endY; gy++) {
         const rowBase = gy * pathfinder.cols;
         for (let gx = startX; gx < endX; gx++) {
           if (pathfinder.grid[rowBase + gx] === 1) {
             const p = camera.worldToScreen(gx * cellSize, gy * cellSize);
-            const size = cellSize * camera.zoom;
-            ctx.fillRect(p.x, p.y, size, size);
+            ctx.rect(p.x, p.y, size, size);
           }
         }
       }
+      ctx.fill();
     }
 
     if (unitManager) {
+      const drawHitboxes = unitManager.units.length <= 50;
       for (const unit of unitManager.units) {
         if (unit.isDead) continue;
         const p = camera.worldToScreen(unit.x, unit.y);
 
-        // Хитбоксы
-        ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
-        ctx.lineWidth = 1;
-        for (const [partId, part] of Object.entries(unit.bodyParts)) {
-          if (!part.hitbox || part.hp <= 0) continue;
-          const scale = part.stanceScale[unit.stance] ?? 1;
-          const cos = Math.cos(unit.angle), sin = Math.sin(unit.angle);
-          const cx = unit.x + part.hitbox.dx * cos - part.hitbox.dy * sin;
-          const cy = unit.y + part.hitbox.dx * sin + part.hitbox.dy * cos;
-          const sp = camera.worldToScreen(cx, cy);
-          const r = part.hitbox.r * scale * camera.zoom;
-          ctx.beginPath();
-          ctx.arc(sp.x, sp.y, Math.max(1, r), 0, Math.PI * 2);
-          ctx.stroke();
+        if (drawHitboxes) {
+          ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
+          ctx.lineWidth = 1;
+          for (const [partId, part] of Object.entries(unit.bodyParts)) {
+            if (!part.hitbox || part.hp <= 0) continue;
+            const scale = part.stanceScale[unit.stance] ?? 1;
+            const cos = Math.cos(unit.angle), sin = Math.sin(unit.angle);
+            const cx = unit.x + part.hitbox.dx * cos - part.hitbox.dy * sin;
+            const cy = unit.y + part.hitbox.dx * sin + part.hitbox.dy * cos;
+            const sp = camera.worldToScreen(cx, cy);
+            const r = part.hitbox.r * scale * camera.zoom;
+            ctx.beginPath();
+            ctx.arc(sp.x, sp.y, Math.max(1, r), 0, Math.PI * 2);
+            ctx.stroke();
+          }
         }
 
-        // Радиус клика
         ctx.beginPath();
         ctx.arc(p.x, p.y, unit.hitRadius * camera.zoom, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255, 255, 0, 0.4)';
         ctx.stroke();
 
-        // Радиус оружия
         if (unit.isSelected) {
           ctx.beginPath();
           ctx.arc(p.x, p.y, unit.weapon.effectiveRange * camera.zoom, 0, Math.PI * 2);
@@ -152,25 +148,26 @@ class DebugClass {
           ctx.font = '10px monospace';
           ctx.fillText(`HP: ${Math.round(unit.hp)}/${unit.maxHp}`, p.x + 10, p.y - 10);
           ctx.fillText(`Stam: ${Math.round(unit.stamina)}`, p.x + 10, p.y + 5);
-          ctx.fillText(`Recoil: ${unit.weapon.recoil.toFixed(1)}`, p.x + 10, p.y + 20);
-          ctx.fillText(`Suppr: ${(unit.suppression * 100).toFixed(0)}%`, p.x + 10, p.y + 35);
+          ctx.fillText(`Suppr: ${(unit.suppression * 100).toFixed(0)}%`, p.x + 10, p.y + 20);
         }
       }
     }
 
-    // Панель
-    const panelW = 280;
-    const panelH = 190;
+    // Панель — сдвинута вниз, чтобы не перекрывать кнопки
+    const panelX = 10;
+    const panelY = 80; // ← было 10
+    const panelW = 260;
+    const panelH = 180;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(10, 10, panelW, panelH);
+    ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.strokeStyle = '#0f0';
-    ctx.strokeRect(10, 10, panelW, panelH);
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
 
     ctx.fillStyle = '#0f0';
-    ctx.font = '12px monospace';
+    ctx.font = '11px monospace';
 
-    let y = 28;
-    const line = (s) => { ctx.fillText(s, 20, y); y += 16; };
+    let y = panelY + 18;
+    const line = (s) => { ctx.fillText(s, panelX + 8, y); y += 14; };
 
     line(`FPS: ${this.fps}`);
     line(`Frame: ${this.frameTime.toFixed(2)}ms`);
@@ -183,9 +180,9 @@ class DebugClass {
     line(`Decals: ${unitManager?.decals?.length ?? 0}`);
 
     ctx.fillStyle = '#F4B400';
-    line(`pathfinder calls: ${this._countersSnapshot.get('pathfinderCalls') || 0}/s`);
-    line(`grid updates:    ${this._countersSnapshot.get('gridUpdates') || 0}/s`);
-    line(`los calls:       ${this._countersSnapshot.get('losCalls') || 0}/s`);
+    line(`path calls: ${this._countersSnapshot.get('pathfinderCalls') || 0}/s`);
+    line(`grid upd:   ${this._countersSnapshot.get('gridUpdates') || 0}/s`);
+    line(`los calls:  ${this._countersSnapshot.get('losCalls') || 0}/s`);
   }
 }
 
