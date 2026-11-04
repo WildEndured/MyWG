@@ -12,6 +12,18 @@ export class Brain {
     this.ambushMode = false;
     this.suppressingTarget = null;
     this._helpReported = false;
+
+    // Кэш укрытия
+    this._coverCache = null;
+    this._coverCacheTime = 0;
+    this._coverCacheUnitX = 0;
+    this._coverCacheUnitY = 0;
+
+    // Кэш высоты
+    this._highGroundCache = null;
+    this._highGroundCacheTime = 0;
+    this._highGroundCacheUnitX = 0;
+    this._highGroundCacheUnitY = 0;
   }
 
   setPlayerOrder(path, target) {
@@ -19,6 +31,8 @@ export class Brain {
     this.unit.setPath(path); this.unit.lastTarget = target; this.currentGoal = 'move';
     this.ambushMode = false;
     this.suppressingTarget = null;
+    this._coverCache = null;
+    this._highGroundCache = null;
   }
 
   registerDamage(fromX, fromY) {
@@ -30,11 +44,11 @@ export class Brain {
     if (this.unit.isDead) return;
     if (this.playerOverrideTimer > 0) { this.playerOverrideTimer -= dt; return; }
     if (!this.isAutonomous) return;
-    
+
     this.decisionTimer -= dt;
     if (this.decisionTimer > 0) return;
     this.decisionTimer = 0.4 + Math.random() * 0.3;
-    
+
     if (Math.random() < CONFIG.AI.MISTAKE_CHANCE) {
       this._doMistake(world);
       return;
@@ -146,7 +160,7 @@ export class Brain {
     if (unit.target) {
       if (this.currentGoal !== 'engage') {
         this.currentGoal = 'engage';
-        unit._wantsToMove = false; unit.setPath([]); 
+        unit._wantsToMove = false; unit.setPath([]);
         if (Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y) > 30) unit.setStance('stand');
         else unit.setStance('crouch');
         this.ambushMode = false;
@@ -155,18 +169,17 @@ export class Brain {
       return;
     }
 
-    // 11. ЗАСАДА С УКРЫТИЕМ
+    // 11. Засада
     if (this.ambushMode && !unit.isMoving) {
       unit.setStance('prone');
       return;
     }
 
-    // 12. РОЛЕВОЕ ПОВЕДЕНИЕ
+    // 12. Ролевое поведение
     if (unit.roleId === 'machine_gunner') {
       if (this.currentGoal !== 'hold') {
         this.currentGoal = 'hold';
-        unit._wantsToMove = false; unit.setPath([]); 
-        // Ищем холм для пулеметчика
+        unit._wantsToMove = false; unit.setPath([]);
         this._seekHighGround(world);
         unit.setStance('prone');
         this.ambushMode = true;
@@ -188,9 +201,9 @@ export class Brain {
       if (timeSinceNoise < 5 && this.currentGoal !== 'investigate') {
         this.currentGoal = 'investigate';
         const path = world.pathfinder.findPath(unit.x, unit.y, unit.lastHeardNoise.x, unit.lastHeardNoise.y);
-        if (path && path.length > 0) unit.setPath(path); 
-        unit.setStance('crouch'); 
-        unit.lastHeardNoise = null; 
+        if (path && path.length > 0) unit.setPath(path);
+        unit.setStance('crouch');
+        unit.lastHeardNoise = null;
         this.ambushMode = false;
         return;
       }
@@ -200,11 +213,11 @@ export class Brain {
     if (world.zone && world.zone.owner !== unit.faction) {
       const distToZone = Math.hypot(world.zone.x - unit.x, world.zone.y - unit.y);
       if (distToZone < 80 && distToZone > world.zone.radius - 2) {
-        if (this.currentGoal !== 'capture_zone') { 
-          this.currentGoal = 'capture_zone'; 
-          const path = world.pathfinder.findPath(unit.x, unit.y, world.zone.x, world.zone.y); 
-          if (path && path.length > 0) unit.setPath(path); 
-          unit.setStance('crouch'); 
+        if (this.currentGoal !== 'capture_zone') {
+          this.currentGoal = 'capture_zone';
+          const path = world.pathfinder.findPath(unit.x, unit.y, world.zone.x, world.zone.y);
+          if (path && path.length > 0) unit.setPath(path);
+          unit.setStance('crouch');
         }
         return;
       }
@@ -212,11 +225,11 @@ export class Brain {
 
     // 15. Охота
     if (this.memory.lastEnemyPos && (world.time - this.memory.lastEnemyTime) < 8.0) {
-      if (this.currentGoal !== 'hunt') { 
-        this.currentGoal = 'hunt'; 
-        const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y); 
-        if (path && path.length > 0) unit.setPath(path); 
-        unit.setStance('stand'); 
+      if (this.currentGoal !== 'hunt') {
+        this.currentGoal = 'hunt';
+        const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y);
+        if (path && path.length > 0) unit.setPath(path);
+        unit.setStance('stand');
         this.ambushMode = false;
       }
       return;
@@ -300,7 +313,6 @@ export class Brain {
       return;
     }
 
-    // НОВОЕ: Приказ занять высоту
     if (order.type === 'take_high_ground' && order.targetX !== undefined) {
       if (this.currentGoal !== 'high_ground') {
         this.currentGoal = 'high_ground';
@@ -316,9 +328,22 @@ export class Brain {
 
   _seekCover(world) {
     const unit = this.unit;
+    const now = performance.now();
+
+    // Проверка кэша
+    if (this._coverCache && (now - this._coverCacheTime) < 2000) {
+      const unitMoved = Math.hypot(unit.x - this._coverCacheUnitX, unit.y - this._coverCacheUnitY);
+      if (unitMoved < 5) {
+        const path = world.pathfinder.findPath(unit.x, unit.y, this._coverCache.x, this._coverCache.y);
+        if (path && path.length > 0) unit.setPath(path);
+        this.ambushMode = true;
+        return;
+      }
+    }
+
     const threatX = unit.target ? unit.target.x : unit.x + Math.cos(unit.angle) * 30;
     const threatY = unit.target ? unit.target.y : unit.y + Math.sin(unit.angle) * 30;
-    
+
     const enemyVisible = unit.perception.has(unit.target) && unit.perception.get(unit.target).seen > 0.5;
     const effThreatX = enemyVisible ? threatX : unit.x + Math.cos(unit.angle) * 20;
     const effThreatY = enemyVisible ? threatY : unit.y + Math.sin(unit.angle) * 20;
@@ -333,18 +358,17 @@ export class Brain {
         if (!world.pathfinder || !world.pathfinder.grid) continue;
         const g = world.pathfinder.worldToGrid(cx, cy);
         if (world.pathfinder.grid[g.y * world.pathfinder.cols + g.x] === 1) continue;
-        
+
         const enemySeesUs = world.pathfinder.hasLineOfSight(effThreatX, effThreatY, cx, cy);
         const weSeeEnemy = world.pathfinder.hasLineOfSight(cx, cy, effThreatX, effThreatY);
-        
-        // НОВОЕ: Бонус за высоту (холм лучше долины)
+
         let heightScore = 0;
         if (world.pathfinder.heightMap) {
           const h = world.pathfinder.getHeight(cx, cy);
-          if (h > 0) heightScore = h * 20; // Холм — хорошо
-          else if (h < 0) heightScore = h * 30; // Окоп — плохо для обзора, хорошо для укрытия
+          if (h > 0) heightScore = h * 20;
+          else if (h < 0) heightScore = h * 30;
         }
-        
+
         let score = 0;
         if (!enemySeesUs) score += 100;
         if (weSeeEnemy) score += 50;
@@ -354,43 +378,64 @@ export class Brain {
         if (score > bestScore) { bestScore = score; bestCover = { x: cx, y: cy }; }
       }
     }
-    
+
     if (bestCover) {
       const path = world.pathfinder.findPath(unit.x, unit.y, bestCover.x, bestCover.y);
       if (path && path.length > 0) unit.setPath(path);
       this.ambushMode = true;
+
+      // Кэш
+      this._coverCache = bestCover;
+      this._coverCacheTime = now;
+      this._coverCacheUnitX = unit.x;
+      this._coverCacheUnitY = unit.y;
     }
   }
 
-  // НОВОЕ: Поиск холма для обзора
   _seekHighGround(world) {
     const unit = this.unit;
     if (!world.pathfinder || !world.pathfinder.heightMap) return;
-    
+
+    const now = performance.now();
+
+    // Кэш
+    if (this._highGroundCache && (now - this._highGroundCacheTime) < 2000) {
+      const moved = Math.hypot(unit.x - this._highGroundCacheUnitX, unit.y - this._highGroundCacheUnitY);
+      if (moved < 5) {
+        const path = world.pathfinder.findPath(unit.x, unit.y, this._highGroundCache.x, this._highGroundCache.y);
+        if (path && path.length > 0) unit.setPath(path);
+        return;
+      }
+    }
+
     let bestHill = null, bestScore = -Infinity;
     const searchRadius = 20;
-    
+
     for (let dy = -searchRadius; dy <= searchRadius; dy += 2) {
       for (let dx = -searchRadius; dx <= searchRadius; dx += 2) {
         const cx = unit.x + dx;
         const cy = unit.y + dy;
         if (cx < 2 || cx > world.mapSize - 2 || cy < 2 || cy > world.mapSize - 2) continue;
-        
+
         const h = world.pathfinder.getHeight(cx, cy);
-        if (h <= 0.5) continue; // Не холм
-        
+        if (h <= 0.5) continue;
+
         const g = world.pathfinder.worldToGrid(cx, cy);
         if (world.pathfinder.grid[g.y * world.pathfinder.cols + g.x] === 1) continue;
-        
-        // Чем выше и ближе — тем лучше
+
         let score = h * 50 - Math.hypot(dx, dy) * 2;
         if (score > bestScore) { bestScore = score; bestHill = { x: cx, y: cy }; }
       }
     }
-    
+
     if (bestHill) {
       const path = world.pathfinder.findPath(unit.x, unit.y, bestHill.x, bestHill.y);
       if (path && path.length > 0) unit.setPath(path);
+
+      this._highGroundCache = bestHill;
+      this._highGroundCacheTime = now;
+      this._highGroundCacheUnitX = unit.x;
+      this._highGroundCacheUnitY = unit.y;
     }
   }
 
@@ -401,7 +446,7 @@ export class Brain {
       if (other.faction === unit.faction || other.isDead) continue;
       if (other.isVehicle) { vehicleTarget = other; break; }
     }
-    
+
     if (vehicleTarget) {
       unit.target = vehicleTarget;
       unit.targetAngle = Math.atan2(vehicleTarget.y - unit.y, vehicleTarget.x - unit.x);
