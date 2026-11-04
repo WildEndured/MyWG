@@ -58,7 +58,6 @@ export class Input {
     c.addEventListener('mousedown', this._bound.mousedown);
 
     this._bound.mousemove = (e) => {
-      // Панорамирование ПКМ
       if (this.pointers.has('mouse-right')) {
         const prev = this.pointers.get('mouse-right');
         this.camera.x -= (e.clientX - prev.x) / this.camera.zoom;
@@ -66,7 +65,6 @@ export class Input {
         this._clampCamera();
         this.pointers.set('mouse-right', { x: e.clientX, y: e.clientY });
       }
-      // Панорамирование ЛКМ
       if (this._pointerState.isDown && this._pointerState.id === 'mouse') {
         const dx = e.clientX - this._pointerState.startX;
         const dy = e.clientY - this._pointerState.startY;
@@ -94,9 +92,8 @@ export class Input {
 
     this._bound.wheel = (e) => {
       e.preventDefault();
-      const factor = Math.exp(-e.deltaY * 0.0015);
-      this.camera.zoomAt(e.clientX, e.clientY, factor);
-      this._clampCamera(); // ВАЖНО: ограничение после зума
+      this.camera.zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+      this._clampCamera();
     };
     c.addEventListener('wheel', this._bound.wheel, { passive: false });
 
@@ -190,12 +187,16 @@ export class Input {
     const dy = Math.abs(y - this._pointerState.startY);
     if (dt >= CONFIG.TAP_MAX_TIME_MS || dx >= CONFIG.TAP_MAX_MOVE_PX || dy >= CONFIG.TAP_MAX_MOVE_PX) return;
 
+    const world = this.camera.screenToWorld(x, y);
+
+    // ЗАЩИТА: тап за пределами карты — игнорируем
+    if (!Number.isFinite(world.x) || !Number.isFinite(world.y)) return;
+    if (world.x < 0 || world.y < 0 || world.x > this.worldSize || world.y > this.worldSize) return;
+
     const now = performance.now();
     const isDoubleTap = (now - this._lastTap.time < CONFIG.TAP_DOUBLE_MS) &&
       Math.abs(x - this._lastTap.x) < 30 &&
       Math.abs(y - this._lastTap.y) < 30;
-
-    const world = this.camera.screenToWorld(x, y);
 
     if (isDoubleTap) {
       this._lastTap.time = 0;
