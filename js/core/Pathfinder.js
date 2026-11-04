@@ -10,6 +10,7 @@ export class Pathfinder {
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
     this.heightMap = new Float32Array(this.cols * this.rows);
+    this.floorMap = new Uint8Array(this.cols * this.rows); // НОВОЕ: этажи (0 = земля, 1 = 2 этаж)
   }
 
   setWorldSize(worldSize) {
@@ -19,6 +20,7 @@ export class Pathfinder {
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
     this.heightMap = new Float32Array(this.cols * this.rows);
+    this.floorMap = new Uint8Array(this.cols * this.rows);
   }
 
   setHeight(worldX, worldY, height) {
@@ -36,7 +38,21 @@ export class Pathfinder {
     return 0;
   }
 
-  // НОВОЕ: Воронка от взрыва
+  setFloor(worldX, worldY, floor) {
+    const g = this.worldToGrid(worldX, worldY);
+    if (g.x >= 0 && g.x < this.cols && g.y >= 0 && g.y < this.rows) {
+      this.floorMap[g.y * this.cols + g.x] = floor;
+    }
+  }
+
+  getFloor(worldX, worldY) {
+    const g = this.worldToGrid(worldX, worldY);
+    if (g.x >= 0 && g.x < this.cols && g.y >= 0 && g.y < this.rows) {
+      return this.floorMap[g.y * this.cols + g.x];
+    }
+    return 0;
+  }
+
   createCrater(worldX, worldY, radius, depth) {
     const g = this.worldToGrid(worldX, worldY);
     const rGrid = Math.ceil(radius / this.cellSize);
@@ -73,6 +89,38 @@ export class Pathfinder {
         
         this.heightMap[gy * this.cols + gx] = Math.max(-2, Math.round(height * 10) / 10);
       }
+    }
+  }
+
+  // НОВОЕ: Многоуровневое здание (этажи)
+  addMultiFloorBuilding(x, y, w, h, floors = 2) {
+    for (let f = 0; f < floors; f++) {
+      for (let sy = 0; sy < h; sy += 1) {
+        for (let sx = 0; sx < w; sx += 1) {
+          const isWall = (sx === 0 || sx === w - 1 || sy === 0 || sy === h - 1);
+          if (isWall) {
+            // Стена (на каждом этаже)
+            const wx = x + sx;
+            const wy = y + sy;
+            this.setFloor(wx, wy, f);
+            this.setHeight(wx, wy, f * 3.0); // Каждый этаж +3 м
+          } else if (f === 0) {
+            // Пол первого этажа
+            this.setFloor(x + sx, y + sy, 0);
+          }
+        }
+      }
+    }
+    // Лестница (внутри) — проходима на всех этажах
+    const stairX = x + Math.floor(w / 2);
+    const stairY = y + Math.floor(h / 2);
+    for (let f = 0; f < floors; f++) {
+      this.setFloor(stairX, stairY, f);
+    }
+    // Окна (дыры в стенах) на 2 этаже
+    for (let sy = 1; sy < h - 1; sy += 2) {
+      this.setFloor(x, y + sy, 1); // Окно
+      this.setFloor(x + w - 1, y + sy, 1);
     }
   }
 
