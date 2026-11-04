@@ -36,7 +36,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const battleTeamEl = document.getElementById('battle-team');
   const battleModeEl = document.getElementById('battle-mode');
 
-  // Валидация данных
   try { 
     const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)]; 
     if (errs.length) console.error('[data]', errs); 
@@ -49,19 +48,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const input = new Input(canvas, camera);
   const unitManager = new UnitManager();
   unitManager.camera = camera;
-  
-  // Передаем pathfinder в камеру (для рендера высот)
   camera.pathfinder = unitManager.pathfinder;
   
-  // Глобальная ссылка на CONFIG для миссий
   window.__CONFIG = CONFIG;
-
   window.__TimeManager = TimeManager;
+  window.__camera = camera;
+  window.__unitManager = unitManager;
+  window.__map = map;
+
   let lastTime = performance.now();
   let rafId = 0;
   let gameStarted = false;
   let lastTapWorld = { x: 0, y: 0 };
   let currentMission = null;
+  let currentMapSize = 100; // НОВОЕ: текущий размер карты
 
   function updateStartButton() { 
     if (btnStart) btnStart.disabled = !(selection.team !== null && selection.mode !== null); 
@@ -92,11 +92,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }); 
   }
 
-  function startBattle(teamId, modeId) {
+  function startBattle(teamId, modeId, mapSize = 100) {
     const team = TEAM_INFO[teamId], mode = MODE_INFO[modeId]; 
     if (!team || !mode) return;
     
     gameStarted = true; 
+    currentMapSize = mapSize;
+    
     if (startScreen) startScreen.classList.add('hidden'); 
     if (hud) hud.classList.remove('hidden');
     
@@ -108,11 +110,11 @@ document.addEventListener('DOMContentLoaded', () => {
       battleTeamEl.textContent = team.name; 
       battleTeamEl.className = team.id; 
     } 
-    if (battleModeEl) battleModeEl.textContent = mode.name;
+    if (battleModeEl) battleModeEl.textContent = `${mode.name} (${mapSize}м)`;
     
-    // Загрузка миссии
+    // Загрузка миссии с указанным размером карты
     const missionId = mode.id === 'attack' ? 'capture_bridge' : 'defend_village';
-    currentMission = new Mission(missionId);
+    currentMission = new Mission(missionId, mapSize);
     
     resize();
     currentMission.load(unitManager, map, camera);
@@ -132,7 +134,18 @@ document.addEventListener('DOMContentLoaded', () => {
     camera.clampTo(map.size, map.size); 
   }
 
-  // Обработчики событий миссии
+  // НОВОЕ: Обработчики кнопок размера карты
+  document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!gameStarted) return;
+      const meters = Number(btn.dataset.size);
+      if (meters !== map.size && unitManager.units.some(u => !u.isDead)) {
+        if (!confirm('Сменить карту? Текущий бой будет сброшен.')) return;
+      }
+      startBattle(selection.team, selection.mode, meters);
+    });
+  });
+
   EventBus.on('mission:victory', (data) => {
     console.log('[Mission] VICTORY:', data.mission.name);
     showMissionEnd('ПОБЕДА!', '#0F9D58');
@@ -162,7 +175,6 @@ document.addEventListener('DOMContentLoaded', () => {
           padding: 15px 40px; font-size: 18px; font-weight: bold;
           background: #4285F4; color: #fff; border: none; 
           border-radius: 8px; cursor: pointer; margin-top: 20px;
-          transition: background 0.2s;
         ">Начать заново</button>
       </div>
     `;
@@ -170,11 +182,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     document.getElementById('btn-restart').addEventListener('click', () => {
       endScreen.remove();
-      startBattle(selection.team, selection.mode);
+      startBattle(selection.team, selection.mode, currentMapSize);
     });
   }
 
-  // Слух
   EventBus.on(EVENTS.WORLD_NOISE, ({ x, y, loudness, source }) => { 
     if (!source || !loudness) return; 
     for (const unit of unitManager.units) { 
@@ -192,14 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
     lastTapWorld.y = data.y; 
   });
 
-  // Размер карты
   const fitBtn = document.getElementById('fit'); 
   if (fitBtn) fitBtn.addEventListener('click', () => { 
     camera.fit(map.size, map.size); 
     camera.clampTo(map.size, map.size); 
   });
 
-  // Позы
   const stanceButtons = { 'btn-stand': 'stand', 'btn-run': 'run', 'btn-crouch': 'crouch', 'btn-prone': 'prone' };
   function updateStanceUI(active) { 
     for (const [id, stance] of Object.entries(stanceButtons)) { 
@@ -216,30 +225,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   updateStanceUI('stand');
 
-  // Медицина
+  // Кнопки (медицина, гранаты и т.д.)
   const btnBandage = document.getElementById('btn-bandage'); 
   const btnTourniquet = document.getElementById('btn-tourniquet'); 
   const btnClearMalfunction = document.getElementById('btn-clear-malfunction');
-  if (btnBandage) btnBandage.addEventListener('click', () => { 
-    if (unitManager.selectedUnits.length === 1) { 
-      const u = unitManager.selectedUnits[0]; 
-      if (u.bleedingRate > 0) u.applyBandage('torso', true); 
-    } 
-  });
-  if (btnTourniquet) btnTourniquet.addEventListener('click', () => { 
-    if (unitManager.selectedUnits.length === 1) { 
-      const u = unitManager.selectedUnits[0]; 
-      if (u.bleedingRate > 0) u.applyTourniquet('leftLeg', true); 
-    } 
-  });
-  if (btnClearMalfunction) btnClearMalfunction.addEventListener('click', () => { 
-    if (unitManager.selectedUnits.length === 1) { 
-      const u = unitManager.selectedUnits[0]; 
-      if (u.weapon.isJammed || u.weapon.isMisfired) u.weapon.clearMalfunction(); 
-    } 
-  });
+  if (btnBandage) btnBandage.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.bleedingRate > 0) u.applyBandage('torso', true); } });
+  if (btnTourniquet) btnTourniquet.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.bleedingRate > 0) u.applyTourniquet('leftLeg', true); } });
+  if (btnClearMalfunction) btnClearMalfunction.addEventListener('click', () => { if (unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (u.weapon.isJammed || u.weapon.isMisfired) u.weapon.clearMalfunction(); } });
 
-  // Граната
   const btnGrenade = document.getElementById('btn-grenade');
   if (btnGrenade) {
     btnGrenade.addEventListener('click', () => {
@@ -254,7 +247,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Смена оружия
   const btnSwitchWeapon = document.getElementById('btn-switch-weapon');
   if (btnSwitchWeapon) {
     btnSwitchWeapon.addEventListener('click', () => {
@@ -265,95 +257,42 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Приказы отряда
   const btnOrderAdvance = document.getElementById('btn-order-advance');
   const btnOrderHold = document.getElementById('btn-order-hold');
   const btnOrderRetreat = document.getElementById('btn-order-retreat');
+  if (btnOrderAdvance) btnOrderAdvance.addEventListener('click', () => { for (const squad of unitManager.squads) if (squad.faction === unitManager.playerFaction) squad.order = 'advance'; });
+  if (btnOrderHold) btnOrderHold.addEventListener('click', () => { for (const squad of unitManager.squads) if (squad.faction === unitManager.playerFaction) squad.order = 'hold'; });
+  if (btnOrderRetreat) btnOrderRetreat.addEventListener('click', () => { for (const squad of unitManager.squads) if (squad.faction === unitManager.playerFaction) squad.order = 'retreat'; });
 
-  if (btnOrderAdvance) btnOrderAdvance.addEventListener('click', () => {
-    for (const squad of unitManager.squads) {
-      if (squad.faction === unitManager.playerFaction) squad.order = 'advance';
-    }
-  });
-  if (btnOrderHold) btnOrderHold.addEventListener('click', () => {
-    for (const squad of unitManager.squads) {
-      if (squad.faction === unitManager.playerFaction) squad.order = 'hold';
-    }
-  });
-  if (btnOrderRetreat) btnOrderRetreat.addEventListener('click', () => {
-    for (const squad of unitManager.squads) {
-      if (squad.faction === unitManager.playerFaction) squad.order = 'retreat';
-    }
-  });
-
-  // Время
   const tacticalBtn = document.getElementById('btn-tactical'); 
   if (tacticalBtn) tacticalBtn.addEventListener('click', () => TimeManager.toggleTacticalPause());
-  
-  window.addEventListener('keydown', (e) => { 
-    if (e.key === CONFIG.TACTICAL_PAUSE.KEY && gameStarted) { 
-      e.preventDefault(); 
-      TimeManager.toggleTacticalPause(); 
-    } 
-  });
-  
+  window.addEventListener('keydown', (e) => { if (e.key === CONFIG.TACTICAL_PAUSE.KEY && gameStarted) { e.preventDefault(); TimeManager.toggleTacticalPause(); } });
   const pauseBtn = document.getElementById('btn-pause'); 
   if (pauseBtn) pauseBtn.addEventListener('click', () => TimeManager.togglePause());
-  
-  [1, 2, 4].forEach(s => { 
-    const b = document.getElementById(`btn-speed-${s}`); 
-    if (b) b.addEventListener('click', () => TimeManager.setTimeScale(s)); 
-  });
+  [1, 2, 4].forEach(s => { const b = document.getElementById(`btn-speed-${s}`); if (b) b.addEventListener('click', () => TimeManager.setTimeScale(s)); });
 
   EventBus.on(EVENTS.TIME_CHANGED, ({ scale, isPaused, isTacticalPause }) => {
-    document.querySelectorAll('.time-btn').forEach(btn => { 
-      if (btn.id === 'btn-debug' || btn.id === 'btn-tactical') return; 
-      btn.classList.remove('active'); 
-    });
-    if (isTacticalPause) { 
-      document.getElementById('btn-tactical')?.classList.add('active'); 
-      document.getElementById('btn-pause')?.classList.remove('active'); 
-    } else if (isPaused) { 
-      document.getElementById('btn-pause')?.classList.add('active'); 
-      document.getElementById('btn-tactical')?.classList.remove('active'); 
-    } else { 
-      document.getElementById(`btn-speed-${scale}`)?.classList.add('active'); 
-      document.getElementById('btn-tactical')?.classList.remove('active'); 
-    }
+    document.querySelectorAll('.time-btn').forEach(btn => { if (btn.id === 'btn-debug' || btn.id === 'btn-tactical') return; btn.classList.remove('active'); });
+    if (isTacticalPause) { document.getElementById('btn-tactical')?.classList.add('active'); document.getElementById('btn-pause')?.classList.remove('active'); }
+    else if (isPaused) { document.getElementById('btn-pause')?.classList.add('active'); document.getElementById('btn-tactical')?.classList.remove('active'); }
+    else { document.getElementById(`btn-speed-${scale}`)?.classList.add('active'); document.getElementById('btn-tactical')?.classList.remove('active'); }
   });
 
-  // Debug
   const debugBtn = document.getElementById('btn-debug'); 
   function syncDebugButton() { if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled); }
-  if (debugBtn) { 
-    debugBtn.addEventListener('click', () => { 
-      Debug.setEnabled(!Debug.isEnabled); 
-      syncDebugButton(); 
-    }); 
-  }
+  if (debugBtn) { debugBtn.addEventListener('click', () => { Debug.setEnabled(!Debug.isEnabled); syncDebugButton(); }); }
   EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
-  // Панель юнита
   const unitPanel = document.getElementById('unit-panel'); 
   const tabButtons = document.querySelectorAll('.unit-tab'); 
   const tabContents = document.querySelectorAll('.tab-content');
-  
-  tabButtons.forEach(btn => { 
-    btn.addEventListener('click', () => { 
-      tabButtons.forEach(b => b.classList.remove('active')); 
-      tabContents.forEach(c => c.classList.remove('active')); 
-      btn.classList.add('active'); 
-      const target = document.getElementById(`tab-${btn.dataset.tab}`); 
-      if (target) target.classList.add('active'); 
-    }); 
-  });
+  tabButtons.forEach(btn => { btn.addEventListener('click', () => { tabButtons.forEach(b => b.classList.remove('active')); tabContents.forEach(c => c.classList.remove('active')); btn.classList.add('active'); const target = document.getElementById(`tab-${btn.dataset.tab}`); if (target) target.classList.add('active'); }); });
 
   function updateUnitPanel(unit) {
     if (!unit) return;
     document.getElementById('info-name').textContent = unit.name || 'Безымянный';
     document.getElementById('info-role').textContent = `${unit.name} (Ранг ${unit.rank})`;
     
-    // НОВОЕ: Высота
     let heightText = 'Равнина (0 м)';
     if (unit.pathfinder && unit.pathfinder.heightMap) {
       const h = unit.pathfinder.getHeight(unit.x, unit.y);
@@ -380,14 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const armorNames = [];
     for (const [zone, piece] of Object.entries(unit.armor)) {
       if (!armorNames.find(a => a.name === piece.name)) {
-        armorNames.push({ 
-          name: piece.name, 
-          level: piece.level, 
-          maxLevel: piece.baseLevel, 
-          durability: piece.durability, 
-          maxDurability: piece.maxDurability, 
-          cracked: piece.durability < piece.maxDurability * 0.5 
-        });
+        armorNames.push({ name: piece.name, level: piece.level, maxLevel: piece.baseLevel, durability: piece.durability, maxDurability: piece.maxDurability, cracked: piece.durability < piece.maxDurability * 0.5 });
       }
     }
     const armorStr = armorNames.map(a => {
@@ -398,11 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('info-armor').textContent = armorStr || 'Нет';
     document.getElementById('info-medical').textContent = `Бинты: ${unit.medical.bandage} | Жгуты: ${unit.medical.tourniquet}`;
     
-    const hpPercent = Math.max(0, (unit.hp / unit.maxHp) * 100), 
-          stamPercent = Math.max(0, (unit.stamina / unit.maxStamina) * 100), 
-          bloodPercent = Math.max(0, (unit.blood / unit.maxBlood) * 100), 
-          shockPercent = Math.max(0, unit.shock * 100);
-    
+    const hpPercent = Math.max(0, (unit.hp / unit.maxHp) * 100), stamPercent = Math.max(0, (unit.stamina / unit.maxStamina) * 100), bloodPercent = Math.max(0, (unit.blood / unit.maxBlood) * 100), shockPercent = Math.max(0, unit.shock * 100);
     document.getElementById('info-hp-text').textContent = `${Math.round(unit.hp)} / ${unit.maxHp}`; 
     document.getElementById('info-hp-bar').style.width = `${hpPercent}%`; 
     document.getElementById('info-hp-bar').style.background = hpPercent > 50 ? '#0F9D58' : (hpPercent > 20 ? '#F4B400' : '#EA4335');
@@ -416,38 +344,14 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('info-shock-text').textContent = `${Math.round(shockPercent)}%`; 
     document.getElementById('info-shock-bar').style.width = `${shockPercent}%`;
     
-    const bleedEl = document.getElementById('info-bleeding'); 
-    if (bleedEl) { 
-      if (unit.bleedingRate > 0) bleedEl.classList.remove('hidden'); 
-      else bleedEl.classList.add('hidden'); 
-    }
-    
-    const medEl = document.getElementById('info-med-progress'); 
-    if (medEl) { 
-      if (unit.medical.isApplying) medEl.classList.remove('hidden'); 
-      else medEl.classList.add('hidden'); 
-    }
+    const bleedEl = document.getElementById('info-bleeding'); if (bleedEl) { if (unit.bleedingRate > 0) bleedEl.classList.remove('hidden'); else bleedEl.classList.add('hidden'); }
+    const medEl = document.getElementById('info-med-progress'); if (medEl) { if (unit.medical.isApplying) medEl.classList.remove('hidden'); else medEl.classList.add('hidden'); }
   }
 
-  EventBus.on(EVENTS.UNITS_SELECTED, (units) => { 
-    if (units.length === 1) { 
-      unitPanel.classList.remove('hidden'); 
-      updateUnitPanel(units[0]); 
-    } else {
-      unitPanel.classList.add('hidden'); 
-    } 
-  });
-  
-  function updatePanelLoop() { 
-    if (!unitPanel.classList.contains('hidden') && unitManager.selectedUnits.length === 1) { 
-      const u = unitManager.selectedUnits[0]; 
-      if (!u.isDead) updateUnitPanel(u); 
-    } 
-    requestAnimationFrame(updatePanelLoop); 
-  }
+  EventBus.on(EVENTS.UNITS_SELECTED, (units) => { if (units.length === 1) { unitPanel.classList.remove('hidden'); updateUnitPanel(units[0]); } else unitPanel.classList.add('hidden'); });
+  function updatePanelLoop() { if (!unitPanel.classList.contains('hidden') && unitManager.selectedUnits.length === 1) { const u = unitManager.selectedUnits[0]; if (!u.isDead) updateUnitPanel(u); } requestAnimationFrame(updatePanelLoop); }
   updatePanelLoop();
 
-  // Игровой цикл
   function frame(now) {
     const realDt = (now - lastTime) / 1000; 
     lastTime = now;
@@ -457,82 +361,48 @@ document.addEventListener('DOMContentLoaded', () => {
       dt = Math.min(dt, CONFIG.MAX_DT);
       
       if (dt > 0) { 
-        try { 
-          unitManager.update(dt); 
-          if (currentMission) currentMission.update(dt, unitManager);
-        } catch (err) { 
-          console.error('[Game] update error:', err); 
-        } 
+        try { unitManager.update(dt); if (currentMission) currentMission.update(dt, unitManager); } 
+        catch (err) { console.error('[Game] update error:', err); } 
       }
       
-      if (!Number.isFinite(camera.zoom) || !Number.isFinite(camera.x) || !Number.isFinite(camera.y)) {
-        camera.fit(map.size, map.size);
-      }
-      
+      if (!Number.isFinite(camera.zoom) || !Number.isFinite(camera.x) || !Number.isFinite(camera.y)) camera.fit(map.size, map.size);
       Debug.update(realDt);
 
-      // Обновление панели миссии
       if (currentMission) {
         const missionNameEl = document.getElementById('mission-name');
         const objectiveEl = document.getElementById('mission-objective');
         const timerEl = document.getElementById('mission-timer');
-        
         if (missionNameEl) missionNameEl.textContent = currentMission.name;
         if (objectiveEl) objectiveEl.textContent = currentMission.getObjectiveText();
-        
         if (timerEl) {
           const remaining = currentMission.getTimeRemaining();
           if (remaining !== null) {
-            const min = Math.floor(remaining / 60);
-            const sec = Math.floor(remaining % 60);
+            const min = Math.floor(remaining / 60); const sec = Math.floor(remaining % 60);
             timerEl.textContent = `Осталось: ${min}:${sec.toString().padStart(2, '0')}`;
-          } else {
-            timerEl.textContent = `Время: ${Math.floor(currentMission.timeElapsed)} сек`;
-          }
+          } else { timerEl.textContent = `Время: ${Math.floor(currentMission.timeElapsed)} сек`; }
         }
       }
 
       const dpr = camera.dpr; 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      
       try {
         Renderer.draw(ctx, camera, map, unitManager);
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
         Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
-        
         if (TimeManager.isTacticalPause) { 
-          ctx.save(); 
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
-          ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; 
-          ctx.fillRect(0, 0, camera.vw, camera.vh); 
-          ctx.fillStyle = '#8ab4f8'; 
-          ctx.font = 'bold 16px monospace'; 
-          ctx.textAlign = 'center'; 
-          ctx.fillText('ТАКТИЧЕСКАЯ ПАУЗА — приказы разрешены', camera.vw / 2, 40); 
-          ctx.restore(); 
+          ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
+          ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; ctx.fillRect(0, 0, camera.vw, camera.vh); 
+          ctx.fillStyle = '#8ab4f8'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; 
+          ctx.fillText('ТАКТИЧЕСКАЯ ПАУЗА — приказы разрешены', camera.vw / 2, 40); ctx.restore(); 
         }
-      } catch (err) { 
-        console.error('[Game] draw error:', err); 
-      }
+      } catch (err) { console.error('[Game] draw error:', err); }
     }
     rafId = requestAnimationFrame(frame);
   }
 
-  window.addEventListener('beforeunload', () => { 
-    cancelAnimationFrame(rafId); 
-    input.destroy(); 
-    unitManager.destroy(); 
-    Debug.destroy(); 
-  });
-  
+  window.addEventListener('beforeunload', () => { cancelAnimationFrame(rafId); input.destroy(); unitManager.destroy(); Debug.destroy(); });
   window.addEventListener('resize', resize); 
   window.addEventListener('orientationchange', () => setTimeout(resize, 100));
-  
-  document.addEventListener('visibilitychange', () => { 
-    if (document.hidden && !TimeManager.isPaused && !TimeManager.isTacticalPause) TimeManager.togglePause(); 
-  });
-  
-  resize(); 
-  lastTime = performance.now(); 
-  rafId = requestAnimationFrame(frame);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && !TimeManager.isPaused && !TimeManager.isTacticalPause) TimeManager.togglePause(); });
+  resize(); lastTime = performance.now(); rafId = requestAnimationFrame(frame);
 });
