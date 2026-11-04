@@ -27,35 +27,10 @@ export class GameMap {
     ctx.fillStyle = c.mapFill;
     ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
 
-    // НОВОЕ: Отрисовка высот
+    // Отрисовка высот
     const pathfinder = cam.pathfinder;
     if (pathfinder && pathfinder.heightMap) {
-      const cellSize = pathfinder.cellSize;
-      const wTL = cam.screenToWorld(0, 0);
-      const wBR = cam.screenToWorld(cam.vw, cam.vh);
-      const startX = Math.max(0, Math.floor(wTL.x / cellSize));
-      const endX = Math.min(pathfinder.cols, Math.ceil(wBR.x / cellSize));
-      const startY = Math.max(0, Math.floor(wTL.y / cellSize));
-      const endY = Math.min(pathfinder.rows, Math.ceil(wBR.y / cellSize));
-
-      for (let gy = startY; gy < endY; gy++) {
-        for (let gx = startX; gx < endX; gx++) {
-          const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
-          if (h === 0) continue;
-
-          const p = cam.worldToScreen(gx * cellSize, gy * cellSize);
-          const size = cellSize * cam.zoom;
-
-          // Цвет: зелёный (высоко) / коричневый (низко)
-          const alpha = Math.min(0.5, Math.abs(h) * 0.2);
-          const color = h > 0
-            ? `rgba(80, 150, 80, ${alpha})`
-            : `rgba(150, 100, 50, ${alpha})`;
-
-          ctx.fillStyle = color;
-          ctx.fillRect(p.x, p.y, size + 1, size + 1);
-        }
-      }
+      this._drawHeights(ctx, pathfinder);
     }
 
     // Сетка
@@ -77,6 +52,100 @@ export class GameMap {
     ctx.strokeStyle = c.border;
     ctx.lineWidth = 2;
     ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+  }
+
+  // НОВОЕ: Отрисовка высот с цветовой градацией и тенями
+  _drawHeights(ctx, pathfinder) {
+    const cam = this.camera;
+    const cellSize = pathfinder.cellSize;
+    const wTL = cam.screenToWorld(0, 0);
+    const wBR = cam.screenToWorld(cam.vw, cam.vh);
+    
+    const startX = Math.max(0, Math.floor(wTL.x / cellSize));
+    const endX = Math.min(pathfinder.cols, Math.ceil(wBR.x / cellSize));
+    const startY = Math.max(0, Math.floor(wTL.y / cellSize));
+    const endY = Math.min(pathfinder.rows, Math.ceil(wBR.y / cellSize));
+
+    // 1. Слой высот (цвет)
+    for (let gy = startY; gy < endY; gy++) {
+      for (let gx = startX; gx < endX; gx++) {
+        const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
+        if (h === 0) continue;
+
+        const p = cam.worldToScreen(gx * cellSize, gy * cellSize);
+        const size = cellSize * cam.zoom;
+
+        // Цвет: светло-зелёный (холм) / тёмно-коричневый (окоп)
+        let color;
+        if (h > 0) {
+          // Холм: чем выше, тем светлее
+          const intensity = Math.min(1, h / 3);
+          color = `rgba(${80 + intensity * 60}, ${150 + intensity * 50}, ${80 + intensity * 30}, ${0.3 + intensity * 0.3})`;
+        } else {
+          // Окоп: чем глубже, тем темнее
+          const intensity = Math.min(1, Math.abs(h) / 2);
+          color = `rgba(${150 - intensity * 50}, ${100 - intensity * 40}, ${50 - intensity * 20}, ${0.3 + intensity * 0.4})`;
+        }
+
+        ctx.fillStyle = color;
+        ctx.fillRect(p.x, p.y, size + 1, size + 1);
+      }
+    }
+
+    // 2. Тени (с южной стороны холмов)
+    for (let gy = startY; gy < endY; gy++) {
+      for (let gx = startX; gx < endX; gx++) {
+        const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
+        if (h <= 0) continue;
+
+        // Проверяем соседа с юга (gy+1)
+        const southH = (gy + 1 < pathfinder.rows) ? pathfinder.heightMap[(gy + 1) * pathfinder.cols + gx] : 0;
+        if (southH < h) {
+          const p = cam.worldToScreen(gx * cellSize, (gy + 1) * cellSize);
+          const size = cellSize * cam.zoom;
+          const shadowAlpha = Math.min(0.4, (h - southH) * 0.15);
+
+          ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
+          ctx.fillRect(p.x, p.y, size + 1, size * 0.6);
+        }
+      }
+    }
+
+    // 3. Изолинии (контуры высот) — для читаемости
+    if (cam.zoom > 2) {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+
+      for (let gy = startY; gy < endY; gy++) {
+        for (let gx = startX; gx < endX; gx++) {
+          const h = pathfinder.heightMap[gy * pathfinder.cols + gx];
+          if (h === 0) continue;
+
+          // Проверяем соседей: если высота изменилась — рисуем линию
+          const hRight = (gx + 1 < pathfinder.cols) ? pathfinder.heightMap[gy * pathfinder.cols + gx + 1] : 0;
+          const hDown = (gy + 1 < pathfinder.rows) ? pathfinder.heightMap[(gy + 1) * pathfinder.cols + gx] : 0;
+
+          // Линия справа (если высота изменилась)
+          if (Math.abs(h - hRight) > 0.1) {
+            const p1 = cam.worldToScreen((gx + 1) * cellSize, gy * cellSize);
+            const p2 = cam.worldToScreen((gx + 1) * cellSize, (gy + 1) * cellSize);
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+          }
+
+          // Линия снизу (если высота изменилась)
+          if (Math.abs(h - hDown) > 0.1) {
+            const p1 = cam.worldToScreen(gx * cellSize, (gy + 1) * cellSize);
+            const p2 = cam.worldToScreen((gx + 1) * cellSize, (gy + 1) * cellSize);
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+          }
+        }
+      }
+
+      ctx.stroke();
+    }
   }
 
   _drawGrid(ctx, x0, y0, x1, y1, step, color) {
