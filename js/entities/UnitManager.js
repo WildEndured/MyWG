@@ -28,7 +28,8 @@ export class UnitManager {
     this.fires = [];
 
     this._unsubs = [
-      EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
+      EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), 
+      EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
       EventBus.on(EVENTS.UNIT_SHOOT, (data) => { 
         this.tracerTrails.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: CONFIG.TRACER.TRAIL_LENGTH, maxLife: CONFIG.TRACER.TRAIL_LENGTH, progress: 0 });
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
@@ -57,6 +58,7 @@ export class UnitManager {
     this.reset();
   }
 
+  // НОВОЕ: полный сброс без потери подписок
   reset() {
     this.units = [];
     this.selectedUnits = [];
@@ -83,7 +85,11 @@ export class UnitManager {
     this.reset();
   }
 
-  addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
+  addUnit(unit) { 
+    unit.pathfinder = this.pathfinder; 
+    unit._repathCooldown = 0; // защита от бесконечного репаса
+    this.units.push(unit); 
+  }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
 
   createSquad(units, faction) {
@@ -151,15 +157,23 @@ export class UnitManager {
         }
       }
       
+      // НОВОЕ: защита от бесконечного репаса
       if (unit.needsRepath && !unit.isDead) {
-        unit.needsRepath = false; 
-        const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
-        if (target) { 
-          const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y); 
-          if (newPath && newPath.length > 0) unit.setPath(newPath); 
-          else { unit._wantsToMove = false; unit.isMoving = false; unit.lastTarget = null; } 
+        unit.needsRepath = false;
+        
+        if (unit._repathCooldown > 0) {
+          unit._repathCooldown -= dt;
+        } else {
+          unit._repathCooldown = 0.5;
+          
+          const target = unit.lastTarget || (unit.target ? { x: unit.target.x, y: unit.target.y } : null);
+          if (target) { 
+            const newPath = this.pathfinder.findPath(unit.x, unit.y, target.x, target.y); 
+            if (newPath && newPath.length > 0) unit.setPath(newPath); 
+            else { unit._wantsToMove = false; unit.isMoving = false; unit.lastTarget = null; } 
+          }
+          else { unit._wantsToMove = false; unit.isMoving = false; }
         }
-        else { unit._wantsToMove = false; unit.isMoving = false; }
       }
       
       if (unit.bleedingRate > 0 && Math.random() < 0.05 * dt) {
