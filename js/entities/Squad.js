@@ -12,9 +12,11 @@ export class Squad {
     this.morale = 1.0;
     this.order = 'advance';
     this.focusTarget = null;
-    this.formation = 'line';
     this.updateTimer = 0;
     this.updateInterval = 0.5;
+    
+    this.helpRequests = []; // Запросы о помощи
+    this.weaponPickups = []; // Приказы на подбор оружия
   }
 
   _findLeader() {
@@ -46,6 +48,7 @@ export class Squad {
       }
     }
 
+    // Синхронизация памяти
     for (const unit of alive) {
       for (const [enemy, mem] of unit.perception) {
         if (mem.seen > 0.7) {
@@ -62,11 +65,11 @@ export class Squad {
     else if (this.morale < 0.5 && this.order === 'advance') this.order = 'hold';
 
     if (this.leader && !this.leader.isDead) {
-      this._issueOrders(world);
+      this._issueOrders(world, alive);
     }
   }
 
-  _issueOrders(world) {
+  _issueOrders(world, alive) {
     let highestThreat = null, highestScore = 0;
     for (const [enemy, mem] of this.blackboard) {
       if (enemy.isDead) continue;
@@ -80,6 +83,7 @@ export class Squad {
     }
     this.focusTarget = highestThreat;
 
+    // Фланкирование
     if (this.order === 'advance' && this.focusTarget && this.morale > 0.7) {
       const flankers = this.units.filter(u => 
         (u.roleId === 'rifleman' || u.roleId === 'senior_rifleman') && !u.isDead
@@ -94,6 +98,46 @@ export class Squad {
         };
       }
     }
+
+    // НОВОЕ: Прикрытие (пулеметчик подавляет, пока остальные двигаются)
+    if (this.order === 'advance' && this.focusTarget) {
+      const mg = this.units.find(u => u.roleId === 'machine_gunner' && !u.isDead);
+      if (mg && mg.brain) {
+        mg.brain.suppressingTarget = this.focusTarget;
+      }
+    }
+
+    // НОВОЕ: Обработка запросов о помощи
+    if (this.helpRequests.length > 0) {
+      const request = this.helpRequests.shift();
+      // Находим ближайшего здорового союзника
+      let helper = null, minDist = Infinity;
+      for (const u of alive) {
+        if (u.hp < u.maxHp * 0.5 || u.roleId === 'machine_gunner') continue;
+        const dist = Math.hypot(u.x - request.x, u.y - request.y);
+        if (dist < minDist) { minDist = dist; helper = u; }
+      }
+      
+      if (helper && helper.brain) {
+        // Приказ помочь
+        const path = world.pathfinder.findPath(helper.x, helper.y, request.x, request.y);
+        if (path && path.length > 0) helper.setPath(path);
+      }
+    }
+
+    // НОВОЕ: Замена роли (подбор оружия)
+    for (const dead of this.units) {
+      if (!dead.isDead) continue;
+      if (dead.weapon && dead.weapon.ammo > 0 && dead.roleId === 'machine_gunner') {
+        // Найти стрелка для замены
+        const candidate = alive.find(u => u.roleId === 'rifleman' && !u.isDead);
+        if (candidate && candidate.brain) {
+          candidate.brain.currentGoal = 'pickup';
+          const path = world.pathfinder.findPath(candidate.x, candidate.y, dead.x, dead.y);
+          if (path && path.length > 0) candidate.setPath(path);
+        }
+      }
+    }
   }
 
   report(unit, type, data) {
@@ -101,6 +145,8 @@ export class Squad {
     
     if (type === 'enemy_spotted') {
       this.blackboard.set(data.enemy, { x: data.x, y: data.y, time: data.time });
+    } else if (type === 'need_help') {
+      this.helpRequests.push({ x: data.x, y: data.y, unit: unit, time: performance.now() });
     }
   }
 
@@ -111,6 +157,11 @@ export class Squad {
     
     if (unit.flankTarget && this.order === 'advance') {
       return { type: 'flank', targetX: unit.flankTarget.x, targetY: unit.flankTarget.y };
+    }
+
+    // Приказ прикрытия для пулеметчика
+    if (unit.roleId === 'machine_gunner' && this.focusTarget) {
+      return { type: 'suppress', target: this.focusTarget };
     }
     
     return null;
