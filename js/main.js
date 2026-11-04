@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const battleTeamEl = document.getElementById('battle-team');
   const battleModeEl = document.getElementById('battle-mode');
 
-  // Валидация данных (не критично, но полезно)
+  // Валидация данных
   try {
     const errs = [...validateArmorData(), ...validateWeapons(CALIBERS)];
     if (errs.length) console.error('[data]', errs);
@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   unitManager.camera = camera;
   camera.pathfinder = unitManager.pathfinder;
 
-  // Глобалки (для совместимости со старым кодом)
+  // Глобалки
   window.__CONFIG = CONFIG;
   window.__TimeManager = TimeManager;
   window.__camera = camera;
@@ -62,6 +62,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let lastTapWorld = { x: 0, y: 0 };
   let currentMission = null;
   let currentMapSize = 100;
+
+  // ================== АДАПТИВНЫЙ DPR ==================
+  function getAdaptiveDpr() {
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    const nativeDpr = window.devicePixelRatio || 1;
+    if (isMobile) return 1;
+    return Math.min(nativeDpr, 2);
+  }
 
   // ================== СТАРТОВЫЙ ЭКРАН ==================
   function updateStartButton() {
@@ -123,8 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Загрузка миссии
     currentMission.load(unitManager, map, camera);
 
-    // 2. Resize
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // 2. Resize с адаптивным dpr
+    const dpr = getAdaptiveDpr();
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
     canvas.width = Math.floor(window.innerWidth * dpr);
@@ -137,14 +145,13 @@ document.addEventListener('DOMContentLoaded', () => {
     camera.fit(mapSize, mapSize);
     camera.clampTo(mapSize, mapSize);
 
-    // Сброс таймера времени (включая accumulator)
     TimeManager.reset();
     lastTime = performance.now();
   }
 
   // ================== RESIZE ==================
   function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = getAdaptiveDpr();
     const w = window.innerWidth, h = window.innerHeight;
     canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
@@ -152,7 +159,6 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.height = Math.floor(h * dpr);
     camera.setDpr(dpr);
     camera.clampTo(map.size, map.size);
-    // Инвалидировать кэш высот при смене размера
     if (map._invalidateHeightCache) map._invalidateHeightCache();
   }
 
@@ -495,29 +501,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ================== ГЛАВНЫЙ ЦИКЛ ==================
   function frame(now) {
-    const realDt = Math.max(0, (now - lastTime) / 1000);
+    let realDt = Math.max(0, (now - lastTime) / 1000);
     lastTime = now;
+    // Защита от прыжков (вкладка в фоне, лаг)
+    if (realDt > 0.1) realDt = 0.1;
 
     if (gameStarted) {
-      // FIX (Шаг 4): фиксированный шаг 1/60 с аккумулятором.
-      // TimeManager.stepFixed сам решает, сколько подшагов сделать,
-      // и останавливается при паузе / тактической паузе.
       Debug.start('update');
       try {
-        const steps = TimeManager.stepFixed(realDt, (fixedDt) => {
+        TimeManager.stepFixed(realDt, (fixedDt) => {
           unitManager.update(fixedDt);
           if (currentMission && currentMission.status === 'active') {
             currentMission.update(fixedDt, unitManager);
           }
         });
-        // Если 0 шагов — не ошибка, просто пауза
-        void steps;
       } catch (err) {
         console.error('[Game] update error:', err);
       }
       Debug.end('update');
 
-      // Защита камеры каждый кадр
       camera.validate();
 
       Debug.update(realDt);
