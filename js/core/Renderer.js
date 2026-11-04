@@ -41,7 +41,15 @@ export class Renderer {
   }
 
   static drawDecals(ctx, camera, decals) {
-    for (const d of decals) { if (!camera.isPointVisible(d.x, d.y, 50)) continue; const p = camera.worldToScreen(d.x, d.y); const r = d.r * camera.zoom; const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3)); ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2); ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`; ctx.fill(); }
+    for (const d of decals) { 
+      if (!camera.isPointVisible(d.x, d.y, 50)) continue; 
+      const p = camera.worldToScreen(d.x, d.y); 
+      const r = d.r * camera.zoom; 
+      const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3)); 
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2); 
+      ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`; 
+      ctx.fill(); 
+    }
   }
 
   static drawShells(ctx, camera, shells) {
