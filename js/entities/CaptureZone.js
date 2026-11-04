@@ -5,18 +5,26 @@ export class CaptureZone {
     this.x = x;
     this.y = y;
     this.radius = radius;
-    this.mode = mode; // 'attack' (враг владеет, игрок должен отбить) или 'defense' (игрок владеет, враг должен отбить)
-    
-    this.owner = mode === 'attack' ? 'enemy' : 'player'; // Кто сейчас контролирует
-    this.captureProgress = 0; // 0..100
+    this.mode = mode;
+    this.mapSize = mapSize || 100;
+
+    this.owner = mode === 'attack' ? 'enemy' : 'player';
+    this.captureProgress = 0;
     this.maxCaptureProgress = 100;
-    this.captureRate = 20; // % в секунду
-    
-    this.unitsInside = [];
+    this.captureRate = 20;
+
+    this._updateAccum = 0;
+    this._updateInterval = 0.2; // 5 Гц
+    this._playerCount = 0;
+    this._enemyCount = 0;
   }
 
   update(dt, units) {
-    this.unitsInside = [];
+    this._updateAccum += dt;
+    if (this._updateAccum < this._updateInterval) return;
+    const step = this._updateAccum;
+    this._updateAccum = 0;
+
     let playerCount = 0;
     let enemyCount = 0;
 
@@ -24,16 +32,16 @@ export class CaptureZone {
       if (unit.isDead) continue;
       const dist = Math.hypot(unit.x - this.x, unit.y - this.y);
       if (dist <= this.radius) {
-        this.unitsInside.push(unit);
         if (unit.faction === 'player') playerCount++;
         else if (unit.faction === 'enemy') enemyCount++;
       }
     }
 
-    // Если внутри обе фракции — спор (ничего не меняется)
-    if (playerCount > 0 && enemyCount > 0) {
-      return;
-    }
+    this._playerCount = playerCount;
+    this._enemyCount = enemyCount;
+
+    // Спор — никто не захватывает
+    if (playerCount > 0 && enemyCount > 0) return;
 
     let capturingFaction = null;
     if (playerCount > 0) capturingFaction = 'player';
@@ -41,23 +49,20 @@ export class CaptureZone {
 
     if (capturingFaction) {
       if (capturingFaction !== this.owner) {
-        // Захват
-        this.captureProgress += this.captureRate * dt * (playerCount + enemyCount); // Чем больше людей, тем быстрее
+        this.captureProgress += this.captureRate * step * (playerCount + enemyCount);
         if (this.captureProgress >= this.maxCaptureProgress) {
           this.owner = capturingFaction;
           this.captureProgress = 0;
-          EventBus.emit(EVENTS.ZONE_CAPTURED || 'zone:captured', { owner: this.owner, zone: this });
+          EventBus.emit(EVENTS.ZONE_CAPTURED, { owner: this.owner, zone: this });
         }
       } else {
-        // Удержание (если уже наш, но захват был начат кем-то) — откатываем прогресс
         if (this.captureProgress > 0) {
-          this.captureProgress = Math.max(0, this.captureProgress - this.captureRate * dt);
+          this.captureProgress = Math.max(0, this.captureProgress - this.captureRate * step);
         }
       }
     } else {
-      // Пусто — прогресс медленно падает
       if (this.captureProgress > 0) {
-        this.captureProgress = Math.max(0, this.captureProgress - (this.captureRate * 0.5) * dt);
+        this.captureProgress = Math.max(0, this.captureProgress - (this.captureRate * 0.5) * step);
       }
     }
   }
