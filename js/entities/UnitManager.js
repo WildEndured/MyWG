@@ -71,18 +71,13 @@ export class UnitManager {
     return squad;
   }
 
-  // ОБНОВЛЕННЫЙ МЕТОД (с проверкой на юнитов)
   getSafeSpawnPoint(desiredX, desiredY, radius = 1.0, avoidUnits = true) {
     const obs = this.pathfinder.obstacles;
-    
-    // 1. Проверка на стены
     if (!Physics.isPositionFree(desiredX, desiredY, radius, obs)) {
       const freePoint = this.pathfinder.findNearestFreePoint(desiredX, desiredY);
       desiredX = freePoint.x;
       desiredY = freePoint.y;
     }
-
-    // 2. Проверка на других юнитов (чтобы не спавниться друг в друге)
     if (avoidUnits) {
       let isFree = true;
       for (const u of this.units) {
@@ -92,8 +87,6 @@ export class UnitManager {
           break;
         }
       }
-      
-      // Если занято, ищем спиралью
       if (!isFree) {
         for (let r = 1; r < 20; r += 1) {
           for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
@@ -111,7 +104,6 @@ export class UnitManager {
         }
       }
     }
-
     return { x: desiredX, y: desiredY };
   }
 
@@ -157,6 +149,15 @@ export class UnitManager {
       
       if (unit.bleedingRate > 0 && Math.random() < 0.05 * dt) {
         this.decals.push({ x: unit.x + (Math.random()-0.5)*1, y: unit.y + (Math.random()-0.5)*1, r: 0.2 + Math.random()*0.3, alpha: 0.8, ttl: 15.0, age: 0 });
+      }
+
+      // Доклад командиру
+      if (unit.squad && unit.squad.leader !== unit) {
+        for (const [enemy, mem] of unit.perception) {
+          if (mem.seen > 0.8) {
+            unit.squad.report(unit, 'enemy_spotted', { enemy, x: enemy.x, y: enemy.y, time: this.currentTime });
+          }
+        }
       }
     }
     this._resolveCollisions();
