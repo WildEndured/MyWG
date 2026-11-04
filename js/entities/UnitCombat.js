@@ -51,8 +51,31 @@ export function applyCombatMixin(UnitProto) {
     }
   };
 
-  UnitProto._pickEngageTarget = function() { let best = null, bestSeen = CONFIG.PERCEPTION.ENGAGE_THRESHOLD; for (const [target, mem] of this.perception) { if (target.isDead) continue; if (mem.seen > bestSeen) { const dist = Math.hypot(target.x - this.x, target.y - this.y); if (dist <= this.weapon.effectiveRange) { bestSeen = mem.seen; best = target; } } } return best; };
-  
+  UnitProto._pickEngageTarget = function() {
+    let best = null, bestScore = -Infinity;
+    for (const [target, mem] of this.perception) {
+      if (target.isDead) continue;
+      if (mem.seen < CONFIG.PERCEPTION.ENGAGE_THRESHOLD) continue;
+      
+      const dist = Math.hypot(target.x - this.x, target.y - this.y);
+      if (dist > this.weapon.effectiveRange) continue;
+      
+      let score = 100 - dist;
+      if (target.roleId === 'machine_gunner') score += 50;
+      if (target.roleId === 'grenadier') score += 40;
+      if (target.roleId === 'squad_leader') score += 60;
+      if (target.isVehicle) score += 100;
+      if (target.target === this) score += 30;
+      if (target.isMoving) score += 10;
+      if (target.hp < target.maxHp * 0.3) score += 20;
+      if (target.stance === 'prone') score -= 20;
+      if (mem.central) score += 20;
+      
+      if (score > bestScore) { bestScore = score; best = target; }
+    }
+    return best;
+  };
+
   UnitProto.canSee = function(target, obstacles) { const vis = this._visibilityCheck(target, obstacles); if (!vis.visible) return false; const mem = this.perception.get(target); return mem ? mem.seen >= CONFIG.PERCEPTION.ENGAGE_THRESHOLD : false; };
 
   UnitProto._updateCombat = function(dt, allUnits, currentTime, worldState) {
