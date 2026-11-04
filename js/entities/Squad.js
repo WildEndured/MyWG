@@ -15,8 +15,8 @@ export class Squad {
     this.updateTimer = 0;
     this.updateInterval = 0.5;
     
-    this.helpRequests = []; // Запросы о помощи
-    this.weaponPickups = []; // Приказы на подбор оружия
+    this.helpRequests = [];
+    this.weaponPickups = [];
   }
 
   _findLeader() {
@@ -48,7 +48,6 @@ export class Squad {
       }
     }
 
-    // Синхронизация памяти
     for (const unit of alive) {
       for (const [enemy, mem] of unit.perception) {
         if (mem.seen > 0.7) {
@@ -99,7 +98,7 @@ export class Squad {
       }
     }
 
-    // НОВОЕ: Прикрытие (пулеметчик подавляет, пока остальные двигаются)
+    // Прикрытие
     if (this.order === 'advance' && this.focusTarget) {
       const mg = this.units.find(u => u.roleId === 'machine_gunner' && !u.isDead);
       if (mg && mg.brain) {
@@ -107,10 +106,9 @@ export class Squad {
       }
     }
 
-    // НОВОЕ: Обработка запросов о помощи
+    // Обработка запросов о помощи
     if (this.helpRequests.length > 0) {
       const request = this.helpRequests.shift();
-      // Находим ближайшего здорового союзника
       let helper = null, minDist = Infinity;
       for (const u of alive) {
         if (u.hp < u.maxHp * 0.5 || u.roleId === 'machine_gunner') continue;
@@ -119,22 +117,48 @@ export class Squad {
       }
       
       if (helper && helper.brain) {
-        // Приказ помочь
         const path = world.pathfinder.findPath(helper.x, helper.y, request.x, request.y);
         if (path && path.length > 0) helper.setPath(path);
       }
     }
 
-    // НОВОЕ: Замена роли (подбор оружия)
+    // Замена роли
     for (const dead of this.units) {
       if (!dead.isDead) continue;
       if (dead.weapon && dead.weapon.ammo > 0 && dead.roleId === 'machine_gunner') {
-        // Найти стрелка для замены
         const candidate = alive.find(u => u.roleId === 'rifleman' && !u.isDead);
         if (candidate && candidate.brain) {
           candidate.brain.currentGoal = 'pickup';
           const path = world.pathfinder.findPath(candidate.x, candidate.y, dead.x, dead.y);
           if (path && path.length > 0) candidate.setPath(path);
+        }
+      }
+    }
+
+    // НОВОЕ: Захват высоты (если есть холм рядом с целью)
+    if (this.order === 'advance' && this.focusTarget && world.pathfinder?.heightMap) {
+      const searchRadius = 20;
+      let bestHill = null, bestScore = -Infinity;
+      
+      for (let dy = -searchRadius; dy <= searchRadius; dy += 3) {
+        for (let dx = -searchRadius; dx <= searchRadius; dx += 3) {
+          const cx = this.focusTarget.x + dx;
+          const cy = this.focusTarget.y + dy;
+          if (cx < 5 || cx > world.mapSize - 5 || cy < 5 || cy > world.mapSize - 5) continue;
+          
+          const h = world.pathfinder.getHeight(cx, cy);
+          if (h > 0.5) {
+            const score = h * 10 - Math.hypot(dx, dy);
+            if (score > bestScore) { bestScore = score; bestHill = { x: cx, y: cy }; }
+          }
+        }
+      }
+      
+      if (bestHill) {
+        // Отправляем ближайшего стрелка на холм
+        const candidate = alive.find(u => u.roleId === 'rifleman' && !u.isDead && !u.flankTarget);
+        if (candidate && candidate.brain) {
+          candidate.brain._executeSquadOrder({ type: 'take_high_ground', targetX: bestHill.x, targetY: bestHill.y }, world);
         }
       }
     }
@@ -159,7 +183,6 @@ export class Squad {
       return { type: 'flank', targetX: unit.flankTarget.x, targetY: unit.flankTarget.y };
     }
 
-    // Приказ прикрытия для пулеметчика
     if (unit.roleId === 'machine_gunner' && this.focusTarget) {
       return { type: 'suppress', target: this.focusTarget };
     }
