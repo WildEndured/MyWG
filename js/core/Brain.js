@@ -1,5 +1,6 @@
 import { CONFIG } from '../data/config.js';
 import { ROLES } from '../data/units.js';
+import { WEAPONS } from '../data/weapons.js';
 
 export class Brain {
   constructor(unit) {
@@ -9,11 +10,13 @@ export class Brain {
     this.decisionTimer = Math.random() * 0.5;
     this.currentGoal = 'idle';
     this.memory = { lastEnemyPos: null, lastEnemyTime: 0, dangerZones: [] };
+    this.ambushMode = false; // Режим засады
   }
 
   setPlayerOrder(path, target) {
     this.playerOverrideTimer = 10.0;
     this.unit.setPath(path); this.unit.lastTarget = target; this.currentGoal = 'move';
+    this.ambushMode = false;
   }
 
   registerDamage(fromX, fromY) {
@@ -65,12 +68,17 @@ export class Brain {
     }
     if (unit.isSurrendered) return;
 
-    // 2. Переключение оружия (если нет патронов)
+    // 2. Замена роли (подбор оружия)
+    if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0) {
+      if (this._tryPickupWeapon(world)) return;
+    }
+
+    // 3. Переключение оружия (если нет патронов)
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0 && unit.secondaryWeaponConfig && unit.activeWeaponId === 'rpg7') {
       unit.switchWeapon();
     }
 
-    // 3. Нет патронов — укрытие
+    // 4. Нет патронов — укрытие
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0) {
       if (this.currentGoal !== 'no_ammo') {
         this.currentGoal = 'no_ammo';
@@ -79,7 +87,7 @@ export class Brain {
       return;
     }
 
-    // 4. Лечение
+    // 5. Лечение
     if (unit.bleedingRate > 0 && (unit.medical.bandage > 0 || unit.medical.tourniquet > 0)) {
       if (this.currentGoal !== 'heal') {
         this.currentGoal = 'heal';
@@ -90,7 +98,7 @@ export class Brain {
       return;
     }
 
-    // 5. ПРИКАЗЫ ОТРЯДА (если в отряде)
+    // 6. ПРИКАЗЫ ОТРЯДА (если в отряде)
     if (unit.squad && unit.squad.leader !== unit) {
       const order = unit.squad.getOrderFor(unit);
       if (order) {
@@ -99,7 +107,7 @@ export class Brain {
       }
     }
 
-    // 6. Отступление при низком HP
+    // 7. Отступление при низком HP
     if (unit.hp < unit.maxHp * 0.3 && unit.target && this.currentGoal !== 'retreat') {
       const distToEnemy = Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y);
       if (distToEnemy > 5) {
@@ -109,31 +117,43 @@ export class Brain {
       }
     }
 
-    // 7. Укрытие при подавлении
+    // 8. Укрытие при подавлении
     if (unit.suppression > 0.4) {
       if (this.currentGoal !== 'cover') {
         this.currentGoal = 'cover';
         this._seekCover(world);
         unit.setStance('prone');
+        this.ambushMode = false;
       }
       return;
     }
 
-    // 8. Бой
+    // 9. Бой
     if (unit.target) {
       if (this.currentGoal !== 'engage') {
         this.currentGoal = 'engage';
-        unit._wantsToMove = false; unit.setPath([]); unit.setStance('stand');
+        unit._wantsToMove = false; unit.setPath([]); 
+        // Если враг далеко — встаем, чтобы стрелять
+        if (Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y) > 30) unit.setStance('stand');
+        else unit.setStance('crouch');
+        this.ambushMode = false;
       }
       if (unit.weapon.ammo < unit.weapon.magazineCapacity * 0.5 && unit.weapon.isReloading) unit.setStance('crouch');
       return;
     }
 
-    // 9. РОЛЕВОЕ ПОВЕДЕНИЕ
+    // 10. ЗАСАДА (если в укрытии и не видим врага)
+    if (this.ambushMode && !unit.isMoving) {
+      unit.setStance('prone');
+      return;
+    }
+
+    // 11. РОЛЕВОЕ ПОВЕДЕНИЕ
     if (unit.roleId === 'machine_gunner') {
       if (this.currentGoal !== 'hold') {
         this.currentGoal = 'hold';
         unit._wantsToMove = false; unit.setPath([]); unit.setStance('prone');
+        this.ambushMode = true;
       }
       return;
     }
@@ -146,7 +166,7 @@ export class Brain {
       if (this._tryFollowGrenadier(world)) return;
     }
 
-    // 10. Шум
+    // 12. Шум
     if (unit.lastHeardNoise) {
       const timeSinceNoise = (performance.now() / 1000) - unit.lastHeardNoise.time / 1000;
       if (timeSinceNoise < 5 && this.currentGoal !== 'investigate') {
@@ -155,11 +175,12 @@ export class Brain {
         if (path && path.length > 0) unit.setPath(path); 
         unit.setStance('crouch'); 
         unit.lastHeardNoise = null; 
+        this.ambushMode = false;
         return;
       }
     }
 
-    // 11. Зона контроля
+    // 13. Зона контроля
     if (world.zone && world.zone.owner !== unit.faction) {
       const distToZone = Math.hypot(world.zone.x - unit.x, world.zone.y - unit.y);
       if (distToZone < 80 && distToZone > world.zone.radius - 2) {
@@ -173,18 +194,19 @@ export class Brain {
       }
     }
 
-    // 12. Охота
+    // 14. Охота
     if (this.memory.lastEnemyPos && (world.time - this.memory.lastEnemyTime) < 8.0) {
       if (this.currentGoal !== 'hunt') { 
         this.currentGoal = 'hunt'; 
         const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y); 
         if (path && path.length > 0) unit.setPath(path); 
         unit.setStance('stand'); 
+        this.ambushMode = false;
       }
       return;
     }
 
-    // 13. Патруль
+    // 15. Патруль
     if (this.currentGoal !== 'patrol' || (!unit.isMoving && !unit._wantsToMove)) {
       this.currentGoal = 'patrol';
       const angle = Math.random() * Math.PI * 2; const dist = 10 + Math.random() * 20;
@@ -193,10 +215,39 @@ export class Brain {
       for (const zone of this.memory.dangerZones) { if (Math.hypot(tx - zone.x, ty - zone.y) < 15) { tx = unit.x; ty = unit.y; break; } }
       const path = world.pathfinder.findPath(unit.x, unit.y, tx, ty);
       if (path && path.length > 0) { unit.setPath(path); unit.setStance('crouch'); }
+      this.ambushMode = false;
     }
   }
 
-  // Выполнение приказа отряда
+  _tryPickupWeapon(world) {
+    const unit = this.unit;
+    let bestWeapon = null;
+    let bestDist = 5; // Максимальная дистанция подбора
+
+    for (const other of world.units) {
+      if (other.isDead && other.weapon) {
+        const dist = Math.hypot(other.x - unit.x, other.y - unit.y);
+        if (dist < bestDist) {
+          // Проверяем, что оружие лучше текущего (или хотя бы есть патроны)
+          if (other.weapon.ammo > 0 || other.weapon.reserveMagazines > 0) {
+            bestDist = dist;
+            bestWeapon = other.weapon;
+          }
+        }
+      }
+    }
+
+    if (bestWeapon) {
+      // Идём к трупу
+      const path = world.pathfinder.findPath(unit.x, unit.y, bestWeapon.x, bestWeapon.y); // Где-то нужно хранить позицию трупа
+      if (path && path.length > 0) {
+        unit.setPath(path);
+        this.currentGoal = 'pickup_weapon';
+      }
+    }
+    return false; // Возвращаем false, чтобы продолжить обычную логику
+  }
+
   _executeSquadOrder(order, world) {
     const unit = this.unit;
 
@@ -205,6 +256,7 @@ export class Brain {
         this.currentGoal = 'retreat';
         this._seekCover(world);
         unit.setStance('run');
+        this.ambushMode = false;
       }
       return;
     }
@@ -213,6 +265,18 @@ export class Brain {
       if (this.currentGoal !== 'hold') {
         this.currentGoal = 'hold';
         unit._wantsToMove = false; unit.setPath([]); unit.setStance('crouch');
+        this.ambushMode = true;
+      }
+      return;
+    }
+
+    if (order.type === 'flank' && order.targetX !== undefined) {
+      if (this.currentGoal !== 'flank') {
+        this.currentGoal = 'flank';
+        const path = world.pathfinder.findPath(unit.x, unit.y, order.targetX, order.targetY);
+        if (path && path.length > 0) unit.setPath(path);
+        unit.setStance('crouch');
+        this.ambushMode = false;
       }
       return;
     }
@@ -261,6 +325,7 @@ export class Brain {
     if (bestCover) {
       const path = world.pathfinder.findPath(unit.x, unit.y, bestCover.x, bestCover.y);
       if (path && path.length > 0) unit.setPath(path);
+      this.ambushMode = true;
     }
   }
 
