@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   window.__CONFIG = CONFIG;
   window.__TimeManager = TimeManager;
+  window.__camera = camera;
+  window.__unitManager = unitManager;
 
   let lastTime = performance.now();
   let rafId = 0;
@@ -102,8 +104,9 @@ document.addEventListener('DOMContentLoaded', () => {
     camera.setDpr(dpr);
     
     // 3. Fit и clamp
-    camera.fit(map.size, map.size);
-    camera.clampTo(map.size, map.size);
+    camera.worldSize = mapSize;
+    camera.fit(mapSize, mapSize);
+    camera.clampTo(mapSize, mapSize);
     
     lastTime = performance.now();
   }
@@ -166,7 +169,11 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const fitBtn = document.getElementById('fit'); 
-  if (fitBtn) fitBtn.addEventListener('click', () => { camera.fit(map.size, map.size); camera.clampTo(map.size, map.size); });
+  if (fitBtn) fitBtn.addEventListener('click', () => { 
+    camera.worldSize = map.size;
+    camera.fit(map.size, map.size); 
+    camera.clampTo(map.size, map.size); 
+  });
 
   const stanceButtons = { 'btn-stand': 'stand', 'btn-run': 'run', 'btn-crouch': 'crouch', 'btn-prone': 'prone' };
   function updateStanceUI(active) { for (const [id, stance] of Object.entries(stanceButtons)) { const btn = document.getElementById(id); if (btn) btn.classList.toggle('active', stance === active); } }
@@ -263,9 +270,13 @@ document.addEventListener('DOMContentLoaded', () => {
   updatePanelLoop();
 
   function frame(now) {
-    const realDt = (now - lastTime) / 1000; lastTime = now;
+    const realDt = (now - lastTime) / 1000; 
+    lastTime = now;
+    
     if (gameStarted) {
-      let dt = TimeManager.getScaledDt(realDt); dt = Math.min(dt, CONFIG.MAX_DT);
+      let dt = TimeManager.getScaledDt(realDt); 
+      dt = Math.min(dt, CONFIG.MAX_DT);
+      
       if (dt > 0) { 
         try { 
           unitManager.update(dt); 
@@ -273,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error('[Game] update error:', err); } 
       }
       
+      // ГЛАВНАЯ ЗАЩИТА: каждый кадр принудительно
       camera.validate();
       
       Debug.update(realDt);
@@ -290,18 +302,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      const dpr = camera.dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const dpr = camera.dpr; 
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       try {
         Renderer.draw(ctx, camera, map, unitManager);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
-        if (TimeManager.isTacticalPause) { ctx.save(); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; ctx.fillRect(0, 0, camera.vw, camera.vh); ctx.fillStyle = '#8ab4f8'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.fillText('ТАКТИЧЕСКАЯ ПАУЗА — приказы разрешены', camera.vw / 2, 40); ctx.restore(); }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
+        Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
+        if (TimeManager.isTacticalPause) { 
+          ctx.save(); 
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
+          ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; 
+          ctx.fillRect(0, 0, camera.vw, camera.vh); 
+          ctx.fillStyle = '#8ab4f8'; 
+          ctx.font = 'bold 16px monospace'; 
+          ctx.textAlign = 'center'; 
+          ctx.fillText('ТАКТИЧЕСКАЯ ПАУЗА — приказы разрешены', camera.vw / 2, 40); 
+          ctx.restore(); 
+        }
       } catch (err) { console.error('[Game] draw error:', err); }
     }
     rafId = requestAnimationFrame(frame);
   }
 
   window.addEventListener('beforeunload', () => { cancelAnimationFrame(rafId); input.destroy(); unitManager.destroy(); Debug.destroy(); });
-  window.addEventListener('resize', resize); window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+  window.addEventListener('resize', resize); 
+  window.addEventListener('orientationchange', () => setTimeout(resize, 100));
   document.addEventListener('visibilitychange', () => { if (document.hidden && !TimeManager.isPaused && !TimeManager.isTacticalPause) TimeManager.togglePause(); });
-  resize(); lastTime = performance.now(); rafId = requestAnimationFrame(frame);
+  resize(); 
+  lastTime = performance.now(); 
+  rafId = requestAnimationFrame(frame);
 });
