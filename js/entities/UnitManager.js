@@ -107,18 +107,50 @@ export class UnitManager {
     return { x: desiredX, y: desiredY };
   }
 
-  // ОБНОВЛЕНО: Генерация рельефа и стен
+  // ОБНОВЛЕНО: Генерация рельефа и дополнительных высот
   _spawnTestObstacles(mapSize, enabled = true) { 
     this.pathfinder.clearObstacles(); 
     if (!enabled) return; 
     
-    // 1. Генерируем высоты (холмы, окопы)
+    // 1. Генерация рельефа (холмы, окопы)
     this.pathfinder.generateTerrain();
     
-    const c = mapSize / 2; 
+    const c = mapSize / 2;
+    
     // 2. Добавляем стены для укрытия
     this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); 
     this.pathfinder.addObstacle(c + 15, c - 5, 10, 2, 'sandbags'); 
+
+    // 3. Дополнительные высоты (ручное управление)
+    // Высокий холм на юге (радиус 8, высота 4)
+    for (let dy = -8; dy <= 8; dy++) {
+      for (let dx = -8; dx <= 8; dx++) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 8) {
+          const h = (1 - dist / 8) * 4;
+          const wx = c + dx;
+          const wy = mapSize - 25 + dy;
+          if (wx > 0 && wx < mapSize && wy > 0 && wy < mapSize) {
+            this.pathfinder.setHeight(wx, wy, Math.max(this.pathfinder.getHeight(wx, wy), h));
+          }
+        }
+      }
+    }
+    
+    // Глубокий окоп на западе (радиус 6, глубина -2)
+    for (let dy = -6; dy <= 6; dy++) {
+      for (let dx = -6; dx <= 6; dx++) {
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 6) {
+          const h = -2 * (1 - dist / 6);
+          const wx = 25 + dx;
+          const wy = c + dy;
+          if (wx > 0 && wx < mapSize && wy > 0 && wy < mapSize) {
+            this.pathfinder.setHeight(wx, wy, Math.min(this.pathfinder.getHeight(wx, wy), h));
+          }
+        }
+      }
+    }
   }
 
   isPlayerControllable(unit) { if (!unit || unit.isDead) return false; if (this.playerFaction === null) return false; return unit.faction === this.playerFaction; }
