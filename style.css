@@ -113,12 +113,19 @@ html, body {
 #battle-team.team2 { color: var(--team2); }
 #battle-team.spectator { color: var(--spectator); }
 
+/* НИЖНЯЯ ПАНЕЛЬ */
 .hud-bottom {
-  bottom: 12px; bottom: calc(12px + env(safe-area-inset-bottom));
-  left: 50%; transform: translateX(-50%);
-  width: 95vw; justify-content: center;
-  overflow-x: auto; overflow-y: hidden;
-  scrollbar-width: none; touch-action: pan-x;
+  bottom: 12px; 
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  left: 50%; 
+  transform: translateX(-50%);
+  width: 95vw; 
+  justify-content: flex-start; /* Кнопки прижимаются влево для скролла */
+  overflow-x: auto; /* Разрешаем скролл вбок */
+  overflow-y: hidden;
+  scrollbar-width: none; 
+  touch-action: pan-x;
+  padding-bottom: 5px;
 }
 .hud-bottom::-webkit-scrollbar { display: none; }
 
@@ -156,7 +163,8 @@ html, body {
 /* ================== ПАНЕЛЬ ЮНИТА ================== */
 .unit-panel {
   position: fixed;
-  bottom: calc(70px + env(safe-area-inset-bottom));
+  /* Поднимаем панель выше, чтобы она не налезала на нижнюю панель кнопок */
+  bottom: calc(140px + env(safe-area-inset-bottom)); 
   left: 50%;
   transform: translateX(-50%);
   width: 95vw;
@@ -203,8 +211,9 @@ html, body {
 
 @keyframes pulse-red { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
 
+/* ================== АДАПТИВ ================== */
 @media (min-width: 768px) {
-  .unit-panel { left: auto; right: 12px; transform: none; bottom: 70px; max-width: 320px; }
+  .unit-panel { left: auto; right: 12px; transform: none; bottom: 140px; max-width: 320px; }
 }
 
 @media (max-width: 500px) {
@@ -218,7 +227,7 @@ html, body {
 }
 
 @media (max-width: 360px) {
-  .hud-top-center { top: auto; bottom: calc(70px + env(safe-area-inset-bottom)); font-size: 10px; padding: 4px 8px; }
+  .hud-top-center { top: auto; bottom: calc(180px + env(safe-area-inset-bottom)); font-size: 10px; padding: 4px 8px; }
   .hud-btn { font-size: 11px; padding: 6px 8px; min-height: 40px; min-width: 40px; }
   .opt-btn { min-width: 80px; font-size: 11px; }
 }
@@ -232,7 +241,7 @@ html, body {
   .screen-subtitle { margin-bottom: 12px; }
   .screen-section { margin-bottom: 12px; }
   .start-btn { min-height: 44px; }
-  .unit-panel { bottom: calc(56px + env(safe-area-inset-bottom)); max-width: 280px; }
+  .unit-panel { bottom: calc(100px + env(safe-area-inset-bottom)); max-width: 280px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -243,4 +252,4 @@ html, body {
 @media (forced-colors: active) {
   .hud-btn, .opt-btn, .start-btn { border: 1px solid CanvasText; }
   .hud-btn.active, .opt-btn.selected { outline: 2px solid Highlight; }
-}
+  }
