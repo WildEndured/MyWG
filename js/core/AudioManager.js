@@ -14,28 +14,35 @@ class AudioManagerClass {
     this.isReady = true;
   }
 
+  // FIX: устойчиво к camera === undefined, NaN координатам и отсутствию ctx
   playGunshot(x, y, camera, loudness) {
     if (!this.isReady || !this.ctx) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
     if (this.ctx.state === 'suspended') this.ctx.resume();
 
-    const dx = x - camera.x;
-    const dy = y - camera.y;
+    const cx = (camera && Number.isFinite(camera.x)) ? camera.x : 0;
+    const cy = (camera && Number.isFinite(camera.y)) ? camera.y : 0;
+    const dx = x - cx;
+    const dy = y - cy;
     const dist = Math.hypot(dx, dy);
-    
+
     // Задержка звука (скорость 343 м/с)
     const delay = dist / CONFIG.AUDIO.SPEED_OF_SOUND;
-    
-    // Громкость (падает с расстоянием)
-    let volume = Math.min(1, 1.0 / (1 + dist * 0.01)) * (loudness / 1000);
-    
-    // Глушение через стены (упрощенно: если далеко, звук глушится)
-    if (dist > 50) volume *= CONFIG.AUDIO_WALL_MULT;
 
-    if (volume < 0.01) return; // Слишком тихо
+    // Громкость
+    let volume = Math.min(1, 1.0 / (1 + dist * 0.01)) * (loudness / 1000);
+    if (dist > 50) volume *= CONFIG.AUDIO_WALL_MULT;
+    if (!Number.isFinite(volume)) volume = 0.1;
+    if (volume < 0.01) return;
 
     setTimeout(() => {
-      this._synthGunshot(volume, dx > 0 ? 0.5 : -0.5); // Панорама
-    }, delay * 1000);
+      try {
+        this._synthGunshot(volume, dx > 0 ? 0.5 : -0.5);
+      } catch (e) {
+        // не роняем игру из-за звука
+      }
+    }, Math.max(0, delay) * 1000);
   }
 
   _synthGunshot(volume, pan) {
