@@ -5,16 +5,29 @@ export class Weapon {
   constructor(config) {
     this.id = config.id; this.name = config.name;
     const caliberData = CALIBERS[config.caliber];
-    if (!caliberData) throw new Error(`Unknown caliber ${config.caliber}`);
     
-    this.caliberId = config.caliber; this.caliber = caliberData.name;
-    this.baseDamage = caliberData.baseDamage; this.bulletSpeed = caliberData.bulletSpeed;
-    this.damageFalloff = caliberData.damageFalloff; this.maxFalloffDist = caliberData.maxFalloffDist;
-    this.penetration = caliberData.penetration; this.drag = caliberData.drag ?? 0.00025;
-    this.fragmentation = caliberData.fragmentation ?? 0; this.impulse = caliberData.impulse ?? 0;
-    this.woundingMult = caliberData.woundingMult ?? 1.0; // НОВОЕ
-    this.overpenetration = caliberData.overpenetration ?? 0; // НОВОЕ
-    this.loudness = caliberData.loudness * (config.noiseMultiplier || 1);
+    // Если калибр не найден — используем заглушку (чтобы не падало)
+    if (!caliberData) {
+      console.warn(`[Weapon] Unknown caliber "${config.caliber}" for "${config.id}", using default.`);
+      this.caliberId = '5.45x39'; 
+      this.caliber = '5.45×39 мм';
+      this.baseDamage = 20; this.bulletSpeed = 800; this.damageFalloff = 0.3; this.maxFalloffDist = 1000;
+      this.penetration = 3; this.drag = 0.0003; this.fragmentation = 0; this.impulse = 0;
+      this.woundingMult = 1.0; this.overpenetration = 0; this.stability = 0.9; this.mass = 0.005;
+      this.loudness = 400;
+    } else {
+      this.caliberId = config.caliber;
+      this.caliber = caliberData.name;
+      this.baseDamage = caliberData.baseDamage; this.bulletSpeed = caliberData.bulletSpeed;
+      this.damageFalloff = caliberData.damageFalloff; this.maxFalloffDist = caliberData.maxFalloffDist;
+      this.penetration = caliberData.penetration; this.drag = caliberData.drag ?? 0.00025;
+      this.fragmentation = caliberData.fragmentation ?? 0; this.impulse = caliberData.impulse ?? 0;
+      this.woundingMult = caliberData.woundingMult ?? 1.0; this.overpenetration = caliberData.overpenetration ?? 0;
+      this.stability = caliberData.stability ?? 0.9;
+      this.mass = caliberData.mass ?? 0.005;
+      this.isExplosive = caliberData.isExplosive ?? false;
+      this.loudness = caliberData.loudness * (config.noiseMultiplier || 1);
+    }
 
     this.rpm = config.rpm; this.fireInterval = 60 / this.rpm;
     this.effectiveRange = config.effectiveRange; this.magazineCapacity = config.magazineCapacity;
@@ -22,8 +35,10 @@ export class Weapon {
     this.recoilPerShot = config.recoilPerShot ?? 1.0; this.recoilSpreadMult = config.recoilSpreadMult ?? 0.12; this.recoilRecovery = config.recoilRecovery ?? 3.5; this.recoil = 0;
     this.misfireChance = config.misfireChance ?? 0.01; this.heatPerShot = config.heatPerShot ?? 1.5; this.maxHeat = config.maxHeat ?? 100; this.coolingRate = config.coolingRate ?? 10;
 
-    this.ammo = this.magazineCapacity; this.reserveMagazines = config.reserveMagazines || 0;
-    this.weightEmpty = config.weightEmpty; this.weightLoaded = config.weightLoaded; // Вес с одним магазином
+    this.ammo = this.magazineCapacity;
+    this.reserveMagazines = config.reserveMagazines || 0;
+    this.weightEmpty = config.weightEmpty;
+    this.weightLoaded = config.weightLoaded;
 
     this.currentMode = this.fireModes.includes('auto') ? 'auto' : 'single';
     this.lastShotTime = -Infinity; this.isReloading = false; this.reloadTimer = 0;
@@ -32,11 +47,15 @@ export class Weapon {
 
   getTotalAmmoWeight() {
     const totalRounds = this.ammo + (this.reserveMagazines * this.magazineCapacity);
-    const weightPerRound = this.caliberId === '5.45x39' ? CONFIG.AMMO.WEIGHT_PER_ROUND_545 : CONFIG.AMMO.WEIGHT_PER_ROUND_762;
+    let weightPerRound = CONFIG.AMMO.WEIGHT_PER_ROUND_545;
+    if (this.caliberId === '7.62x54R') weightPerRound = CONFIG.AMMO.WEIGHT_PER_ROUND_762;
+    else if (this.caliberId === 'rocket') weightPerRound = 2.5;
     return totalRounds * weightPerRound;
   }
 
-  getReserveRounds() { return this.reserveMagazines * this.magazineCapacity; }
+  getReserveRounds() {
+    return this.reserveMagazines * this.magazineCapacity;
+  }
 
   canFire(currentTime) {
     if (this.isReloading || this.isMisfired || this.isJammed) return false;
@@ -58,11 +77,11 @@ export class Weapon {
 
   startReload() {
     if (this.isReloading) return;
-    if (this.reserveMagazines <= 0) return;
-    this.isReloading = true; this.reloadTimer = this.reloadTime;
+    if (this.reserveMagazines <= 0) return; 
+    this.isReloading = true; 
+    this.reloadTimer = this.reloadTime;
   }
 
-  // НОВОЕ: Прерывание перезарядки
   abortReload() {
     if (this.isReloading) {
       this.isReloading = false;
@@ -70,7 +89,6 @@ export class Weapon {
     }
   }
 
-  // НОВОЕ: Устранение клина/осечки (действие)
   clearMalfunction() {
     if (this.isJammed) { this.isJammed = false; this.heat = this.maxHeat * 0.4; return true; }
     if (this.isMisfired) { this.isMisfired = false; return true; }
@@ -86,7 +104,7 @@ export class Weapon {
       }
     }
     if (this.heat > 0) this.heat = Math.max(0, this.heat - this.coolingRate * dt);
-    if (this.isJammed && this.heat < 50) this.isJammed = false; // Остывание снимает клин
+    if (this.isJammed && this.heat < 50) this.isJammed = false;
     if (this.recoil > 0) this.recoil = Math.max(0, this.recoil - this.recoilRecovery * dt);
   }
 
