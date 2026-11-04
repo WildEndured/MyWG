@@ -25,7 +25,7 @@ export class Mission {
     // 1. Сброс
     unitManager.reset();
     
-    // 2. Pathfinder (пересоздание массивов)
+    // 2. Pathfinder
     unitManager.setWorldSize(size);
     
     // 3. Карта
@@ -126,7 +126,12 @@ export class Mission {
       const dx = baseX + (col - 2) * spacing;
       const dy = baseY + row * spacing;
       const p = unitManager.getSafeSpawnPoint(dx, dy, 1.0, true);
-      const unit = new Unit(Math.max(2, Math.min(mapSize - 2, p.x)), Math.max(2, Math.min(mapSize - 2, p.y)), faction, roleId);
+      
+      // Защита от спавна за границей
+      const finalX = Math.max(5, Math.min(mapSize - 5, p.x));
+      const finalY = Math.max(5, Math.min(mapSize - 5, p.y));
+      
+      const unit = new Unit(finalX, finalY, faction, roleId);
       unitManager.addUnit(unit);
       units.push(unit);
     });
@@ -177,7 +182,9 @@ export class Mission {
         const dx = spawnX + (i % 5 - 2) * spacing;
         const dy = spawnY + Math.floor(i / 5) * spacing;
         const p = unitManager.getSafeSpawnPoint(dx + (Math.random() - 0.5) * spacing, dy + (Math.random() - 0.5) * spacing, 1.0, true);
-        const unit = new Unit(Math.max(2, Math.min(mapSize - 2, p.x)), Math.max(2, Math.min(mapSize - 2, p.y)), trigger.faction, trigger.roles[i]);
+        const finalX = Math.max(5, Math.min(mapSize - 5, p.x));
+        const finalY = Math.max(5, Math.min(mapSize - 5, p.y));
+        const unit = new Unit(finalX, finalY, trigger.faction, trigger.roles[i]);
         unitManager.addUnit(unit);
         units.push(unit);
       }
@@ -197,9 +204,7 @@ export class Mission {
 
   getObjectiveText() {
     for (const obj of this.objectives) {
-      if (!obj.completed) {
-        return `${obj.description}: ${Math.floor(obj.progress)}/${Math.floor(obj.time)} сек`;
-      }
+      if (!obj.completed) return `${obj.description}: ${Math.floor(obj.progress)}/${Math.floor(obj.time)} сек`;
     }
     return 'Все цели выполнены';
   }
