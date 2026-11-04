@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const unitManager = new UnitManager();
   unitManager.camera = camera;
   
-  // НОВОЕ: Передаем pathfinder в камеру (для рендера высот)
+  // Передаем pathfinder в камеру (для рендера высот)
   camera.pathfinder = unitManager.pathfinder;
   
   // Глобальная ссылка на CONFIG для миссий
@@ -352,7 +352,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!unit) return;
     document.getElementById('info-name').textContent = unit.name || 'Безымянный';
     document.getElementById('info-role').textContent = `${unit.name} (Ранг ${unit.rank})`;
-    document.getElementById('info-weight').textContent = `${unit.totalWeight.toFixed(1)} кг (оружие: ${unit.weapon.weightLoaded.toFixed(1)} кг)`;
+    
+    // НОВОЕ: Высота
+    let heightText = 'Равнина (0 м)';
+    if (unit.pathfinder && unit.pathfinder.heightMap) {
+      const h = unit.pathfinder.getHeight(unit.x, unit.y);
+      if (h > 0.5) heightText = `Холм (+${h.toFixed(1)} м)`;
+      else if (h < -0.5) heightText = `Окоп (${h.toFixed(1)} м)`;
+    }
+    document.getElementById('info-weight').textContent = `${unit.totalWeight.toFixed(1)} кг | ${heightText}`;
     
     let statusText = 'Живой', statusColor = '#0F9D58';
     if (unit.isDead) { statusText = 'Мертв'; statusColor = '#EA4335'; }
