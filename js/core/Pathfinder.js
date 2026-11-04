@@ -9,6 +9,9 @@ export class Pathfinder {
     this.rows = this.cols;
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
+    
+    // НОВОЕ: Карта высот (0 = равнина)
+    this.heightMap = new Float32Array(this.cols * this.rows);
   }
 
   setWorldSize(worldSize) {
@@ -17,12 +20,66 @@ export class Pathfinder {
     this.rows = this.cols;
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
+    this.heightMap = new Float32Array(this.cols * this.rows); // Сброс высот
+  }
+
+  // НОВОЕ: Установить высоту в точке (мировые координаты)
+  setHeight(worldX, worldY, height) {
+    const g = this.worldToGrid(worldX, worldY);
+    if (g.x >= 0 && g.x < this.cols && g.y >= 0 && g.y < this.rows) {
+      this.heightMap[g.y * this.cols + g.x] = height;
+    }
+  }
+
+  // НОВОЕ: Получить высоту в точке (мировые координаты)
+  getHeight(worldX, worldY) {
+    const g = this.worldToGrid(worldX, worldY);
+    if (g.x >= 0 && g.x < this.cols && g.y >= 0 && g.y < this.rows) {
+      return this.heightMap[g.y * this.cols + g.x];
+    }
+    return 0;
+  }
+
+  // НОВОЕ: Генерация тестового рельефа (холмы и окопы)
+  generateTerrain() {
+    const center = this.cols / 2;
+    
+    for (let gy = 0; gy < this.rows; gy++) {
+      for (let gx = 0; gx < this.cols; gx++) {
+        const dx = gx - center;
+        const dy = gy - center;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        
+        // Холм в центре карты (радиус 20, высота 3)
+        let height = 0;
+        if (dist < 20) {
+          height = (1 - dist / 20) * 3;
+        }
+        
+        // Окоп на севере (y=20, x=50, радиус 10, глубина -1.5)
+        const ox = gx - 50;
+        const oy = gy - 20;
+        const trenchDist = Math.sqrt(ox * ox + oy * oy);
+        if (trenchDist < 10) {
+          height = Math.min(height, -1.5);
+        }
+        
+        // Холм на востоке (x=80, y=50, радиус 15, высота 2)
+        const ex = gx - 80;
+        const ey = gy - 50;
+        const hillDist = Math.sqrt(ex * ex + ey * ey);
+        if (hillDist < 15) {
+          height = Math.max(height, (1 - hillDist / 15) * 2);
+        }
+        
+        this.heightMap[gy * this.cols + gx] = Math.max(-2, Math.round(height * 10) / 10);
+      }
+    }
   }
 
   addObstacle(x, y, w, h, materialId = 'concrete') {
     const matData = MATERIALS[materialId] || MATERIALS.concrete;
     
-    // ЛОКАЛЬНОЕ РАЗРУШЕНИЕ: Разбиваем на сегменты 1x1 м
     const segments = [];
     const segSize = 1.0;
     for (let sy = 0; sy < h; sy += segSize) {
@@ -32,15 +89,14 @@ export class Pathfinder {
         segments.push({
           x: x + sx, y: y + sy, w: sw, h: sh,
           hp: 100, maxHp: 100,
-          state: 'intact', // intact, damaged, breached, rubble
+          state: 'intact',
         });
       }
     }
 
     const obs = {
       x, y, w, h,
-      materialId,
-      matData,
+      materialId, matData,
       segments,
       state: 'intact',
       height: matData.height || 2.0,
@@ -59,7 +115,6 @@ export class Pathfinder {
     }
   }
 
-  // Повреждение конкретного сегмента
   damageSegment(obs, segX, segY, damage) {
     const seg = obs.segments.find(s => 
       segX >= s.x && segX <= s.x + s.w && 
@@ -70,18 +125,15 @@ export class Pathfinder {
     seg.hp -= damage;
     if (seg.hp <= 0) seg.hp = 0;
 
-    // Обновляем состояние сегмента
     const ratio = seg.hp / seg.maxHp;
     if (ratio > 0.66) seg.state = 'intact';
     else if (ratio > 0.33) seg.state = 'damaged';
     else if (ratio > 0) seg.state = 'breached';
     else seg.state = 'rubble';
 
-    // Обновляем общее состояние стены (по худшему сегменту)
     const worst = obs.segments.reduce((min, s) => s.hp < min.hp ? s : min, obs.segments[0]);
     obs.state = worst.state;
 
-    // ОСЫПАНИЕ ПЕСКА: уменьшаем высоту
     if (obs.matData.destructionType === 'collapse') {
       const avgHp = obs.segments.reduce((sum, s) => sum + s.hp, 0) / obs.segments.length / 100;
       obs.height = obs.maxHeight * avgHp;
@@ -95,7 +147,7 @@ export class Pathfinder {
     const padding = CONFIG.PHYSICS.PATHFINDER_PADDING;
     for (const obs of this.obstacles) {
       for (const seg of obs.segments) {
-        if (seg.state === 'rubble') continue; // Руины проходимы
+        if (seg.state === 'rubble') continue;
         const start = this.worldToGrid(seg.x - padding, seg.y - padding);
         const end = this.worldToGrid(seg.x + seg.w + padding, seg.y + seg.h + padding);
         for (let gy = start.y; gy <= end.y; gy++) {
@@ -197,7 +249,15 @@ export class Pathfinder {
         const nid = n.y * this.cols + n.x;
         if (this.grid[nid] === 1) continue;
         if (n.x !== cx && n.y !== cy) { if (this.grid[cy * this.cols + n.x] === 1 || this.grid[n.y * this.cols + cx] === 1) continue; }
-        const tG = (gScore.get(currentId) ?? Infinity) + n.cost;
+        
+        // НОВОЕ: Учёт высоты в стоимости пути
+        const currentHeight = this.heightMap[currentId];
+        const neighborHeight = this.heightMap[nid];
+        let heightCost = 1.0;
+        if (neighborHeight > currentHeight) heightCost = 1.5;
+        else if (neighborHeight < currentHeight) heightCost = 0.8;
+
+        const tG = (gScore.get(currentId) ?? Infinity) + n.cost * heightCost;
         if (tG < (gScore.get(nid) ?? Infinity)) {
           cameFrom.set(nid, currentId); gScore.set(nid, tG);
           fScore.set(nid, tG + this._heuristic(n.x, n.y, end.x, end.y)); openSet.add(nid);
