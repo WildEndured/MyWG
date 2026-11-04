@@ -95,13 +95,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Загрузка миссии
     currentMission.load(unitManager, map, camera);
     
-    // 2. Resize (только dpr)
+    // 2. Resize
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
     canvas.width = Math.floor(window.innerWidth * dpr);
     canvas.height = Math.floor(window.innerHeight * dpr);
     camera.setDpr(dpr);
+    input.setWorldSize(mapSize);
     
     // 3. Fit и clamp
     camera.worldSize = mapSize;
@@ -133,9 +134,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  EventBus.on('mission:victory', (data) => { showMissionEnd('ПОБЕДА!', '#0F9D58'); });
-  EventBus.on('mission:defeat', (data) => { showMissionEnd('ПОРАЖЕНИЕ', '#EA4335'); });
-  EventBus.on('mission:reinforcement', (data) => {});
+  EventBus.on('mission:victory', () => showMissionEnd('ПОБЕДА!', '#0F9D58'));
+  EventBus.on('mission:defeat', () => showMissionEnd('ПОРАЖЕНИЕ', '#EA4335'));
 
   function showMissionEnd(text, color) {
     const endScreen = document.createElement('div');
@@ -165,7 +165,8 @@ document.addEventListener('DOMContentLoaded', () => {
   
   EventBus.on(EVENTS.INPUT_TAP, (data) => { 
     if (coordsDiv) coordsDiv.textContent = `X: ${data.x.toFixed(1)}, Y: ${data.y.toFixed(1)}`; 
-    lastTapWorld.x = data.x; lastTapWorld.y = data.y; 
+    lastTapWorld.x = data.x; 
+    lastTapWorld.y = data.y; 
   });
 
   const fitBtn = document.getElementById('fit'); 
@@ -212,11 +213,14 @@ document.addEventListener('DOMContentLoaded', () => {
     else { document.getElementById(`btn-speed-${scale}`)?.classList.add('active'); document.getElementById('btn-tactical')?.classList.remove('active'); }
   });
 
-  const debugBtn = document.getElementById('btn-debug'); function syncDebugButton() { if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled); }
+  const debugBtn = document.getElementById('btn-debug'); 
+  function syncDebugButton() { if (debugBtn) debugBtn.classList.toggle('active', Debug.isEnabled); }
   if (debugBtn) debugBtn.addEventListener('click', () => { Debug.setEnabled(!Debug.isEnabled); syncDebugButton(); });
   EventBus.on(EVENTS.DEBUG_TOGGLED, syncDebugButton);
 
-  const unitPanel = document.getElementById('unit-panel'); const tabButtons = document.querySelectorAll('.unit-tab'); const tabContents = document.querySelectorAll('.tab-content');
+  const unitPanel = document.getElementById('unit-panel'); 
+  const tabButtons = document.querySelectorAll('.unit-tab'); 
+  const tabContents = document.querySelectorAll('.tab-content');
   tabButtons.forEach(btn => { btn.addEventListener('click', () => { tabButtons.forEach(b => b.classList.remove('active')); tabContents.forEach(c => c.classList.remove('active')); btn.classList.add('active'); const target = document.getElementById(`tab-${btn.dataset.tab}`); if (target) target.classList.add('active'); }); });
 
   function updateUnitPanel(unit) {
@@ -284,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error('[Game] update error:', err); } 
       }
       
-      // ГЛАВНАЯ ЗАЩИТА: каждый кадр принудительно
+      // Защита камеры каждый кадр
       camera.validate();
       
       Debug.update(realDt);
@@ -304,13 +308,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const dpr = camera.dpr; 
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      
       try {
+        // РИСУЕМ БЕЗ ДОПОЛНИТЕЛЬНЫХ setTransform
         Renderer.draw(ctx, camera, map, unitManager);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
+        
         Debug.draw(ctx, camera, unitManager, map, unitManager.pathfinder);
+        
         if (TimeManager.isTacticalPause) { 
           ctx.save(); 
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
           ctx.fillStyle = 'rgba(80, 150, 255, 0.08)'; 
           ctx.fillRect(0, 0, camera.vw, camera.vh); 
           ctx.fillStyle = '#8ab4f8'; 
