@@ -69,12 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }); 
   }
 
-  // ИСПРАВЛЕНО: сначала загрузка, потом resize, потом fit
   function startBattle(teamId, modeId, mapSize = 100) {
     const team = TEAM_INFO[teamId], mode = MODE_INFO[modeId]; 
     if (!team || !mode) return;
     
-    // 1. Сброс
     unitManager.reset();
     gameStarted = true;
     currentMapSize = mapSize;
@@ -92,10 +90,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const missionId = mode.id === 'attack' ? 'capture_bridge' : 'defend_village';
     currentMission = new Mission(missionId, mapSize);
     
-    // 2. Загрузка миссии (она выставит map.size, pathfinder.size, camera.fit)
+    // 1. Загрузка миссии
     currentMission.load(unitManager, map, camera);
     
-    // 3. Resize (только dpr, без clampTo)
+    // 2. Resize (только dpr)
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
@@ -103,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.height = Math.floor(window.innerHeight * dpr);
     camera.setDpr(dpr);
     
-    // 4. Принудительный fit и clamp
+    // 3. Fit и clamp
     camera.fit(map.size, map.size);
     camera.clampTo(map.size, map.size);
     
@@ -276,8 +274,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error('[Game] update error:', err); } 
       }
       
-      // ЗАЩИТА КАМЕРЫ
-      camera.validate(map.size, map.size);
+      // ЗАЩИТА КАМЕРЫ (без аргументов — только проверка NaN/zoom)
+      camera.validate();
       
       Debug.update(realDt);
 
