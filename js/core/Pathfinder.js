@@ -9,8 +9,6 @@ export class Pathfinder {
     this.rows = this.cols;
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
-    
-    // НОВОЕ: Карта высот (0 = равнина)
     this.heightMap = new Float32Array(this.cols * this.rows);
   }
 
@@ -20,10 +18,9 @@ export class Pathfinder {
     this.rows = this.cols;
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
-    this.heightMap = new Float32Array(this.cols * this.rows); // Сброс высот
+    this.heightMap = new Float32Array(this.cols * this.rows);
   }
 
-  // НОВОЕ: Установить высоту в точке (мировые координаты)
   setHeight(worldX, worldY, height) {
     const g = this.worldToGrid(worldX, worldY);
     if (g.x >= 0 && g.x < this.cols && g.y >= 0 && g.y < this.rows) {
@@ -31,7 +28,6 @@ export class Pathfinder {
     }
   }
 
-  // НОВОЕ: Получить высоту в точке (мировые координаты)
   getHeight(worldX, worldY) {
     const g = this.worldToGrid(worldX, worldY);
     if (g.x >= 0 && g.x < this.cols && g.y >= 0 && g.y < this.rows) {
@@ -40,37 +36,40 @@ export class Pathfinder {
     return 0;
   }
 
-  // НОВОЕ: Генерация тестового рельефа (холмы и окопы)
+  // НОВОЕ: Воронка от взрыва
+  createCrater(worldX, worldY, radius, depth) {
+    const g = this.worldToGrid(worldX, worldY);
+    const rGrid = Math.ceil(radius / this.cellSize);
+    
+    for (let dy = -rGrid; dy <= rGrid; dy++) {
+      for (let dx = -rGrid; dx <= rGrid; dx++) {
+        const nx = g.x + dx;
+        const ny = g.y + dy;
+        if (nx < 0 || nx >= this.cols || ny < 0 || ny >= this.rows) continue;
+        
+        const dist = Math.hypot(dx * this.cellSize, dy * this.cellSize);
+        if (dist < radius) {
+          const factor = 1 - (dist / radius);
+          this.heightMap[ny * this.cols + nx] -= depth * factor;
+        }
+      }
+    }
+  }
+
   generateTerrain() {
     const center = this.cols / 2;
-    
     for (let gy = 0; gy < this.rows; gy++) {
       for (let gx = 0; gx < this.cols; gx++) {
-        const dx = gx - center;
-        const dy = gy - center;
+        const dx = gx - center, dy = gy - center;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        
-        // Холм в центре карты (радиус 20, высота 3)
         let height = 0;
-        if (dist < 20) {
-          height = (1 - dist / 20) * 3;
-        }
+        if (dist < 20) height = (1 - dist / 20) * 3;
         
-        // Окоп на севере (y=20, x=50, радиус 10, глубина -1.5)
-        const ox = gx - 50;
-        const oy = gy - 20;
-        const trenchDist = Math.sqrt(ox * ox + oy * oy);
-        if (trenchDist < 10) {
-          height = Math.min(height, -1.5);
-        }
+        const ox = gx - 50, oy = gy - 20;
+        if (Math.sqrt(ox * ox + oy * oy) < 10) height = Math.min(height, -1.5);
         
-        // Холм на востоке (x=80, y=50, радиус 15, высота 2)
-        const ex = gx - 80;
-        const ey = gy - 50;
-        const hillDist = Math.sqrt(ex * ex + ey * ey);
-        if (hillDist < 15) {
-          height = Math.max(height, (1 - hillDist / 15) * 2);
-        }
+        const ex = gx - 80, ey = gy - 50;
+        if (Math.sqrt(ex * ex + ey * ey) < 15) height = Math.max(height, (1 - Math.sqrt(ex * ex + ey * ey) / 15) * 2);
         
         this.heightMap[gy * this.cols + gx] = Math.max(-2, Math.round(height * 10) / 10);
       }
@@ -79,7 +78,6 @@ export class Pathfinder {
 
   addObstacle(x, y, w, h, materialId = 'concrete') {
     const matData = MATERIALS[materialId] || MATERIALS.concrete;
-    
     const segments = [];
     const segSize = 1.0;
     for (let sy = 0; sy < h; sy += segSize) {
@@ -95,33 +93,23 @@ export class Pathfinder {
     }
 
     const obs = {
-      x, y, w, h,
-      materialId, matData,
-      segments,
+      x, y, w, h, materialId, matData, segments,
       state: 'intact',
       height: matData.height || 2.0,
       maxHeight: matData.height || 2.0,
     };
-
     this.obstacles.push(obs);
     this._updateGrid();
   }
 
   removeObstacle(obs) {
     const idx = this.obstacles.indexOf(obs);
-    if (idx >= 0) {
-      this.obstacles.splice(idx, 1);
-      this._updateGrid();
-    }
+    if (idx >= 0) { this.obstacles.splice(idx, 1); this._updateGrid(); }
   }
 
   damageSegment(obs, segX, segY, damage) {
-    const seg = obs.segments.find(s => 
-      segX >= s.x && segX <= s.x + s.w && 
-      segY >= s.y && segY <= s.y + s.h
-    );
+    const seg = obs.segments.find(s => segX >= s.x && segX <= s.x + s.w && segY >= s.y && segY <= s.y + s.h);
     if (!seg) return;
-
     seg.hp -= damage;
     if (seg.hp <= 0) seg.hp = 0;
 
@@ -138,7 +126,6 @@ export class Pathfinder {
       const avgHp = obs.segments.reduce((sum, s) => sum + s.hp, 0) / obs.segments.length / 100;
       obs.height = obs.maxHeight * avgHp;
     }
-
     this._updateGrid();
   }
 
@@ -250,7 +237,6 @@ export class Pathfinder {
         if (this.grid[nid] === 1) continue;
         if (n.x !== cx && n.y !== cy) { if (this.grid[cy * this.cols + n.x] === 1 || this.grid[n.y * this.cols + cx] === 1) continue; }
         
-        // НОВОЕ: Учёт высоты в стоимости пути
         const currentHeight = this.heightMap[currentId];
         const neighborHeight = this.heightMap[nid];
         let heightCost = 1.0;
