@@ -8,6 +8,16 @@ class DebugClass {
     this.frames = 0;
     this.fpsAccum = 0;
 
+    // Профайлер
+    this._timers = new Map();      // name -> массив последних значений
+    this._currentStart = new Map(); // name -> timestamp
+    this._maxSamples = 60;
+
+    // Счётчики (сумма за последние 1 сек)
+    this._counters = new Map();     // name -> текущее значение
+    this._countersSnapshot = new Map(); // name -> значение на конец сек
+    this._counterAccum = 0;
+
     this._onKeyDown = (e) => {
       if (e.key === '`' || e.key === 'F1') {
         this.setEnabled(!this.isEnabled);
@@ -25,6 +35,39 @@ class DebugClass {
     EventBus.emit(EVENTS.DEBUG_TOGGLED, this.isEnabled);
   }
 
+  // Замер: Debug.start('name'); ...; Debug.end('name');
+  start(name) {
+    if (!this.isEnabled) return;
+    this._currentStart.set(name, performance.now());
+  }
+
+  end(name) {
+    if (!this.isEnabled) return;
+    const t0 = this._currentStart.get(name);
+    if (t0 === undefined) return;
+    const dt = performance.now() - t0;
+    this._currentStart.delete(name);
+
+    let arr = this._timers.get(name);
+    if (!arr) { arr = []; this._timers.set(name, arr); }
+    arr.push(dt);
+    if (arr.length > this._maxSamples) arr.shift();
+  }
+
+  // Учётчик: Debug.count('name');
+  count(name) {
+    if (!this.isEnabled) return;
+    this._counters.set(name, (this._counters.get(name) || 0) + 1);
+  }
+
+  _avg(name) {
+    const arr = this._timers.get(name);
+    if (!arr || arr.length === 0) return 0;
+    let sum = 0;
+    for (const v of arr) sum += v;
+    return sum / arr.length;
+  }
+
   update(realDt) {
     if (!this.isEnabled) { this.frames = 0; this.fpsAccum = 0; return; }
     this.frames++;
@@ -34,6 +77,10 @@ class DebugClass {
       this.fps = Math.round(this.frames / this.fpsAccum);
       this.frames = 0;
       this.fpsAccum = 0;
+
+      // Снимок счётчиков и сброс
+      this._countersSnapshot = new Map(this._counters);
+      this._counters.clear();
     }
   }
 
@@ -52,12 +99,13 @@ class DebugClass {
       const endX = Math.min(pathfinder.cols, Math.ceil(wBR.x / cellSize));
       const startY = Math.max(0, Math.floor(wTL.y / cellSize));
       const endY = Math.min(pathfinder.rows, Math.ceil(wBR.y / cellSize));
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
       for (let gy = startY; gy < endY; gy++) {
+        const rowBase = gy * pathfinder.cols;
         for (let gx = startX; gx < endX; gx++) {
-          if (pathfinder.grid[gy * pathfinder.cols + gx] === 1) {
+          if (pathfinder.grid[rowBase + gx] === 1) {
             const p = camera.worldToScreen(gx * cellSize, gy * cellSize);
             const size = cellSize * camera.zoom;
-            ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
             ctx.fillRect(p.x, p.y, size, size);
           }
         }
@@ -69,7 +117,7 @@ class DebugClass {
         if (unit.isDead) continue;
         const p = camera.worldToScreen(unit.x, unit.y);
 
-        // FIX: хитбоксы (Волна 1)
+        // Хитбоксы
         ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
         ctx.lineWidth = 1;
         for (const [partId, part] of Object.entries(unit.bodyParts)) {
@@ -110,18 +158,34 @@ class DebugClass {
       }
     }
 
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    ctx.fillRect(10, 10, 240, 110);
+    // Панель
+    const panelW = 280;
+    const panelH = 190;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(10, 10, panelW, panelH);
     ctx.strokeStyle = '#0f0';
-    ctx.strokeRect(10, 10, 240, 110);
+    ctx.strokeRect(10, 10, panelW, panelH);
 
     ctx.fillStyle = '#0f0';
     ctx.font = '12px monospace';
-    ctx.fillText(`FPS: ${this.fps}`, 20, 30);
-    ctx.fillText(`Frame: ${this.frameTime.toFixed(2)}ms`, 20, 50);
-    ctx.fillText(`Units: ${unitManager?.units?.length ?? 0}`, 20, 70);
-    ctx.fillText(`Bullets: ${unitManager?.bullets?.length ?? 0}`, 20, 90);
-    ctx.fillText(`Decals: ${unitManager?.decals?.length ?? 0}`, 20, 110);
+
+    let y = 28;
+    const line = (s) => { ctx.fillText(s, 20, y); y += 16; };
+
+    line(`FPS: ${this.fps}`);
+    line(`Frame: ${this.frameTime.toFixed(2)}ms`);
+    line(`update: ${this._avg('update').toFixed(2)}ms`);
+    line(`draw:   ${this._avg('draw').toFixed(2)}ms`);
+    line(`path:   ${this._avg('path').toFixed(2)}ms`);
+    line(`collide:${this._avg('collide').toFixed(2)}ms`);
+    line(`Units: ${unitManager?.units?.length ?? 0}`);
+    line(`Bullets: ${unitManager?.bullets?.length ?? 0}`);
+    line(`Decals: ${unitManager?.decals?.length ?? 0}`);
+
+    ctx.fillStyle = '#F4B400';
+    line(`pathfinder calls: ${this._countersSnapshot.get('pathfinderCalls') || 0}/s`);
+    line(`grid updates:    ${this._countersSnapshot.get('gridUpdates') || 0}/s`);
+    line(`los calls:       ${this._countersSnapshot.get('losCalls') || 0}/s`);
   }
 }
 
