@@ -133,7 +133,14 @@ export function applyHealthMixin(UnitProto) {
       
       if (armorPiece.armorMaterial === 'ceramic') {
         if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_CRACK_THRESHOLD && armorPiece.level > 0) armorPiece.level = Math.max(0, armorPiece.level - 1);
-        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) armorPiece.level = 0;
+        if (armorPiece.durability < armorPiece.maxDurability * CONFIG.ARMOR.CERAMIC_BREAK_THRESHOLD) {
+          armorPiece.level = 0;
+          // НОВОЕ: Осколки брони (30% шанс)
+          if (Math.random() < 0.3) {
+            this.applyFragmentation(amount * 0.3);
+            EventBus.emit('debris:spawn', { x: this.x, y: this.y, count: 2, material: 'ceramic', owner: this });
+          }
+        }
       }
 
       if (penetrationLevel > effectiveLevel) {
