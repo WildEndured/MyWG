@@ -55,7 +55,7 @@ export class Brain {
   _think(world) {
     const unit = this.unit;
 
-    // Проверка на сдачу в плен
+    // 1. Сдача в плен
     if (unit.hp < unit.maxHp * CONFIG.AI.SURRENDER_HP_THRESHOLD && unit.suppression > CONFIG.AI.SURRENDER_SUPPRESSION && !unit.isSurrendered) {
       unit.isSurrendered = true;
       unit.isArmed = false;
@@ -65,12 +65,12 @@ export class Brain {
     }
     if (unit.isSurrendered) return;
 
-    // Переключение оружия (если нет патронов)
+    // 2. Переключение оружия (если нет патронов)
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0 && unit.secondaryWeaponConfig && unit.activeWeaponId === 'rpg7') {
       unit.switchWeapon();
     }
 
-    // Нет патронов вообще
+    // 3. Нет патронов — укрытие
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0) {
       if (this.currentGoal !== 'no_ammo') {
         this.currentGoal = 'no_ammo';
@@ -79,7 +79,7 @@ export class Brain {
       return;
     }
 
-    // Лечение
+    // 4. Лечение
     if (unit.bleedingRate > 0 && (unit.medical.bandage > 0 || unit.medical.tourniquet > 0)) {
       if (this.currentGoal !== 'heal') {
         this.currentGoal = 'heal';
@@ -90,7 +90,16 @@ export class Brain {
       return;
     }
 
-    // Отступление при низком HP
+    // 5. ПРИКАЗЫ ОТРЯДА (если в отряде)
+    if (unit.squad && unit.squad.leader !== unit) {
+      const order = unit.squad.getOrderFor(unit);
+      if (order) {
+        this._executeSquadOrder(order, world);
+        return;
+      }
+    }
+
+    // 6. Отступление при низком HP
     if (unit.hp < unit.maxHp * 0.3 && unit.target && this.currentGoal !== 'retreat') {
       const distToEnemy = Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y);
       if (distToEnemy > 5) {
@@ -100,7 +109,7 @@ export class Brain {
       }
     }
 
-    // Укрытие при подавлении
+    // 7. Укрытие при подавлении
     if (unit.suppression > 0.4) {
       if (this.currentGoal !== 'cover') {
         this.currentGoal = 'cover';
@@ -110,20 +119,17 @@ export class Brain {
       return;
     }
 
-    // Бой
+    // 8. Бой
     if (unit.target) {
       if (this.currentGoal !== 'engage') {
         this.currentGoal = 'engage';
         unit._wantsToMove = false; unit.setPath([]); unit.setStance('stand');
       }
-      // Микротактика: приседание на перезарядке
       if (unit.weapon.ammo < unit.weapon.magazineCapacity * 0.5 && unit.weapon.isReloading) unit.setStance('crouch');
       return;
     }
 
-    // РОЛЕВОЕ ПОВЕДЕНИЕ (когда нет цели)
-    
-    // Пулеметчик держит позицию
+    // 9. РОЛЕВОЕ ПОВЕДЕНИЕ
     if (unit.roleId === 'machine_gunner') {
       if (this.currentGoal !== 'hold') {
         this.currentGoal = 'hold';
@@ -132,42 +138,53 @@ export class Brain {
       return;
     }
 
-    // Гранатометчик ищет технику
     if (unit.roleId === 'grenadier') {
       if (this._tryGrenadierBehavior(world)) return;
     }
 
-    // Помощник следует за гранатометчиком
     if (unit.roleId === 'grenadier_help') {
       if (this._tryFollowGrenadier(world)) return;
     }
 
-    // Шум
+    // 10. Шум
     if (unit.lastHeardNoise) {
       const timeSinceNoise = (performance.now() / 1000) - unit.lastHeardNoise.time / 1000;
       if (timeSinceNoise < 5 && this.currentGoal !== 'investigate') {
         this.currentGoal = 'investigate';
         const path = world.pathfinder.findPath(unit.x, unit.y, unit.lastHeardNoise.x, unit.lastHeardNoise.y);
-        if (path && path.length > 0) unit.setPath(path); unit.setStance('crouch'); unit.lastHeardNoise = null; return;
-      }
-    }
-
-    // Зона контроля
-    if (world.zone && world.zone.owner !== unit.faction) {
-      const distToZone = Math.hypot(world.zone.x - unit.x, world.zone.y - unit.y);
-      if (distToZone < 80 && distToZone > world.zone.radius - 2) {
-        if (this.currentGoal !== 'capture_zone') { this.currentGoal = 'capture_zone'; const path = world.pathfinder.findPath(unit.x, unit.y, world.zone.x, world.zone.y); if (path && path.length > 0) unit.setPath(path); unit.setStance('crouch'); }
+        if (path && path.length > 0) unit.setPath(path); 
+        unit.setStance('crouch'); 
+        unit.lastHeardNoise = null; 
         return;
       }
     }
 
-    // Охота
+    // 11. Зона контроля
+    if (world.zone && world.zone.owner !== unit.faction) {
+      const distToZone = Math.hypot(world.zone.x - unit.x, world.zone.y - unit.y);
+      if (distToZone < 80 && distToZone > world.zone.radius - 2) {
+        if (this.currentGoal !== 'capture_zone') { 
+          this.currentGoal = 'capture_zone'; 
+          const path = world.pathfinder.findPath(unit.x, unit.y, world.zone.x, world.zone.y); 
+          if (path && path.length > 0) unit.setPath(path); 
+          unit.setStance('crouch'); 
+        }
+        return;
+      }
+    }
+
+    // 12. Охота
     if (this.memory.lastEnemyPos && (world.time - this.memory.lastEnemyTime) < 8.0) {
-      if (this.currentGoal !== 'hunt') { this.currentGoal = 'hunt'; const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y); if (path && path.length > 0) unit.setPath(path); unit.setStance('stand'); }
+      if (this.currentGoal !== 'hunt') { 
+        this.currentGoal = 'hunt'; 
+        const path = world.pathfinder.findPath(unit.x, unit.y, this.memory.lastEnemyPos.x, this.memory.lastEnemyPos.y); 
+        if (path && path.length > 0) unit.setPath(path); 
+        unit.setStance('stand'); 
+      }
       return;
     }
 
-    // Патруль
+    // 13. Патруль
     if (this.currentGoal !== 'patrol' || (!unit.isMoving && !unit._wantsToMove)) {
       this.currentGoal = 'patrol';
       const angle = Math.random() * Math.PI * 2; const dist = 10 + Math.random() * 20;
@@ -176,6 +193,36 @@ export class Brain {
       for (const zone of this.memory.dangerZones) { if (Math.hypot(tx - zone.x, ty - zone.y) < 15) { tx = unit.x; ty = unit.y; break; } }
       const path = world.pathfinder.findPath(unit.x, unit.y, tx, ty);
       if (path && path.length > 0) { unit.setPath(path); unit.setStance('crouch'); }
+    }
+  }
+
+  // Выполнение приказа отряда
+  _executeSquadOrder(order, world) {
+    const unit = this.unit;
+
+    if (order.type === 'retreat') {
+      if (this.currentGoal !== 'retreat') {
+        this.currentGoal = 'retreat';
+        this._seekCover(world);
+        unit.setStance('run');
+      }
+      return;
+    }
+
+    if (order.type === 'hold') {
+      if (this.currentGoal !== 'hold') {
+        this.currentGoal = 'hold';
+        unit._wantsToMove = false; unit.setPath([]); unit.setStance('crouch');
+      }
+      return;
+    }
+
+    if (order.type === 'focus_fire' && order.target) {
+      if (!unit.target || unit.target !== order.target) {
+        unit.target = order.target;
+        unit.targetAngle = Math.atan2(order.target.y - unit.y, order.target.x - unit.x);
+      }
+      return;
     }
   }
 
@@ -219,7 +266,6 @@ export class Brain {
 
   _tryGrenadierBehavior(world) {
     const unit = this.unit;
-    // Ищем крупные цели (техника)
     let vehicleTarget = null;
     for (const other of world.units) {
       if (other.faction === unit.faction || other.isDead) continue;
