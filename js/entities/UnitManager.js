@@ -24,7 +24,7 @@ export class UnitManager {
     this.grenades = [];
     this.fragments = [];
     this.tracerTrails = [];
-    this.squads = []; // НОВОЕ: Отряды
+    this.squads = [];
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
@@ -64,7 +64,6 @@ export class UnitManager {
   addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
 
-  // Создать отряд из массива юнитов
   createSquad(units, faction) {
     const squad = new Squad(units, faction);
     for (const u of units) u.squad = squad;
@@ -72,7 +71,49 @@ export class UnitManager {
     return squad;
   }
 
-  getSafeSpawnPoint(desiredX, desiredY) { const obs = this.pathfinder.obstacles; if (Physics.isPositionFree(desiredX, desiredY, 1.0, obs)) return { x: desiredX, y: desiredY }; return this.pathfinder.findNearestFreePoint(desiredX, desiredY); }
+  // ОБНОВЛЕННЫЙ МЕТОД (с проверкой на юнитов)
+  getSafeSpawnPoint(desiredX, desiredY, radius = 1.0, avoidUnits = true) {
+    const obs = this.pathfinder.obstacles;
+    
+    // 1. Проверка на стены
+    if (!Physics.isPositionFree(desiredX, desiredY, radius, obs)) {
+      const freePoint = this.pathfinder.findNearestFreePoint(desiredX, desiredY);
+      desiredX = freePoint.x;
+      desiredY = freePoint.y;
+    }
+
+    // 2. Проверка на других юнитов (чтобы не спавниться друг в друге)
+    if (avoidUnits) {
+      let isFree = true;
+      for (const u of this.units) {
+        if (u.isDead) continue;
+        if (Math.hypot(u.x - desiredX, u.y - desiredY) < radius * 2.5) {
+          isFree = false;
+          break;
+        }
+      }
+      
+      // Если занято, ищем спиралью
+      if (!isFree) {
+        for (let r = 1; r < 20; r += 1) {
+          for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+            const testX = desiredX + Math.cos(angle) * r;
+            const testY = desiredY + Math.sin(angle) * r;
+            if (Physics.isPositionFree(testX, testY, radius, obs)) {
+              let unitFree = true;
+              for (const u of this.units) {
+                if (u.isDead) continue;
+                if (Math.hypot(u.x - testX, u.y - testY) < radius * 2.5) { unitFree = false; break; }
+              }
+              if (unitFree) return { x: testX, y: testY };
+            }
+          }
+        }
+      }
+    }
+
+    return { x: desiredX, y: desiredY };
+  }
 
   _spawnTestObstacles(mapSize, enabled = true) { 
     this.pathfinder.clearObstacles(); if (!enabled) return; 
@@ -90,7 +131,6 @@ export class UnitManager {
     
     if (this.captureZone) this.captureZone.update(dt, this.units);
 
-    // Обновляем отряды
     for (const squad of this.squads) {
       squad.update(dt, { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units });
     }
