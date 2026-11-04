@@ -10,7 +10,7 @@ import { CONFIG } from '../data/config.js';
 import { Brain } from '../core/Brain.js';
 import { Grenade } from './Grenade.js';
 
-// Импорт миксинов (методы добавятся в прототип)
+// Импорт миксинов
 import { applyHealthMixin } from './UnitHealth.js';
 import { applyCombatMixin } from './UnitCombat.js';
 
@@ -101,6 +101,11 @@ export class Unit {
     this.suppression = 0; this.lastSuppressionTime = 0; this.standLockTimer = 0;
     this.perception = new Map(); this._lastScanTime = 0; this._scanInterval = CONFIG.PERCEPTION.SCAN_INTERVAL;
 
+    // НОВОЕ: Для замены роли и подбора
+    this.wantsToPickup = false;
+    this.pickupTarget = null;
+    this._helpReported = false;
+
     this.brain = new Brain(this);
   }
 
@@ -181,6 +186,34 @@ export class Unit {
     return true;
   }
 
+  // НОВОЕ: Подбор оружия
+  pickupWeapon(deadUnit) {
+    if (!deadUnit || !deadUnit.weapon) return false;
+    
+    // Сохраняем старый вес для пересчета
+    const oldWeight = this.totalWeight;
+    
+    this.weapon = deadUnit.weapon;
+    this.maxAimTime = this.weapon.maxAimTime;
+    this.roleId = deadUnit.roleId;
+    this.name = deadUnit.name;
+    this.rank = deadUnit.rank;
+    this.activeWeaponId = deadUnit.activeWeaponId;
+    this.secondaryWeaponConfig = deadUnit.secondaryWeaponConfig;
+    
+    // Забираем оружие с трупа
+    deadUnit.weapon = null;
+    
+    // Пересчитываем вес (упрощенно, без учета брони)
+    const newWeight = this.totalWeight - oldWeight + this.weapon.weightLoaded;
+    this.staminaPenalty = Math.max(1.0, newWeight / 10.0);
+    this.speeds = this._calculateSpeeds(BASE_HUMAN.nakedSpeeds, newWeight);
+    this.accel = CONFIG.MOVEMENT.ACCEL_BASE / this.staminaPenalty; 
+    this.decel = CONFIG.MOVEMENT.DECEL_BASE / this.staminaPenalty;
+    
+    return true;
+  }
+
   update(dt, allUnits, currentTime, worldState) {
     if (this.isDead) return null;
     
@@ -192,7 +225,7 @@ export class Unit {
     }
     if (this.standLockTimer > 0) this.standLockTimer -= dt;
     this._updateStanceTransition(dt);
-    this._updateHealthAndMedical(dt, currentTime); // Миксин
+    this._updateHealthAndMedical(dt, currentTime);
 
     if (this.isUnconscious) { 
       this.weapon.update(dt); 
@@ -220,9 +253,11 @@ export class Unit {
     this.hearingMultiplier = Math.max(0, hearingMult);
 
     const obs = this.pathfinder ? this.pathfinder.obstacles : null;
-    this._updatePerception(dt, allUnits, obs, currentTime); // Миксин
+    this._updatePerception(dt, allUnits, obs, currentTime);
+    
     if (this.brain && worldState) this.brain.update(dt, worldState);
-    this._updateCombat(dt, allUnits, currentTime, worldState); // Миксин
+    
+    this._updateCombat(dt, allUnits, currentTime, worldState);
     this.weapon.update(dt);
 
     if (this.isMoving || this._wantsToMove) this.aimTime = 0;
