@@ -4,7 +4,8 @@ export class Renderer {
   static draw(ctx, camera, map, unitManager) {
     const dpr = camera.dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     
-    Renderer.drawMap(ctx, camera, map);
+    map.draw(ctx); // Карта с высотами
+    
     Renderer.drawDecals(ctx, camera, unitManager.decals);
     Renderer.drawShells(ctx, camera, unitManager.shells);
     Renderer.drawObstacles(ctx, camera, unitManager.pathfinder.obstacles);
@@ -16,8 +17,6 @@ export class Renderer {
     const sortedUnits = [...unitManager.units].sort((a, b) => a.y - b.y);
     for (const unit of sortedUnits) if (camera.isPointVisible(unit.x, unit.y, 200)) Renderer.drawUnit(ctx, camera, unit);
 
-    Renderer.drawSquads(ctx, camera, unitManager.squads);
-
     Renderer.drawTracers(ctx, camera, unitManager.tracerTrails);
     Renderer.drawBullets(ctx, camera, unitManager.bullets);
     Renderer.drawEffects(ctx, camera, unitManager.flashes);
@@ -26,35 +25,6 @@ export class Renderer {
     Renderer.drawFragments(ctx, camera, unitManager.fragments);
     Renderer.drawDebris(ctx, camera, unitManager.debris);
     Renderer.drawDust(ctx, camera, unitManager.dust);
-  }
-
-  static drawSquads(ctx, camera, squads) {
-    if (!squads) return;
-    for (const squad of squads) {
-      if (!squad.leader || squad.leader.isDead) continue;
-      const leaderPos = camera.worldToScreen(squad.leader.x, squad.leader.y);
-      
-      // Индикатор морали над лидером
-      const barW = 40, barH = 4;
-      const barX = leaderPos.x - barW / 2;
-      const barY = leaderPos.y - 30;
-      
-      ctx.fillStyle = '#333'; 
-      ctx.fillRect(barX, barY, barW, barH);
-      
-      let color = '#0F9D58';
-      if (squad.morale < 0.3) color = '#EA4335';
-      else if (squad.morale < 0.6) color = '#F4B400';
-      
-      ctx.fillStyle = color;
-      ctx.fillRect(barX, barY, barW * squad.morale, barH);
-      
-      // Иконка лидера (звезда)
-      ctx.fillStyle = '#F4B400';
-      ctx.beginPath();
-      ctx.arc(leaderPos.x, leaderPos.y - 40, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
 
   static drawZone(ctx, camera, zone) {
@@ -68,29 +38,6 @@ export class Renderer {
       ctx.beginPath(); ctx.arc(p.x, p.y, r + 4, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2) * (zone.captureProgress / 100));
       ctx.strokeStyle = '#F4B400'; ctx.lineWidth = 4; ctx.stroke();
     }
-  }
-
-  static drawMap(ctx, camera, map) {
-    const c = CONFIG.COLORS; ctx.fillStyle = c.bg; ctx.fillRect(0, 0, camera.vw, camera.vh);
-    const tl = camera.worldToScreen(0, 0), br = camera.worldToScreen(map.size, map.size);
-    ctx.fillStyle = c.mapFill; ctx.fillRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-    const wTL = camera.screenToWorld(0, 0), wBR = camera.screenToWorld(camera.vw, camera.vh);
-    const x0 = Math.max(0, wTL.x), y0 = Math.max(0, wTL.y), x1 = Math.min(map.size, wBR.x), y1 = Math.min(map.size, wBR.y);
-    if (x1 > x0 && y1 > y0) {
-      if (map.cellSize * camera.zoom >= 15) this._drawGrid(ctx, camera, x0, y0, x1, y1, map.cellSize, c.gridMinor);
-      if (map.majorStep * camera.zoom >= 10) this._drawGrid(ctx, camera, x0, y0, x1, y1, map.majorStep, c.gridMajor);
-    }
-    ctx.strokeStyle = c.border; ctx.lineWidth = 2; ctx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
-  }
-
-  static _drawGrid(ctx, camera, x0, y0, x1, y1, step, color) {
-    if (!(step > 0)) return; const y0s = camera.worldToScreen(0, y0).y, y1s = camera.worldToScreen(0, y1).y, x0s = camera.worldToScreen(x0, 0).x, x1s = camera.worldToScreen(x1, 0).x;
-    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
-    const startX = Math.floor(x0 / step) * step;
-    for (let x = startX; x <= x1 + 1e-6; x += step) { const px = Math.round(camera.worldToScreen(x, 0).x) + 0.5; ctx.moveTo(px, y0s); ctx.lineTo(px, y1s); }
-    const startY = Math.floor(y0 / step) * step;
-    for (let y = startY; y <= y1 + 1e-6; y += step) { const py = Math.round(camera.worldToScreen(0, y).y) + 0.5; ctx.moveTo(x0s, py); ctx.lineTo(x1s, py); }
-    ctx.stroke();
   }
 
   static drawDecals(ctx, camera, decals) {
