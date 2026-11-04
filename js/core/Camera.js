@@ -9,6 +9,7 @@ export class Camera {
     this.dpr = dpr;
     this.minZoom = CONFIG.MIN_PX_PER_METER;
     this.maxZoom = CONFIG.MAX_PX_PER_METER;
+    this.pathfinder = null;
   }
 
   setDpr(dpr) { this.dpr = dpr; }
@@ -72,5 +73,14 @@ export class Camera {
     const screen = this.worldToScreen(wx, wy);
     return screen.x >= -marginPx && screen.x <= this.vw + marginPx &&
            screen.y >= -marginPx && screen.y <= this.vh + marginPx;
+  }
+
+  // НОВОЕ: защита от "улёта"
+  validate(worldW, worldH) {
+    if (!Number.isFinite(this.zoom) || this.zoom < this.minZoom || this.zoom > this.maxZoom) {
+      this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom || 2));
+    }
+    if (!Number.isFinite(this.x) || this.x < 0 || this.x > worldW) this.x = worldW / 2;
+    if (!Number.isFinite(this.y) || this.y < 0 || this.y > worldH) this.y = worldH / 2;
   }
 }
