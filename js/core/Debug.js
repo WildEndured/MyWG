@@ -3,6 +3,9 @@ import { EventBus, EVENTS } from './EventBus.js';
 class DebugClass {
   constructor() {
     this.isEnabled = false;
+    this.showGrid = false;      // ← FIX: сетка A* выключена по умолчанию
+    this.showHitboxes = true;
+
     this.fps = 0;
     this.frameTime = 0;
     this.frames = 0;
@@ -18,6 +21,8 @@ class DebugClass {
     this._onKeyDown = (e) => {
       if (e.key === '`' || e.key === 'F1') {
         this.setEnabled(!this.isEnabled);
+      } else if (e.key === 'g' || e.key === 'G') {
+        if (this.isEnabled) this.showGrid = !this.showGrid;
       }
     };
     window.addEventListener('keydown', this._onKeyDown);
@@ -83,8 +88,8 @@ class DebugClass {
     const vw = camera.vw;
     const vh = camera.vh;
 
-    // Сетка A* — БАТЧИНГ
-    if (pathfinder) {
+    // Сетка A* — только если включена (G)
+    if (this.showGrid && pathfinder) {
       const cellSize = pathfinder.cellSize;
       const wTL = camera.screenToWorld(0, 0);
       const wBR = camera.screenToWorld(vw, vh);
@@ -109,7 +114,7 @@ class DebugClass {
     }
 
     if (unitManager) {
-      const drawHitboxes = unitManager.units.length <= 50;
+      const drawHitboxes = this.showHitboxes && unitManager.units.length <= 30;
       for (const unit of unitManager.units) {
         if (unit.isDead) continue;
         const p = camera.worldToScreen(unit.x, unit.y);
@@ -117,7 +122,7 @@ class DebugClass {
         if (drawHitboxes) {
           ctx.strokeStyle = 'rgba(0, 255, 0, 0.6)';
           ctx.lineWidth = 1;
-          for (const [partId, part] of Object.entries(unit.bodyParts)) {
+          for (const [, part] of Object.entries(unit.bodyParts)) {
             if (!part.hitbox || part.hp <= 0) continue;
             const scale = part.stanceScale[unit.stance] ?? 1;
             const cos = Math.cos(unit.angle), sin = Math.sin(unit.angle);
@@ -153,11 +158,11 @@ class DebugClass {
       }
     }
 
-    // Панель — сдвинута вниз, чтобы не перекрывать кнопки
+    // Панель
     const panelX = 10;
-    const panelY = 80; // ← было 10
-    const panelW = 260;
-    const panelH = 180;
+    const panelY = 80;
+    const panelW = 250;
+    const panelH = 200;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.strokeStyle = '#0f0';
@@ -166,8 +171,13 @@ class DebugClass {
     ctx.fillStyle = '#0f0';
     ctx.font = '11px monospace';
 
-    let y = panelY + 18;
-    const line = (s) => { ctx.fillText(s, panelX + 8, y); y += 14; };
+    let y = panelY + 16;
+    const line = (s, color) => {
+      if (color) ctx.fillStyle = color;
+      ctx.fillText(s, panelX + 8, y);
+      ctx.fillStyle = '#0f0';
+      y += 13;
+    };
 
     line(`FPS: ${this.fps}`);
     line(`Frame: ${this.frameTime.toFixed(2)}ms`);
@@ -178,6 +188,7 @@ class DebugClass {
     line(`Units: ${unitManager?.units?.length ?? 0}`);
     line(`Bullets: ${unitManager?.bullets?.length ?? 0}`);
     line(`Decals: ${unitManager?.decals?.length ?? 0}`);
+    line(`Grid: ${this.showGrid ? 'ON (G)' : 'OFF (G)'}`, this.showGrid ? '#F4B400' : '#8ab4f8');
 
     ctx.fillStyle = '#F4B400';
     line(`path calls: ${this._countersSnapshot.get('pathfinderCalls') || 0}/s`);
