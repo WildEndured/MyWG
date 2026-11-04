@@ -14,7 +14,7 @@ export class Bullet {
     this.woundingMult = opts.woundingMult ?? 1.0; this.overpenetration = opts.overpenetration ?? 0;
     this.stability = opts.stability ?? 0.9;
     this.mass = opts.mass ?? 0.005;
-    this.startZ = opts.startZ ?? 1.2; // НОВОЕ: высота пули
+    this.startZ = opts.startZ ?? 1.2;
     this.isTracer = !!opts.isTracer; this.owner = owner; this.isDead = false;
     this.life = 0; this.maxLife = 3.0; this.hasRicocheted = false;
   }
@@ -25,10 +25,8 @@ export class Bullet {
     this.life += dt;
     if (this.life > this.maxLife) { this.isDead = true; return; }
 
-    // Гравитация
     this.vy += CONFIG.BALLISTICS.GRAVITY * dt;
 
-    // Ветер
     const env = CONFIG.ENVIRONMENT;
     if (env.WIND_SPEED > 0) {
       const windRad = env.WIND_ANGLE * Math.PI / 180;
@@ -38,26 +36,22 @@ export class Bullet {
       this.vy += (windVy - this.vy * 0.01) * 0.02 * dt;
     }
 
-    // Плотность воздуха
     const tempK = 273.15 + env.TEMPERATURE;
     const densityRatio = (288.15 / tempK) * (1 - 0.0000226 * env.ALTITUDE);
     const airDensity = CONFIG.BALLISTICS.AIR_DENSITY_SEA_LEVEL * Math.max(0.1, densityRatio);
     const dragFactor = Math.exp(-this.drag * airDensity * dt);
     this.vx *= dragFactor; this.vy *= dragFactor;
 
-    // Кориолис
     const latRad = env.LATITUDE * Math.PI / 180;
     const coriolisAccel = 2 * CONFIG.BALLISTICS.CORIOLIS_OMEGA * Math.sin(latRad);
     this.vx += coriolisAccel * this.vy * dt * 0.01;
 
-    // Стабилизация
     if (this.stability < 0.9) {
       const wobble = (1 - this.stability) * 0.5;
       this.vx += (Math.random() - 0.5) * wobble * dt * 10;
       this.vy += (Math.random() - 0.5) * wobble * dt * 10;
     }
     
-    // Рикошет от пола
     const mapBottom = pathfinder?.worldSize || 1000;
     if (this.vy > 0 && this.y > mapBottom - 1) {
       const floorMat = env.FLOOR_MATERIAL || 'dirt';
@@ -80,12 +74,9 @@ export class Bullet {
 
     const nextX = this.x + this.vx * dt, nextY = this.y + this.vy * dt;
 
-    // НОВОЕ: Проверка рельефа (пуля врезается в холм)
     if (pathfinder && pathfinder.heightMap) {
       const terrainZ = pathfinder.getHeight(nextX, nextY);
-      // Упрощенная высота пули (снижается с дистанцией)
       const bulletZ = this.startZ - (this.traveled / this.maxFalloffDist) * 0.5;
-      
       if (bulletZ < terrainZ) {
         this.isDead = true;
         EventBus.emit(EVENTS.BULLET_IMPACT, { x: nextX, y: nextY, type: 'terrain' });
@@ -93,7 +84,6 @@ export class Bullet {
       }
     }
 
-    // Стены
     if (obstacles) {
       for (const obs of obstacles) {
         for (const seg of obs.segments) {
@@ -103,7 +93,12 @@ export class Bullet {
           const wallThickness = seg.w;
           const requiredBr = getRequiredBr(obs.materialId, wallThickness);
 
-          pathfinder.damageSegment(obs, nextX, nextY, this.baseDamage * (this.penetration / requiredBr));
+          // НОВОЕ: Деформация стали
+          if (obs.materialId === 'steel' && this.baseDamage > 30) {
+            pathfinder.damageSegment(obs, nextX, nextY, this.baseDamage * 0.5);
+          } else {
+            pathfinder.damageSegment(obs, nextX, nextY, this.baseDamage * (this.penetration / requiredBr));
+          }
           
           if (obs.matData.destructionType === 'shatter' || obs.matData.destructionType === 'chip') {
              EventBus.emit('debris:spawn', { x: nextX, y: nextY, count: 3, material: obs.materialId, owner: this.owner });
@@ -135,7 +130,6 @@ export class Bullet {
       }
     }
 
-    // Юниты
     for (const unit of allUnits) {
       if (!unit || unit.isDead) continue;
       if (this.owner && unit.faction === this.owner.faction) continue;
