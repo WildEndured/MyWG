@@ -23,7 +23,7 @@ export class Explosion {
       if (unit.isDead) continue;
       const dist = Math.hypot(unit.x - this.x, unit.y - this.y);
       if (dist > this.radius) continue;
-      if (!Physics.hasLineOfSight(this.x, this.y, unit.x, unit.y, obstacles)) continue;
+      if (!Physics.hasLineOfSight(this.x, this.y, unit.x, unit.y, obstacles, pathfinder)) continue;
 
       const distFactor = 1 - (dist / this.radius);
       const dmg = this.baseDamage * distFactor;
@@ -42,7 +42,7 @@ export class Explosion {
       }
     }
 
-    // 2. Разрушение стен (по сегментам)
+    // 2. Разрушение стен
     if (obstacles && pathfinder) {
       for (const obs of obstacles) {
         for (const seg of obs.segments) {
@@ -53,11 +53,29 @@ export class Explosion {
           const distFactor = 1 - (dist / this.radius);
           pathfinder.damageSegment(obs, seg.x + seg.w/2, seg.y + seg.h/2, this.baseDamage * distFactor * 2);
 
-          // Визуальные эффекты
           if (seg.state === 'rubble' || seg.state === 'breached') {
             EventBus.emit('debris:spawn', { x: seg.x + seg.w/2, y: seg.y + seg.h/2, count: 5, material: obs.materialId, owner: this.owner });
             EventBus.emit('dust:spawn', { x: seg.x + seg.w/2, y: seg.y + seg.h/2, radius: 4, duration: 4.0 });
           }
+        }
+      }
+    }
+
+    // 3. НОВОЕ: Воронка от взрыва
+    if (pathfinder && pathfinder.heightMap) {
+      const craterRadius = this.radius * 0.5;
+      const craterDepth = this.radius * 0.15;
+      pathfinder.createCrater(this.x, this.y, craterRadius, craterDepth);
+    }
+
+    // 4. НОВОЕ: Огонь от взрыва (если есть дерево рядом)
+    // Создаём огонь в радиусе 30% от взрыва
+    if (obstacles) {
+      for (const obs of obstacles) {
+        if (obs.materialId !== 'wood') continue;
+        const dist = Math.hypot(obs.x + obs.w/2 - this.x, obs.y + obs.h/2 - this.y);
+        if (dist < this.radius * 0.7) {
+          EventBus.emit('fire:spawn', { x: obs.x + obs.w/2, y: obs.y + obs.h/2, radius: 2, duration: 10.0 });
         }
       }
     }
