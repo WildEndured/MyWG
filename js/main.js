@@ -69,21 +69,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }); 
   }
 
+  // ИСПРАВЛЕНО: сначала загрузка, потом resize, потом fit
   function startBattle(teamId, modeId, mapSize = 100) {
     const team = TEAM_INFO[teamId], mode = MODE_INFO[modeId]; 
     if (!team || !mode) return;
     
-    // Полный сброс без потери подписок
+    // 1. Сброс
     unitManager.reset();
-    
-    gameStarted = true; 
+    gameStarted = true;
     currentMapSize = mapSize;
     
-    if (startScreen) startScreen.classList.add('hidden'); 
+    if (startScreen) startScreen.classList.add('hidden');
     if (hud) hud.classList.remove('hidden');
     
-    unitManager.playerFaction = team.player ? team.faction : null; 
-    unitManager.playerTeamId = team.id; 
+    unitManager.playerFaction = team.player ? team.faction : null;
+    unitManager.playerTeamId = team.id;
     unitManager.gameMode = mode.id;
     
     if (battleTeamEl) { battleTeamEl.textContent = team.name; battleTeamEl.className = team.id; } 
@@ -92,9 +92,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const missionId = mode.id === 'attack' ? 'capture_bridge' : 'defend_village';
     currentMission = new Mission(missionId, mapSize);
     
-    resize();
+    // 2. Загрузка миссии (она выставит map.size, pathfinder.size, camera.fit)
     currentMission.load(unitManager, map, camera);
-    camera.clampTo(mapSize, mapSize);
+    
+    // 3. Resize (только dpr, без clampTo)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    camera.setDpr(dpr);
+    
+    // 4. Принудительный fit и clamp
+    camera.fit(map.size, map.size);
+    camera.clampTo(map.size, map.size);
     
     lastTime = performance.now();
   }
@@ -122,9 +133,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  EventBus.on('mission:victory', (data) => { console.log('[Mission] VICTORY:', data.mission.name); showMissionEnd('ПОБЕДА!', '#0F9D58'); });
-  EventBus.on('mission:defeat', (data) => { console.log('[Mission] DEFEAT:', data.reason); showMissionEnd('ПОРАЖЕНИЕ', '#EA4335'); });
-  EventBus.on('mission:reinforcement', (data) => { console.log(`[Mission] Reinforcement: ${data.count} ${data.faction}`); });
+  EventBus.on('mission:victory', (data) => { showMissionEnd('ПОБЕДА!', '#0F9D58'); });
+  EventBus.on('mission:defeat', (data) => { showMissionEnd('ПОРАЖЕНИЕ', '#EA4335'); });
+  EventBus.on('mission:reinforcement', (data) => {});
 
   function showMissionEnd(text, color) {
     const endScreen = document.createElement('div');
@@ -264,7 +275,10 @@ document.addEventListener('DOMContentLoaded', () => {
           if (currentMission && currentMission.status === 'active') currentMission.update(dt, unitManager);
         } catch (err) { console.error('[Game] update error:', err); } 
       }
-      if (!Number.isFinite(camera.zoom) || !Number.isFinite(camera.x) || !Number.isFinite(camera.y)) camera.fit(map.size, map.size);
+      
+      // ЗАЩИТА КАМЕРЫ
+      camera.validate(map.size, map.size);
+      
       Debug.update(realDt);
 
       if (currentMission) {
