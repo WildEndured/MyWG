@@ -65,10 +65,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ================== АДАПТИВНЫЙ DPR ==================
   function getAdaptiveDpr() {
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
-    const nativeDpr = window.devicePixelRatio || 1;
+    const isMobile = (navigator.maxTouchPoints || 0) > 0
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
     if (isMobile) return 1;
-    return Math.min(nativeDpr, 2);
+    return Math.min(window.devicePixelRatio || 1, 2);
   }
 
   // ================== СТАРТОВЫЙ ЭКРАН ==================
@@ -146,6 +146,7 @@ document.addEventListener('DOMContentLoaded', () => {
     camera.clampTo(mapSize, mapSize);
 
     TimeManager.reset();
+    unitManager._renderLowQuality = false;
     lastTime = performance.now();
   }
 
@@ -185,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
     endScreen.innerHTML = `
       <div style="text-align: center;">
         <h1 style="color: ${color}; font-size: 64px; margin: 0; text-shadow: 0 0 20px ${color};">${text}</h1>
-        <p style="color: #fff; font-size: 18px; margin: 20px 0;">${currentMission ? currentMission.name : ''}</p>
+        <p style="color: #fff; font-size: 18px; margin: 0 20px;">${currentMission ? currentMission.name : ''}</p>
         <button id="btn-restart" style="padding: 15px 40px; font-size: 18px; font-weight: bold; background: #4285F4; color: #fff; border: none; border-radius: 8px; cursor: pointer; margin-top: 20px;">Начать заново</button>
       </div>
     `;
@@ -503,7 +504,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function frame(now) {
     let realDt = Math.max(0, (now - lastTime) / 1000);
     lastTime = now;
-    // Защита от прыжков (вкладка в фоне, лаг)
     if (realDt > 0.1) realDt = 0.1;
 
     if (gameStarted) {
@@ -545,6 +545,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const dpr = camera.dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Адаптивное качество: при низком FPS режем декали
+      if (Debug.fps > 0 && Debug.fps < 40) {
+        unitManager._renderLowQuality = true;
+      } else {
+        unitManager._renderLowQuality = false;
+      }
 
       Debug.start('draw');
       try {
