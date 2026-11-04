@@ -115,15 +115,15 @@ html, body {
 
 /* НИЖНЯЯ ПАНЕЛЬ */
 .hud-bottom {
-  bottom: 12px; 
+  bottom: 12px;
   bottom: calc(12px + env(safe-area-inset-bottom));
-  left: 50%; 
+  left: 50%;
   transform: translateX(-50%);
-  width: 95vw; 
-  justify-content: flex-start; /* Кнопки прижимаются влево для скролла */
-  overflow-x: auto; /* Разрешаем скролл вбок */
+  width: 95vw;
+  justify-content: flex-start;
+  overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none; 
+  scrollbar-width: none;
   touch-action: pan-x;
   padding-bottom: 5px;
 }
@@ -163,8 +163,8 @@ html, body {
 /* ================== ПАНЕЛЬ ЮНИТА ================== */
 .unit-panel {
   position: fixed;
-  /* Поднимаем панель выше, чтобы она не налезала на нижнюю панель кнопок */
-  bottom: calc(140px + env(safe-area-inset-bottom)); 
+  /* FIX: поднято выше, чтобы не наезжать на кнопки поз */
+  bottom: calc(200px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: 95vw;
@@ -213,7 +213,7 @@ html, body {
 
 /* ================== АДАПТИВ ================== */
 @media (min-width: 768px) {
-  .unit-panel { left: auto; right: 12px; transform: none; bottom: 140px; max-width: 320px; }
+  .unit-panel { left: auto; right: 12px; transform: none; bottom: 200px; max-width: 320px; }
 }
 
 @media (max-width: 500px) {
@@ -224,12 +224,14 @@ html, body {
   .screen-title { font-size: 24px; }
   .screen-options { gap: 6px; }
   .opt-btn { min-width: 90px; min-height: 44px; font-size: 12px; }
+  .unit-panel { bottom: calc(220px + env(safe-area-inset-bottom)); }
 }
 
 @media (max-width: 360px) {
   .hud-top-center { top: auto; bottom: calc(180px + env(safe-area-inset-bottom)); font-size: 10px; padding: 4px 8px; }
   .hud-btn { font-size: 11px; padding: 6px 8px; min-height: 40px; min-width: 40px; }
   .opt-btn { min-width: 80px; font-size: 11px; }
+  .unit-panel { bottom: calc(210px + env(safe-area-inset-bottom)); }
 }
 
 @media (max-height: 480px) and (orientation: landscape) {
@@ -252,4 +254,4 @@ html, body {
 @media (forced-colors: active) {
   .hud-btn, .opt-btn, .start-btn { border: 1px solid CanvasText; }
   .hud-btn.active, .opt-btn.selected { outline: 2px solid Highlight; }
-  }
+}
