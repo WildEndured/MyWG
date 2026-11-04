@@ -6,6 +6,9 @@ export const EVENTS = {
   UNIT_UNCONSCIOUS: 'unit:unconscious',
   UNIT_SHOOT: 'unit:shoot',
   BULLET_IMPACT: 'bullet:impact',
+  SHELL_EJECT: 'shell:eject',          // FIX: было не объявлено
+  EXPLOSION: 'explosion:global',        // FIX: было не объявлено
+  ZONE_CAPTURED: 'zone:captured',       // FIX: было не объявлено
   WORLD_NOISE: 'world:noise',
   TIME_CHANGED: 'time:changed',
   DEBUG_TOGGLED: 'debug:toggled',
@@ -15,6 +18,10 @@ class EventBusClass {
   constructor() { this.listeners = new Map(); }
 
   on(event, callback) {
+    if (typeof event !== 'string') {
+      console.warn('[EventBus] on() called with non-string event:', event);
+      return () => {};
+    }
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event).add(callback);
     return () => this.off(event, callback);
@@ -26,6 +33,7 @@ class EventBusClass {
   }
 
   off(event, callback) {
+    if (typeof event !== 'string') return;
     if (this.listeners.has(event)) this.listeners.get(event).delete(callback);
   }
 
@@ -35,6 +43,7 @@ class EventBusClass {
   }
 
   emit(event, data) {
+    if (typeof event !== 'string') return; // FIX: не эмитим undefined
     const set = this.listeners.get(event);
     if (!set) return;
     const callbacks = [...set];
