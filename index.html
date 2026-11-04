@@ -65,6 +65,13 @@
       <span id="battle-mode">—</span>
     </div>
 
+    <!-- ПАНЕЛЬ ЦЕЛИ МИССИИ -->
+    <div id="mission-panel" style="position: fixed; top: 60px; top: calc(60px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); background: rgba(20, 24, 30, 0.9); padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); font: 600 13px/1.4 monospace; color: #e8eaed; text-align: center; pointer-events: none; z-index: 11; min-width: 200px;">
+      <div id="mission-name" style="color: #8ab4f8; margin-bottom: 4px;">Захват моста</div>
+      <div id="mission-objective" style="color: #F4B400;">Захватить мост: 0/60 сек</div>
+      <div id="mission-timer" style="color: #9aa0a6; margin-top: 4px;">Осталось: 5:00</div>
+    </div>
+
     <!-- ПАНЕЛЬ ВЫБРАННОГО ЮНИТА -->
     <div id="unit-panel" class="unit-panel hidden">
       <div class="unit-panel-tabs">
@@ -114,7 +121,7 @@
       </div>
     </div>
 
-    <!-- Нижняя панель: Позы, Медицина, Взрывчатка -->
+    <!-- Нижняя панель: Позы, Медицина, Взрывчатка, Приказы -->
     <div class="hud-panel hud-bottom" role="toolbar" aria-label="Действия">
       <button class="hud-btn stance-btn active" id="btn-stand">Стоя</button>
       <button class="hud-btn stance-btn" id="btn-run">Бег</button>
@@ -130,8 +137,10 @@
       <button class="hud-btn" id="btn-clear-malfunction" style="border-color: #FF5500;">Устранить</button>
       <button class="hud-btn" id="btn-switch-weapon" style="border-color: #5096ff;">Сменить</button>
       
-      <!-- Ветер (опционально) -->
-      <button class="hud-btn" id="btn-wind" style="border-color: #8ab4f8; margin-left: 10px;">Ветер</button>
+      <!-- Приказы отряда -->
+      <button class="hud-btn" id="btn-order-advance" style="border-color: #0F9D58; margin-left: 10px;">Вперёд</button>
+      <button class="hud-btn" id="btn-order-hold" style="border-color: #F4B400;">Держать</button>
+      <button class="hud-btn" id="btn-order-retreat" style="border-color: #EA4335;">Отход</button>
     </div>
 
     <!-- Индикатор координат -->
