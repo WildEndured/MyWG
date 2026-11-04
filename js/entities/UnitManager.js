@@ -8,6 +8,7 @@ import { Explosion } from './Explosion.js';
 import { Debris } from './Debris.js';
 import { DustCloud } from './DustCloud.js';
 import { Fragment } from './Fragment.js';
+import { Squad } from './Squad.js';
 
 export class UnitManager {
   constructor() {
@@ -21,18 +22,16 @@ export class UnitManager {
     this.debris = [];
     this.dust = [];
     this.grenades = [];
-    this.fragments = []; // НОВОЕ: Осколки
-    this.tracerTrails = []; // НОВОЕ: Следы трассеров
+    this.fragments = [];
+    this.tracerTrails = [];
+    this.squads = []; // НОВОЕ: Отряды
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
       EventBus.on(EVENTS.UNIT_SHOOT, (data) => { 
-        // Создаем летящий трассер, а не просто линию
         this.tracerTrails.push({
           x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
-          life: CONFIG.TRACER.TRAIL_LENGTH,
-          maxLife: CONFIG.TRACER.TRAIL_LENGTH,
-          progress: 0 // 0..1 (летит от ствола к цели)
+          life: CONFIG.TRACER.TRAIL_LENGTH, maxLife: CONFIG.TRACER.TRAIL_LENGTH, progress: 0
         });
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
         this.shells.push({ x: data.x1 + (Math.random()-0.5)*0.5, y: data.y1 + (Math.random()-0.5)*0.5, life: 30.0 });
@@ -49,7 +48,7 @@ export class UnitManager {
       }),
       EventBus.on('dust:spawn', (data) => { this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration)); }),
       EventBus.on('explosion:created', (data) => { this.explosions.push(data.explosion); }),
-      EventBus.on('fragment:created', (data) => { this.fragments.push(data.fragment); }) // НОВОЕ
+      EventBus.on('fragment:created', (data) => { this.fragments.push(data.fragment); })
     ];
   }
 
@@ -58,12 +57,20 @@ export class UnitManager {
     this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; 
     this.flashes = []; this.decals = []; this.shells = []; 
     this.explosions = []; this.debris = []; this.dust = []; this.grenades = [];
-    this.fragments = []; this.tracerTrails = [];
+    this.fragments = []; this.tracerTrails = []; this.squads = [];
   }
   
   setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
   addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
+
+  // Создать отряд из массива юнитов
+  createSquad(units, faction) {
+    const squad = new Squad(units, faction);
+    for (const u of units) u.squad = squad;
+    this.squads.push(squad);
+    return squad;
+  }
 
   getSafeSpawnPoint(desiredX, desiredY) { const obs = this.pathfinder.obstacles; if (Physics.isPositionFree(desiredX, desiredY, 1.0, obs)) return { x: desiredX, y: desiredY }; return this.pathfinder.findNearestFreePoint(desiredX, desiredY); }
 
@@ -83,7 +90,12 @@ export class UnitManager {
     
     if (this.captureZone) this.captureZone.update(dt, this.units);
 
-    const worldState = { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units, zone: this.captureZone, unitManager: this };
+    // Обновляем отряды
+    for (const squad of this.squads) {
+      squad.update(dt, { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units });
+    }
+
+    const worldState = { time: this.currentTime, mapSize: this.mapSize, pathfinder: this.pathfinder, units: this.units, zone: this.captureZone, unitManager: this, squads: this.squads };
 
     for (const unit of this.units) {
       const result = unit.update(dt, this.units, this.currentTime, worldState);
@@ -110,52 +122,44 @@ export class UnitManager {
     this._resolveCollisions();
     for (let i = this.units.length - 1; i >= 0; i--) if (this.units[i].isDead) this.removeUnit(this.units[i]);
     
-    // Пули
     for (let i = this.bullets.length - 1; i >= 0; i--) { const b = this.bullets[i]; b.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (b.isDead) this.bullets.splice(i, 1); }
     
-    // Гранаты
     for (let i = this.grenades.length - 1; i >= 0; i--) {
       const g = this.grenades[i];
       g.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
       if (g.isDead) this.grenades.splice(i, 1);
     }
 
-    // Осколки
     for (let i = this.fragments.length - 1; i >= 0; i--) {
       const f = this.fragments[i];
       f.update(dt, this.units, this.pathfinder.obstacles);
       if (f.isDead) this.fragments.splice(i, 1);
     }
 
-    // Взрывы
     for (let i = this.explosions.length - 1; i >= 0; i--) {
       const ex = this.explosions[i];
       ex.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
       if (ex.isDead) this.explosions.splice(i, 1);
     }
 
-    // Обломки
     for (let i = this.debris.length - 1; i >= 0; i--) {
       const d = this.debris[i];
       d.update(dt, this.units, this.pathfinder.obstacles);
       if (d.isDead) this.debris.splice(i, 1);
     }
 
-    // Пыль
     for (let i = this.dust.length - 1; i >= 0; i--) {
       const d = this.dust[i];
       d.update(dt);
       if (d.isDead) this.dust.splice(i, 1);
     }
 
-    // Трассеры (летящие и следы)
     for (let i = this.tracerTrails.length - 1; i >= 0; i--) {
       const t = this.tracerTrails[i];
       t.life -= dt;
       if (t.life <= 0) this.tracerTrails.splice(i, 1);
       else {
-        // Трассер летит от ствола к цели
-        t.progress += dt * 10; // Скорость полета визуала
+        t.progress += dt * 10;
         if (t.progress > 1) t.progress = 1;
       }
     }
