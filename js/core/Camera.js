@@ -33,21 +33,32 @@ export class Camera {
     };
   }
 
+  // ИСПРАВЛЕНО: правильный clampTo
   clampTo(worldW, worldH) {
     if (!Number.isFinite(worldW) || !Number.isFinite(worldH) || worldW <= 0 || worldH <= 0) return;
     if (!Number.isFinite(this.x) || !Number.isFinite(this.y) || !Number.isFinite(this.zoom)) {
       this.x = worldW / 2; this.y = worldH / 2; this.zoom = 2;
       return;
     }
+    if (!Number.isFinite(this.zoom) || this.zoom < this.minZoom) this.zoom = this.minZoom;
+    if (this.zoom > this.maxZoom) this.zoom = this.maxZoom;
 
     const halfW = (this.vw / 2) / this.zoom;
     const halfH = (this.vh / 2) / this.zoom;
 
-    if (worldW * this.zoom < this.vw) this.x = worldW / 2;
-    else this.x = Math.max(halfW, Math.min(worldW - halfW, this.x));
+    // Если карта БОЛЬШЕ экрана — камера ограничена краями карты
+    if (worldW * this.zoom >= this.vw) {
+      this.x = Math.max(halfW, Math.min(worldW - halfW, this.x));
+    } else {
+      // Если карта МЕНЬШЕ экрана — камера в центре
+      this.x = worldW / 2;
+    }
 
-    if (worldH * this.zoom < this.vh) this.y = worldH / 2;
-    else this.y = Math.max(halfH, Math.min(worldH - halfH, this.y));
+    if (worldH * this.zoom >= this.vh) {
+      this.y = Math.max(halfH, Math.min(worldH - halfH, this.y));
+    } else {
+      this.y = worldH / 2;
+    }
   }
 
   zoomAt(sx, sy, factor) {
@@ -57,6 +68,7 @@ export class Camera {
     const after = this.screenToWorld(sx, sy);
     this.x += before.x - after.x;
     this.y += before.y - after.y;
+    // Не делаем clampTo здесь — пусть вызывающий решает
   }
 
   fit(worldW, worldH) {
@@ -75,12 +87,11 @@ export class Camera {
            screen.y >= -marginPx && screen.y <= this.vh + marginPx;
   }
 
-  // НОВОЕ: защита от "улёта"
-  validate(worldW, worldH) {
-    if (!Number.isFinite(this.zoom) || this.zoom < this.minZoom || this.zoom > this.maxZoom) {
-      this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom || 2));
-    }
-    if (!Number.isFinite(this.x) || this.x < 0 || this.x > worldW) this.x = worldW / 2;
-    if (!Number.isFinite(this.y) || this.y < 0 || this.y > worldH) this.y = worldH / 2;
+  // ИСПРАВЛЕНО: validate НЕ сбрасывает камеру в центр при выходе за границы
+  validate() {
+    if (!Number.isFinite(this.zoom) || this.zoom < this.minZoom) this.zoom = this.minZoom;
+    if (this.zoom > this.maxZoom) this.zoom = this.maxZoom;
+    if (!Number.isFinite(this.x)) this.x = 0;
+    if (!Number.isFinite(this.y)) this.y = 0;
   }
 }
