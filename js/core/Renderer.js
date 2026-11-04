@@ -4,7 +4,7 @@ export class Renderer {
   static draw(ctx, camera, map, unitManager) {
     const dpr = camera.dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     
-    map.draw(ctx); // Карта с высотами
+    map.draw(ctx);
     
     Renderer.drawDecals(ctx, camera, unitManager.decals);
     Renderer.drawShells(ctx, camera, unitManager.shells);
@@ -23,6 +23,7 @@ export class Renderer {
     Renderer.drawGrenades(ctx, camera, unitManager.grenades);
     Renderer.drawExplosions(ctx, camera, unitManager.explosions);
     Renderer.drawFragments(ctx, camera, unitManager.fragments);
+    Renderer.drawFires(ctx, camera, unitManager.fires); // НОВОЕ
     Renderer.drawDebris(ctx, camera, unitManager.debris);
     Renderer.drawDust(ctx, camera, unitManager.dust);
   }
@@ -127,18 +128,15 @@ export class Renderer {
       ctx.arc(screenPos.x, screenPos.y, ringR + 4, 0, Math.PI * 2); ctx.strokeStyle = '#F4B400'; ctx.lineWidth = 2; ctx.stroke();
     }
 
-    // НОВОЕ: Индикатор высоты
     if (!unit.isDead && unit.pathfinder && unit.pathfinder.heightMap) {
       const h = unit.pathfinder.getHeight(unit.x, unit.y);
       if (h > 0.5) {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'center';
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`▲${h.toFixed(1)}м`, screenPos.x, screenPos.y - 35);
       } else if (h < -0.5) {
         ctx.fillStyle = 'rgba(255, 200, 100, 0.9)';
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'center';
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`▼${Math.abs(h).toFixed(1)}м`, screenPos.x, screenPos.y - 35);
       }
     }
@@ -160,23 +158,14 @@ export class Renderer {
     for (const t of tracerTrails) {
       const p1 = camera.worldToScreen(t.x1, t.y1);
       const p2 = camera.worldToScreen(t.x2, t.y2);
-      
       const cx = p1.x + (p2.x - p1.x) * t.progress;
       const cy = p1.y + (p2.y - p1.y) * t.progress;
-      
       const trailAlpha = t.life / t.maxLife;
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(cx, cy);
-      ctx.strokeStyle = `rgba(255, 220, 80, ${trailAlpha * 0.5})`;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      
+      ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(cx, cy);
+      ctx.strokeStyle = `rgba(255, 220, 80, ${trailAlpha * 0.5})`; ctx.lineWidth = 1.5; ctx.stroke();
       if (t.progress < 1) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 200, ${trailAlpha})`;
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 200, ${trailAlpha})`; ctx.fill();
       }
     }
   }
@@ -185,8 +174,7 @@ export class Renderer {
     for (const b of bullets) {
       if (b.isDead || !camera.isPointVisible(b.x, b.y, 50)) continue;
       const p = camera.worldToScreen(b.x, b.y); 
-      ctx.beginPath(); 
-      ctx.arc(p.x, p.y, Math.max(1.2, 1.6 * (camera.zoom / 8)), 0, Math.PI * 2); 
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, 1.6 * (camera.zoom / 8)), 0, Math.PI * 2); 
       ctx.fillStyle = b.hasRicocheted ? '#FF00FF' : '#FFFF88'; 
       ctx.fill();
     }
@@ -197,10 +185,8 @@ export class Renderer {
     for (const f of fragments) {
       if (!camera.isPointVisible(f.x, f.y, 30)) continue;
       const p = camera.worldToScreen(f.x, f.y);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(1, 1.5 * camera.zoom / 8), 0, Math.PI * 2);
-      ctx.fillStyle = '#FF8800';
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, 1.5 * camera.zoom / 8), 0, Math.PI * 2);
+      ctx.fillStyle = '#FF8800'; ctx.fill();
     }
   }
 
@@ -214,17 +200,11 @@ export class Renderer {
       if (!camera.isPointVisible(g.x, g.y, 50)) continue;
       const p = camera.worldToScreen(g.x, g.y);
       const r = Math.max(2, 3 * camera.zoom / 8);
-      
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = g.hasExploded ? '#FF5500' : '#2A2A2A';
-      ctx.fill();
-      
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = g.hasExploded ? '#FF5500' : '#2A2A2A'; ctx.fill();
       if (g.fuseTimer < 1.0 && !g.hasExploded) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y - r * 2, r * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#FF0000';
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y - r * 2, r * 0.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#FF0000'; ctx.fill();
       }
     }
   }
@@ -236,11 +216,24 @@ export class Renderer {
       const p = camera.worldToScreen(ex.x, ex.y);
       const r = (ex.radius * camera.zoom) * (ex.life / ex.maxLife);
       const alpha = 1 - (ex.life / ex.maxLife);
-      
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 150, 0, ${alpha * 0.6})`; ctx.fill();
-      
       ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 255, 0, ${alpha * 0.8})`; ctx.fill();
+    }
+  }
+
+  // НОВОЕ: Отрисовка огня
+  static drawFires(ctx, camera, fires) {
+    if (!fires) return;
+    for (const f of fires) {
+      if (!camera.isPointVisible(f.x, f.y, f.radius * 2)) continue;
+      const p = camera.worldToScreen(f.x, f.y);
+      const r = f.radius * camera.zoom;
+      const alpha = 1 - (f.age / f.duration);
+      ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 100, 0, ${alpha * 0.6})`; ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.6, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 255, 0, ${alpha * 0.8})`; ctx.fill();
     }
   }
@@ -251,12 +244,11 @@ export class Renderer {
       if (!camera.isPointVisible(d.x, d.y, 50)) continue;
       const p = camera.worldToScreen(d.x, d.y);
       const size = d.size * camera.zoom;
-      
       let color = '#555';
       if (d.material === 'wood') color = '#8B5A2B';
       else if (d.material === 'brick') color = '#a55';
       else if (d.material === 'concrete') color = '#777';
-      
+      else if (d.material === 'ceramic') color = '#eee';
       ctx.fillStyle = color;
       ctx.fillRect(p.x - size/2, p.y - size/2, Math.max(1, size), Math.max(1, size));
     }
@@ -269,10 +261,8 @@ export class Renderer {
       const p = camera.worldToScreen(d.x, d.y);
       const r = d.radius * camera.zoom;
       const alpha = 1 - (d.life / d.maxLife);
-      
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(180, 180, 180, ${alpha * 0.5})`;
-      ctx.fill();
+      ctx.fillStyle = `rgba(180, 180, 180, ${alpha * 0.5})`; ctx.fill();
     }
   }
 }
