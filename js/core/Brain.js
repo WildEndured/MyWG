@@ -1,6 +1,5 @@
 import { CONFIG } from '../data/config.js';
 import { ROLES } from '../data/units.js';
-import { WEAPONS } from '../data/weapons.js';
 
 export class Brain {
   constructor(unit) {
@@ -10,13 +9,15 @@ export class Brain {
     this.decisionTimer = Math.random() * 0.5;
     this.currentGoal = 'idle';
     this.memory = { lastEnemyPos: null, lastEnemyTime: 0, dangerZones: [] };
-    this.ambushMode = false; // Режим засады
+    this.ambushMode = false;
+    this.suppressingTarget = null; // Для прикрытия
   }
 
   setPlayerOrder(path, target) {
     this.playerOverrideTimer = 10.0;
     this.unit.setPath(path); this.unit.lastTarget = target; this.currentGoal = 'move';
     this.ambushMode = false;
+    this.suppressingTarget = null;
   }
 
   registerDamage(fromX, fromY) {
@@ -68,17 +69,12 @@ export class Brain {
     }
     if (unit.isSurrendered) return;
 
-    // 2. Замена роли (подбор оружия)
-    if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0) {
-      if (this._tryPickupWeapon(world)) return;
-    }
-
-    // 3. Переключение оружия (если нет патронов)
+    // 2. Переключение оружия (если нет патронов)
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0 && unit.secondaryWeaponConfig && unit.activeWeaponId === 'rpg7') {
       unit.switchWeapon();
     }
 
-    // 4. Нет патронов — укрытие
+    // 3. Нет патронов — укрытие
     if (unit.weapon.ammo === 0 && unit.weapon.reserveMagazines === 0) {
       if (this.currentGoal !== 'no_ammo') {
         this.currentGoal = 'no_ammo';
@@ -87,7 +83,7 @@ export class Brain {
       return;
     }
 
-    // 5. Лечение
+    // 4. Лечение
     if (unit.bleedingRate > 0 && (unit.medical.bandage > 0 || unit.medical.tourniquet > 0)) {
       if (this.currentGoal !== 'heal') {
         this.currentGoal = 'heal';
@@ -98,7 +94,15 @@ export class Brain {
       return;
     }
 
-    // 6. ПРИКАЗЫ ОТРЯДА (если в отряде)
+    // 5. ДОКЛАД О ПОМОЩИ
+    if (unit.hp < unit.maxHp * 0.4 && unit.squad && unit.squad.leader !== unit) {
+      if (!this._helpReported) {
+        unit.squad.report(unit, 'need_help', { x: unit.x, y: unit.y });
+        this._helpReported = true;
+      }
+    }
+
+    // 6. ПРИКАЗЫ ОТРЯДА
     if (unit.squad && unit.squad.leader !== unit) {
       const order = unit.squad.getOrderFor(unit);
       if (order) {
@@ -107,7 +111,16 @@ export class Brain {
       }
     }
 
-    // 7. Отступление при низком HP
+    // 7. ПРИКРЫТИЕ (если пулеметчик)
+    if (unit.roleId === 'machine_gunner' && this.suppressingTarget) {
+      unit._wantsToMove = false; unit.setPath([]);
+      unit.target = this.suppressingTarget;
+      unit.targetAngle = Math.atan2(this.suppressingTarget.y - unit.y, this.suppressingTarget.x - unit.x);
+      unit.setStance('prone');
+      return;
+    }
+
+    // 8. Отступление при низком HP
     if (unit.hp < unit.maxHp * 0.3 && unit.target && this.currentGoal !== 'retreat') {
       const distToEnemy = Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y);
       if (distToEnemy > 5) {
@@ -117,7 +130,7 @@ export class Brain {
       }
     }
 
-    // 8. Укрытие при подавлении
+    // 9. Укрытие при подавлении
     if (unit.suppression > 0.4) {
       if (this.currentGoal !== 'cover') {
         this.currentGoal = 'cover';
@@ -128,12 +141,11 @@ export class Brain {
       return;
     }
 
-    // 9. Бой
+    // 10. Бой
     if (unit.target) {
       if (this.currentGoal !== 'engage') {
         this.currentGoal = 'engage';
         unit._wantsToMove = false; unit.setPath([]); 
-        // Если враг далеко — встаем, чтобы стрелять
         if (Math.hypot(unit.target.x - unit.x, unit.target.y - unit.y) > 30) unit.setStance('stand');
         else unit.setStance('crouch');
         this.ambushMode = false;
@@ -142,13 +154,13 @@ export class Brain {
       return;
     }
 
-    // 10. ЗАСАДА (если в укрытии и не видим врага)
+    // 11. ЗАСАДА С УКРЫТИЕМ
     if (this.ambushMode && !unit.isMoving) {
       unit.setStance('prone');
       return;
     }
 
-    // 11. РОЛЕВОЕ ПОВЕДЕНИЕ
+    // 12. РОЛЕВОЕ ПОВЕДЕНИЕ
     if (unit.roleId === 'machine_gunner') {
       if (this.currentGoal !== 'hold') {
         this.currentGoal = 'hold';
@@ -166,7 +178,7 @@ export class Brain {
       if (this._tryFollowGrenadier(world)) return;
     }
 
-    // 12. Шум
+    // 13. Шум
     if (unit.lastHeardNoise) {
       const timeSinceNoise = (performance.now() / 1000) - unit.lastHeardNoise.time / 1000;
       if (timeSinceNoise < 5 && this.currentGoal !== 'investigate') {
@@ -180,7 +192,7 @@ export class Brain {
       }
     }
 
-    // 13. Зона контроля
+    // 14. Зона контроля
     if (world.zone && world.zone.owner !== unit.faction) {
       const distToZone = Math.hypot(world.zone.x - unit.x, world.zone.y - unit.y);
       if (distToZone < 80 && distToZone > world.zone.radius - 2) {
@@ -194,7 +206,7 @@ export class Brain {
       }
     }
 
-    // 14. Охота
+    // 15. Охота
     if (this.memory.lastEnemyPos && (world.time - this.memory.lastEnemyTime) < 8.0) {
       if (this.currentGoal !== 'hunt') { 
         this.currentGoal = 'hunt'; 
@@ -206,7 +218,7 @@ export class Brain {
       return;
     }
 
-    // 15. Патруль
+    // 16. Патруль
     if (this.currentGoal !== 'patrol' || (!unit.isMoving && !unit._wantsToMove)) {
       this.currentGoal = 'patrol';
       const angle = Math.random() * Math.PI * 2; const dist = 10 + Math.random() * 20;
@@ -219,35 +231,6 @@ export class Brain {
     }
   }
 
-  _tryPickupWeapon(world) {
-    const unit = this.unit;
-    let bestWeapon = null;
-    let bestDist = 5; // Максимальная дистанция подбора
-
-    for (const other of world.units) {
-      if (other.isDead && other.weapon) {
-        const dist = Math.hypot(other.x - unit.x, other.y - unit.y);
-        if (dist < bestDist) {
-          // Проверяем, что оружие лучше текущего (или хотя бы есть патроны)
-          if (other.weapon.ammo > 0 || other.weapon.reserveMagazines > 0) {
-            bestDist = dist;
-            bestWeapon = other.weapon;
-          }
-        }
-      }
-    }
-
-    if (bestWeapon) {
-      // Идём к трупу
-      const path = world.pathfinder.findPath(unit.x, unit.y, bestWeapon.x, bestWeapon.y); // Где-то нужно хранить позицию трупа
-      if (path && path.length > 0) {
-        unit.setPath(path);
-        this.currentGoal = 'pickup_weapon';
-      }
-    }
-    return false; // Возвращаем false, чтобы продолжить обычную логику
-  }
-
   _executeSquadOrder(order, world) {
     const unit = this.unit;
 
@@ -257,6 +240,7 @@ export class Brain {
         this._seekCover(world);
         unit.setStance('run');
         this.ambushMode = false;
+        this.suppressingTarget = null;
       }
       return;
     }
@@ -266,6 +250,7 @@ export class Brain {
         this.currentGoal = 'hold';
         unit._wantsToMove = false; unit.setPath([]); unit.setStance('crouch');
         this.ambushMode = true;
+        this.suppressingTarget = null;
       }
       return;
     }
@@ -277,6 +262,7 @@ export class Brain {
         if (path && path.length > 0) unit.setPath(path);
         unit.setStance('crouch');
         this.ambushMode = false;
+        this.suppressingTarget = null;
       }
       return;
     }
@@ -285,6 +271,29 @@ export class Brain {
       if (!unit.target || unit.target !== order.target) {
         unit.target = order.target;
         unit.targetAngle = Math.atan2(order.target.y - unit.y, order.target.x - unit.x);
+      }
+      return;
+    }
+
+    // НОВОЕ: Приказ прикрытия
+    if (order.type === 'suppress' && order.target) {
+      this.suppressingTarget = order.target;
+      unit.target = order.target;
+      unit.targetAngle = Math.atan2(order.target.y - unit.y, order.target.x - unit.x);
+      unit.setStance('prone');
+      this.ambushMode = false;
+      return;
+    }
+
+    // НОВОЕ: Приказ подобрать оружие
+    if (order.type === 'pickup_weapon' && order.deadUnit) {
+      if (this.currentGoal !== 'pickup') {
+        this.currentGoal = 'pickup';
+        const path = world.pathfinder.findPath(unit.x, unit.y, order.deadUnit.x, order.deadUnit.y);
+        if (path && path.length > 0) unit.setPath(path);
+        unit.setStance('crouch');
+        this.ambushMode = false;
+        this.suppressingTarget = null;
       }
       return;
     }
