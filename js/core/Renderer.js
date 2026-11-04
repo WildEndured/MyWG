@@ -7,7 +7,9 @@ export class Renderer {
 
     map.draw(ctx);
 
-    Renderer.drawDecals(ctx, camera, unitManager.decals);
+    if (!unitManager._renderLowQuality) {
+      Renderer.drawDecals(ctx, camera, unitManager.decals);
+    }
     Renderer.drawShells(ctx, camera, unitManager.shells);
     Renderer.drawObstacles(ctx, camera, unitManager.pathfinder.obstacles);
 
@@ -31,7 +33,9 @@ export class Renderer {
     Renderer.drawFragments(ctx, camera, unitManager.fragments);
     Renderer.drawFires(ctx, camera, unitManager.fires);
     Renderer.drawDebris(ctx, camera, unitManager.debris);
-    Renderer.drawDust(ctx, camera, unitManager.dust);
+    if (!unitManager._renderLowQuality) {
+      Renderer.drawDust(ctx, camera, unitManager.dust);
+    }
   }
 
   static drawZone(ctx, camera, zone) {
@@ -50,8 +54,11 @@ export class Renderer {
   }
 
   static drawDecals(ctx, camera, decals) {
-    if (camera.zoom < 0.5) return; // FIX: мелкие пятна не рисуем на отдалении
-    for (const d of decals) {
+    if (camera.zoom < 0.5) return;
+    const maxDraw = 300;
+    const n = Math.min(decals.length, maxDraw);
+    for (let i = 0; i < n; i++) {
+      const d = decals[i];
       if (!camera.isPointVisible(d.x, d.y, 50)) continue;
       const p = camera.worldToScreen(d.x, d.y);
       const r = d.r * camera.zoom;
@@ -105,7 +112,7 @@ export class Renderer {
   static drawPaths(ctx, camera, selectedUnits) {
     for (const unit of selectedUnits) {
       if (unit.isDead || !unit.isMoving || unit.path.length === 0) continue;
-      // FIX: если весь путь за пределами экрана — не рисуем
+
       let anyVisible = false;
       const start = camera.worldToScreen(unit.x, unit.y);
       const startVisible = camera.isPointVisible(unit.x, unit.y, 200);
@@ -129,6 +136,8 @@ export class Renderer {
   }
 
   static drawUnit(ctx, camera, unit) {
+    if (!Number.isFinite(unit.x) || !Number.isFinite(unit.y)) return;
+
     const screenPos = camera.worldToScreen(unit.x, unit.y);
     const color = unit.isDead ? '#444' : (unit.faction === 'player' ? '#4285F4' : '#EA4335');
     let visualStance = unit.stance;
@@ -266,35 +275,27 @@ export class Renderer {
   static drawRockets(ctx, camera, explosions) {
     if (!explosions) return;
     for (const obj of explosions) {
-      // Ракета: имеет поле `dirX`, `speed`, нет `life/maxLife` в том же смысле
-      if (obj.config === undefined || !obj.dirX === undefined) {
-        if (obj.owner && obj.config && obj.owner.constructor && obj.constructor.name === 'Rocket') {
-          // не наш случай
-        }
-      }
-      if (obj.constructor && obj.constructor.name === 'Rocket') {
-        if (!camera.isPointVisible(obj.x, obj.y, 100)) continue;
-        const p = camera.worldToScreen(obj.x, obj.y);
-        const angle = Math.atan2(obj.dirY, obj.dirX);
-        // Дымный след
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, Math.max(2, 3 * camera.zoom / 8), 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(200, 200, 200, 0.4)';
-        ctx.fill();
-        // Корпус ракеты (треугольник)
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(angle);
-        const size = Math.max(4, 6 * camera.zoom / 8);
-        ctx.beginPath();
-        ctx.moveTo(size, 0);
-        ctx.lineTo(-size * 0.5, -size * 0.5);
-        ctx.lineTo(-size * 0.5, size * 0.5);
-        ctx.closePath();
-        ctx.fillStyle = '#FF8800';
-        ctx.fill();
-        ctx.restore();
-      }
+      // FIX: флаг isRocket вместо constructor.name (устойчиво к минификации)
+      if (!obj.isRocket) continue;
+      if (!camera.isPointVisible(obj.x, obj.y, 100)) continue;
+      const p = camera.worldToScreen(obj.x, obj.y);
+      const angle = Math.atan2(obj.dirY || 0, obj.dirX || 0);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(2, 3 * camera.zoom / 8), 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(200, 200, 200, 0.4)';
+      ctx.fill();
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(angle);
+      const size = Math.max(4, 6 * camera.zoom / 8);
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.5, -size * 0.5);
+      ctx.lineTo(-size * 0.5, size * 0.5);
+      ctx.closePath();
+      ctx.fillStyle = '#FF8800';
+      ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -335,8 +336,8 @@ export class Renderer {
   static drawExplosions(ctx, camera, explosions) {
     if (!explosions) return;
     for (const ex of explosions) {
-      // Пропускаем ракеты (у них нет maxLife / это отдельный класс)
-      if (!ex.maxLife || !Number.isFinite(ex.life)) continue;
+      // Пропускаем ракеты (у них нет maxLife)
+      if (!ex.maxLife || !Number.isFinite(ex.life) || !Number.isFinite(ex.radius)) continue;
       if (!camera.isPointVisible(ex.x, ex.y, ex.radius * 2)) continue;
       const p = camera.worldToScreen(ex.x, ex.y);
       const r = (ex.radius * camera.zoom) * (ex.life / ex.maxLife);
