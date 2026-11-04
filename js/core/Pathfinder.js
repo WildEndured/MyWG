@@ -10,7 +10,7 @@ export class Pathfinder {
     this.grid = new Uint8Array(this.cols * this.rows);
     this.obstacles = [];
     this.heightMap = new Float32Array(this.cols * this.rows);
-    this.floorMap = new Uint8Array(this.cols * this.rows); // НОВОЕ: этажи (0 = земля, 1 = 2 этаж)
+    this.floorMap = new Uint8Array(this.cols * this.rows);
   }
 
   setWorldSize(worldSize) {
@@ -56,13 +56,11 @@ export class Pathfinder {
   createCrater(worldX, worldY, radius, depth) {
     const g = this.worldToGrid(worldX, worldY);
     const rGrid = Math.ceil(radius / this.cellSize);
-    
     for (let dy = -rGrid; dy <= rGrid; dy++) {
       for (let dx = -rGrid; dx <= rGrid; dx++) {
         const nx = g.x + dx;
         const ny = g.y + dy;
         if (nx < 0 || nx >= this.cols || ny < 0 || ny >= this.rows) continue;
-        
         const dist = Math.hypot(dx * this.cellSize, dy * this.cellSize);
         if (dist < radius) {
           const factor = 1 - (dist / radius);
@@ -79,47 +77,31 @@ export class Pathfinder {
         const dx = gx - center, dy = gy - center;
         const dist = Math.sqrt(dx * dx + dy * dy);
         let height = 0;
-        if (dist < 20) height = (1 - dist / 20) * 3;
-        
-        const ox = gx - 50, oy = gy - 20;
-        if (Math.sqrt(ox * ox + oy * oy) < 10) height = Math.min(height, -1.5);
-        
-        const ex = gx - 80, ey = gy - 50;
-        if (Math.sqrt(ex * ex + ey * ey) < 15) height = Math.max(height, (1 - Math.sqrt(ex * ex + ey * ey) / 15) * 2);
-        
+        if (dist < this.cols * 0.2) height = (1 - dist / (this.cols * 0.2)) * 3;
         this.heightMap[gy * this.cols + gx] = Math.max(-2, Math.round(height * 10) / 10);
       }
     }
   }
 
-  // НОВОЕ: Многоуровневое здание (этажи)
   addMultiFloorBuilding(x, y, w, h, floors = 2) {
     for (let f = 0; f < floors; f++) {
       for (let sy = 0; sy < h; sy += 1) {
         for (let sx = 0; sx < w; sx += 1) {
           const isWall = (sx === 0 || sx === w - 1 || sy === 0 || sy === h - 1);
           if (isWall) {
-            // Стена (на каждом этаже)
-            const wx = x + sx;
-            const wy = y + sy;
-            this.setFloor(wx, wy, f);
-            this.setHeight(wx, wy, f * 3.0); // Каждый этаж +3 м
+            this.setFloor(x + sx, y + sy, f);
+            this.setHeight(x + sx, y + sy, f * 3.0);
           } else if (f === 0) {
-            // Пол первого этажа
             this.setFloor(x + sx, y + sy, 0);
           }
         }
       }
     }
-    // Лестница (внутри) — проходима на всех этажах
     const stairX = x + Math.floor(w / 2);
     const stairY = y + Math.floor(h / 2);
-    for (let f = 0; f < floors; f++) {
-      this.setFloor(stairX, stairY, f);
-    }
-    // Окна (дыры в стенах) на 2 этаже
+    for (let f = 0; f < floors; f++) this.setFloor(stairX, stairY, f);
     for (let sy = 1; sy < h - 1; sy += 2) {
-      this.setFloor(x, y + sy, 1); // Окно
+      this.setFloor(x, y + sy, 1);
       this.setFloor(x + w - 1, y + sy, 1);
     }
   }
@@ -132,20 +114,10 @@ export class Pathfinder {
       for (let sx = 0; sx < w; sx += segSize) {
         const sw = Math.min(segSize, w - sx);
         const sh = Math.min(segSize, h - sy);
-        segments.push({
-          x: x + sx, y: y + sy, w: sw, h: sh,
-          hp: 100, maxHp: 100,
-          state: 'intact',
-        });
+        segments.push({ x: x + sx, y: y + sy, w: sw, h: sh, hp: 100, maxHp: 100, state: 'intact' });
       }
     }
-
-    const obs = {
-      x, y, w, h, materialId, matData, segments,
-      state: 'intact',
-      height: matData.height || 2.0,
-      maxHeight: matData.height || 2.0,
-    };
+    const obs = { x, y, w, h, materialId, matData, segments, state: 'intact', height: matData.height || 2.0, maxHeight: matData.height || 2.0 };
     this.obstacles.push(obs);
     this._updateGrid();
   }
@@ -160,16 +132,13 @@ export class Pathfinder {
     if (!seg) return;
     seg.hp -= damage;
     if (seg.hp <= 0) seg.hp = 0;
-
     const ratio = seg.hp / seg.maxHp;
     if (ratio > 0.66) seg.state = 'intact';
     else if (ratio > 0.33) seg.state = 'damaged';
     else if (ratio > 0) seg.state = 'breached';
     else seg.state = 'rubble';
-
     const worst = obs.segments.reduce((min, s) => s.hp < min.hp ? s : min, obs.segments[0]);
     obs.state = worst.state;
-
     if (obs.matData.destructionType === 'collapse') {
       const avgHp = obs.segments.reduce((sum, s) => sum + s.hp, 0) / obs.segments.length / 100;
       obs.height = obs.maxHeight * avgHp;
@@ -284,13 +253,11 @@ export class Pathfinder {
         const nid = n.y * this.cols + n.x;
         if (this.grid[nid] === 1) continue;
         if (n.x !== cx && n.y !== cy) { if (this.grid[cy * this.cols + n.x] === 1 || this.grid[n.y * this.cols + cx] === 1) continue; }
-        
         const currentHeight = this.heightMap[currentId];
         const neighborHeight = this.heightMap[nid];
         let heightCost = 1.0;
         if (neighborHeight > currentHeight) heightCost = 1.5;
         else if (neighborHeight < currentHeight) heightCost = 0.8;
-
         const tG = (gScore.get(currentId) ?? Infinity) + n.cost * heightCost;
         if (tG < (gScore.get(nid) ?? Infinity)) {
           cameFrom.set(nid, currentId); gScore.set(nid, tG);
