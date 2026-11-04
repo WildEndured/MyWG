@@ -25,15 +25,12 @@ export class UnitManager {
     this.fragments = [];
     this.tracerTrails = [];
     this.squads = [];
-    this.fires = []; // НОВОЕ: Огонь
+    this.fires = [];
 
     this._unsubs = [
       EventBus.on(EVENTS.INPUT_TAP, this.handleTap.bind(this)), EventBus.on(EVENTS.INPUT_DOUBLE_TAP, this.handleDoubleTap.bind(this)),
       EventBus.on(EVENTS.UNIT_SHOOT, (data) => { 
-        this.tracerTrails.push({
-          x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2,
-          life: CONFIG.TRACER.TRAIL_LENGTH, maxLife: CONFIG.TRACER.TRAIL_LENGTH, progress: 0
-        });
+        this.tracerTrails.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, life: CONFIG.TRACER.TRAIL_LENGTH, maxLife: CONFIG.TRACER.TRAIL_LENGTH, progress: 0 });
         if (data.isMuzzleFlash) this.flashes.push({ x: data.x1, y: data.y1, life: 0.05 });
         this.shells.push({ x: data.x1 + (Math.random()-0.5)*0.5, y: data.y1 + (Math.random()-0.5)*0.5, life: 30.0 });
       }),
@@ -50,21 +47,42 @@ export class UnitManager {
       EventBus.on('dust:spawn', (data) => { this.dust.push(new DustCloud(data.x, data.y, data.radius, data.duration)); }),
       EventBus.on('explosion:created', (data) => { this.explosions.push(data.explosion); }),
       EventBus.on('fragment:created', (data) => { this.fragments.push(data.fragment); }),
-      EventBus.on('fire:spawn', (data) => {
-        this.fires.push({ x: data.x, y: data.y, radius: data.radius, duration: data.duration, age: 0 });
-      })
+      EventBus.on('fire:spawn', (data) => { this.fires.push({ x: data.x, y: data.y, radius: data.radius, duration: data.duration, age: 0 }); })
     ];
   }
 
   destroy() { 
     for (const unsub of this._unsubs) unsub(); 
-    this._unsubs = []; this.units = []; this.selectedUnits = []; this.bullets = []; 
-    this.flashes = []; this.decals = []; this.shells = []; 
-    this.explosions = []; this.debris = []; this.dust = []; this.grenades = [];
-    this.fragments = []; this.tracerTrails = []; this.squads = []; this.fires = [];
+    this._unsubs = []; 
+    this.reset();
+  }
+
+  reset() {
+    this.units = [];
+    this.selectedUnits = [];
+    this.squads = [];
+    this.bullets = [];
+    this.grenades = [];
+    this.fragments = [];
+    this.explosions = [];
+    this.debris = [];
+    this.dust = [];
+    this.decals = [];
+    this.shells = [];
+    this.tracers = [];
+    this.tracerTrails = [];
+    this.flashes = [];
+    this.fires = [];
+    this.currentTime = 0;
+    this.captureZone = null;
   }
   
-  setWorldSize(size) { this.mapSize = size; this.pathfinder.setWorldSize(size); }
+  setWorldSize(size) { 
+    this.mapSize = size; 
+    this.pathfinder.setWorldSize(size);
+    this.reset();
+  }
+
   addUnit(unit) { unit.pathfinder = this.pathfinder; this.units.push(unit); }
   removeUnit(unit) { const i = this.units.indexOf(unit); if (i >= 0) this.units.splice(i, 1); const j = this.selectedUnits.indexOf(unit); if (j >= 0) this.selectedUnits.splice(j, 1); }
 
@@ -108,51 +126,10 @@ export class UnitManager {
     return { x: desiredX, y: desiredY };
   }
 
-  _spawnTestObstacles(mapSize, enabled = true) { 
-    this.pathfinder.clearObstacles(); 
-    if (!enabled) return; 
-    this.pathfinder.generateTerrain();
-    
-    const c = mapSize / 2;
-    this.pathfinder.addObstacle(c - 15, c - 5, 10, 2, 'sandbags'); 
-    this.pathfinder.addObstacle(c + 15, c - 5, 10, 2, 'sandbags'); 
-
-    // Высокий холм на юге
-    for (let dy = -8; dy <= 8; dy++) {
-      for (let dx = -8; dx <= 8; dx++) {
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 8) {
-          const h = (1 - dist / 8) * 4;
-          const wx = c + dx;
-          const wy = mapSize - 25 + dy;
-          if (wx > 0 && wx < mapSize && wy > 0 && wy < mapSize) {
-            this.pathfinder.setHeight(wx, wy, Math.max(this.pathfinder.getHeight(wx, wy), h));
-          }
-        }
-      }
-    }
-    
-    // Глубокий окоп на западе
-    for (let dy = -6; dy <= 6; dy++) {
-      for (let dx = -6; dx <= 6; dx++) {
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 6) {
-          const h = -2 * (1 - dist / 6);
-          const wx = 25 + dx;
-          const wy = c + dy;
-          if (wx > 0 && wx < mapSize && wy > 0 && wy < mapSize) {
-            this.pathfinder.setHeight(wx, wy, Math.min(this.pathfinder.getHeight(wx, wy), h));
-          }
-        }
-      }
-    }
-  }
-
   isPlayerControllable(unit) { if (!unit || unit.isDead) return false; if (this.playerFaction === null) return false; return unit.faction === this.playerFaction; }
 
   update(dt) {
     this.currentTime += dt;
-    
     if (this.captureZone) this.captureZone.update(dt, this.units);
 
     for (const squad of this.squads) {
@@ -192,21 +169,14 @@ export class UnitManager {
       if (unit.brain && unit.brain.currentGoal === 'pickup') {
         let deadUnit = null;
         for (const other of this.units) {
-          if (other.isDead && other.weapon && Math.hypot(other.x - unit.x, other.y - unit.y) < 2.0) {
-            deadUnit = other; break;
-          }
+          if (other.isDead && other.weapon && Math.hypot(other.x - unit.x, other.y - unit.y) < 2.0) { deadUnit = other; break; }
         }
-        if (deadUnit) {
-          unit.pickupWeapon(deadUnit);
-          unit.brain.currentGoal = 'idle';
-        }
+        if (deadUnit) { unit.pickupWeapon(deadUnit); unit.brain.currentGoal = 'idle'; }
       }
 
       if (unit.squad && unit.squad.leader !== unit) {
         for (const [enemy, mem] of unit.perception) {
-          if (mem.seen > 0.8) {
-            unit.squad.report(unit, 'enemy_spotted', { enemy, x: enemy.x, y: enemy.y, time: this.currentTime });
-          }
+          if (mem.seen > 0.8) unit.squad.report(unit, 'enemy_spotted', { enemy, x: enemy.x, y: enemy.y, time: this.currentTime });
         }
       }
     }
@@ -214,57 +184,31 @@ export class UnitManager {
     for (let i = this.units.length - 1; i >= 0; i--) if (this.units[i].isDead) this.removeUnit(this.units[i]);
     
     for (let i = this.bullets.length - 1; i >= 0; i--) { const b = this.bullets[i]; b.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (b.isDead) this.bullets.splice(i, 1); }
-    
-    for (let i = this.grenades.length - 1; i >= 0; i--) {
-      const g = this.grenades[i];
-      g.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
-      if (g.isDead) this.grenades.splice(i, 1);
-    }
+    for (let i = this.grenades.length - 1; i >= 0; i--) { const g = this.grenades[i]; g.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (g.isDead) this.grenades.splice(i, 1); }
+    for (let i = this.fragments.length - 1; i >= 0; i--) { const f = this.fragments[i]; f.update(dt, this.units, this.pathfinder.obstacles); if (f.isDead) this.fragments.splice(i, 1); }
+    for (let i = this.explosions.length - 1; i >= 0; i--) { const ex = this.explosions[i]; ex.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder); if (ex.isDead) this.explosions.splice(i, 1); }
 
-    for (let i = this.fragments.length - 1; i >= 0; i--) {
-      const f = this.fragments[i];
-      f.update(dt, this.units, this.pathfinder.obstacles);
-      if (f.isDead) this.fragments.splice(i, 1);
-    }
-
-    for (let i = this.explosions.length - 1; i >= 0; i--) {
-      const ex = this.explosions[i];
-      ex.update(dt, this.units, this.pathfinder.obstacles, this.pathfinder);
-      if (ex.isDead) this.explosions.splice(i, 1);
-    }
-
-    // Огонь
     for (let i = this.fires.length - 1; i >= 0; i--) {
       const f = this.fires[i];
       f.age += dt;
       if (f.age >= f.duration) { this.fires.splice(i, 1); continue; }
-      
-      // Огонь наносит урон
       for (const unit of this.units) {
         if (unit.isDead) continue;
-        const dist = Math.hypot(unit.x - f.x, unit.y - f.y);
-        if (dist < f.radius) unit.takeDamage(5 * dt, 'torso', 0, null);
+        if (Math.hypot(unit.x - f.x, unit.y - f.y) < f.radius) unit.takeDamage(5 * dt, 'torso', 0, null);
       }
     }
 
-    for (let i = this.debris.length - 1; i >= 0; i--) {
-      const d = this.debris[i];
-      d.update(dt, this.units, this.pathfinder.obstacles);
-      if (d.isDead) this.debris.splice(i, 1);
-    }
+    for (let i = this.debris.length - 1; i >= 0; i--) { const d = this.debris[i]; d.update(dt, this.units, this.pathfinder.obstacles); if (d.isDead) this.debris.splice(i, 1); }
 
-    // Динамическая пыль (сдувается ветром)
     const env = CONFIG.ENVIRONMENT;
     for (let i = this.dust.length - 1; i >= 0; i--) {
       const d = this.dust[i];
       d.update(dt);
-      
       if (env.WIND_SPEED > 0) {
         const windRad = env.WIND_ANGLE * Math.PI / 180;
         d.x += Math.cos(windRad) * env.WIND_SPEED * dt * 0.5;
         d.y += Math.sin(windRad) * env.WIND_SPEED * dt * 0.5;
       }
-      
       if (d.isDead) this.dust.splice(i, 1);
     }
 
@@ -272,10 +216,7 @@ export class UnitManager {
       const t = this.tracerTrails[i];
       t.life -= dt;
       if (t.life <= 0) this.tracerTrails.splice(i, 1);
-      else {
-        t.progress += dt * 10;
-        if (t.progress > 1) t.progress = 1;
-      }
+      else { t.progress += dt * 10; if (t.progress > 1) t.progress = 1; }
     }
 
     for (let i = this.flashes.length - 1; i >= 0; i--) { this.flashes[i].life -= dt; if (this.flashes[i].life <= 0) this.flashes.splice(i, 1); }
