@@ -119,7 +119,6 @@ document.addEventListener('DOMContentLoaded', () => {
     camera.clampTo(map.size, map.size); 
   }
 
-  // Кнопки размера карты
   document.querySelectorAll('.hud-top-left button[data-size]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (!gameStarted) return;
@@ -274,7 +273,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { console.error('[Game] update error:', err); } 
       }
       
-      // ЗАЩИТА КАМЕРЫ (без аргументов — только проверка NaN/zoom)
       camera.validate();
       
       Debug.update(realDt);
