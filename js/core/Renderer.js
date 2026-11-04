@@ -23,7 +23,7 @@ export class Renderer {
     Renderer.drawGrenades(ctx, camera, unitManager.grenades);
     Renderer.drawExplosions(ctx, camera, unitManager.explosions);
     Renderer.drawFragments(ctx, camera, unitManager.fragments);
-    Renderer.drawFires(ctx, camera, unitManager.fires); // НОВОЕ
+    Renderer.drawFires(ctx, camera, unitManager.fires);
     Renderer.drawDebris(ctx, camera, unitManager.debris);
     Renderer.drawDust(ctx, camera, unitManager.dust);
   }
@@ -48,8 +48,7 @@ export class Renderer {
       const r = d.r * camera.zoom; 
       const fade = Math.min(1, Math.max(0, (d.ttl - d.age) / 3)); 
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1, r), 0, Math.PI * 2); 
-      ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`; 
-      ctx.fill(); 
+      ctx.fillStyle = `rgba(120, 10, 10, ${d.alpha * fade})`; ctx.fill(); 
     }
   }
 
@@ -131,14 +130,18 @@ export class Renderer {
     if (!unit.isDead && unit.pathfinder && unit.pathfinder.heightMap) {
       const h = unit.pathfinder.getHeight(unit.x, unit.y);
       if (h > 0.5) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`▲${h.toFixed(1)}м`, screenPos.x, screenPos.y - 35);
       } else if (h < -0.5) {
-        ctx.fillStyle = 'rgba(255, 200, 100, 0.9)';
-        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255, 200, 100, 0.9)'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
         ctx.fillText(`▼${Math.abs(h).toFixed(1)}м`, screenPos.x, screenPos.y - 35);
       }
+    }
+
+    // НОВОЕ: Индикатор этажа
+    if (!unit.isDead && unit.floor > 0) {
+      ctx.fillStyle = 'rgba(255, 200, 0, 0.9)'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`${unit.floor + 1} этаж`, screenPos.x, screenPos.y - 50);
     }
 
     if (!unit.isDead) {
@@ -163,10 +166,7 @@ export class Renderer {
       const trailAlpha = t.life / t.maxLife;
       ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(cx, cy);
       ctx.strokeStyle = `rgba(255, 220, 80, ${trailAlpha * 0.5})`; ctx.lineWidth = 1.5; ctx.stroke();
-      if (t.progress < 1) {
-        ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 200, ${trailAlpha})`; ctx.fill();
-      }
+      if (t.progress < 1) { ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, Math.PI * 2); ctx.fillStyle = `rgba(255, 255, 200, ${trailAlpha})`; ctx.fill(); }
     }
   }
 
@@ -175,8 +175,7 @@ export class Renderer {
       if (b.isDead || !camera.isPointVisible(b.x, b.y, 50)) continue;
       const p = camera.worldToScreen(b.x, b.y); 
       ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, 1.6 * (camera.zoom / 8)), 0, Math.PI * 2); 
-      ctx.fillStyle = b.hasRicocheted ? '#FF00FF' : '#FFFF88'; 
-      ctx.fill();
+      ctx.fillStyle = b.hasRicocheted ? '#FF00FF' : '#FFFF88'; ctx.fill();
     }
   }
 
@@ -202,10 +201,7 @@ export class Renderer {
       const r = Math.max(2, 3 * camera.zoom / 8);
       ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fillStyle = g.hasExploded ? '#FF5500' : '#2A2A2A'; ctx.fill();
-      if (g.fuseTimer < 1.0 && !g.hasExploded) {
-        ctx.beginPath(); ctx.arc(p.x, p.y - r * 2, r * 0.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#FF0000'; ctx.fill();
-      }
+      if (g.fuseTimer < 1.0 && !g.hasExploded) { ctx.beginPath(); ctx.arc(p.x, p.y - r * 2, r * 0.5, 0, Math.PI * 2); ctx.fillStyle = '#FF0000'; ctx.fill(); }
     }
   }
 
@@ -223,7 +219,6 @@ export class Renderer {
     }
   }
 
-  // НОВОЕ: Отрисовка огня
   static drawFires(ctx, camera, fires) {
     if (!fires) return;
     for (const f of fires) {
