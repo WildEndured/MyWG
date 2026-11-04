@@ -50,6 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const unitManager = new UnitManager();
   unitManager.camera = camera;
   
+  // НОВОЕ: Передаем pathfinder в камеру (для рендера высот)
+  camera.pathfinder = unitManager.pathfinder;
+  
   // Глобальная ссылка на CONFIG для миссий
   window.__CONFIG = CONFIG;
 
@@ -189,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
     lastTapWorld.y = data.y; 
   });
 
-  // Размер карты (для теста, отключаем в миссии)
+  // Размер карты
   const fitBtn = document.getElementById('fit'); 
   if (fitBtn) fitBtn.addEventListener('click', () => { 
     camera.fit(map.size, map.size); 
