@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   unitManager.camera = camera;
   camera.pathfinder = unitManager.pathfinder;
 
-  // Глобалки (для совместимости со старым кодом, если есть)
+  // Глобалки (для совместимости со старым кодом)
   window.__CONFIG = CONFIG;
   window.__TimeManager = TimeManager;
   window.__camera = camera;
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const missionId = mode.id === 'attack' ? 'capture_bridge' : 'defend_village';
     currentMission = new Mission(missionId, mapSize);
 
-    // 1. Загрузка миссии (сброс, pathfinder, карта, спавн)
+    // 1. Загрузка миссии
     currentMission.load(unitManager, map, camera);
 
     // 2. Resize
@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
     camera.fit(mapSize, mapSize);
     camera.clampTo(mapSize, mapSize);
 
-    // Сброс таймера времени
+    // Сброс таймера времени (включая accumulator)
     TimeManager.reset();
     lastTime = performance.now();
   }
@@ -499,21 +499,23 @@ document.addEventListener('DOMContentLoaded', () => {
     lastTime = now;
 
     if (gameStarted) {
-      let dt = TimeManager.getScaledDt(realDt);
-      dt = Math.min(dt, CONFIG.MAX_DT);
-
-      if (dt > 0) {
-        Debug.start('update');
-        try {
-          unitManager.update(dt);
+      // FIX (Шаг 4): фиксированный шаг 1/60 с аккумулятором.
+      // TimeManager.stepFixed сам решает, сколько подшагов сделать,
+      // и останавливается при паузе / тактической паузе.
+      Debug.start('update');
+      try {
+        const steps = TimeManager.stepFixed(realDt, (fixedDt) => {
+          unitManager.update(fixedDt);
           if (currentMission && currentMission.status === 'active') {
-            currentMission.update(dt, unitManager);
+            currentMission.update(fixedDt, unitManager);
           }
-        } catch (err) {
-          console.error('[Game] update error:', err);
-        }
-        Debug.end('update');
+        });
+        // Если 0 шагов — не ошибка, просто пауза
+        void steps;
+      } catch (err) {
+        console.error('[Game] update error:', err);
       }
+      Debug.end('update');
 
       // Защита камеры каждый кадр
       camera.validate();
